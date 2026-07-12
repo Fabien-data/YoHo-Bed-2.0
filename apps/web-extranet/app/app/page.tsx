@@ -48,8 +48,12 @@ function nextDay(d: string) {
   dt.setUTCDate(dt.getUTCDate() + 1);
   return dt.toISOString().slice(0, 10);
 }
-function money(v?: string) {
-  return v ? `$${Number(v).toFixed(2)}` : '—';
+/** Format a monetary amount as Sri Lankan Rupees (the platform's display currency). */
+function money(v?: string | number | null) {
+  if (v === undefined || v === null || v === '') return '—';
+  const n = typeof v === 'string' ? Number(v) : v;
+  if (Number.isNaN(n)) return '—';
+  return 'Rs ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function statusOf(day: AvailabilityDay): { tone: 'avail' | 'low' | 'closed'; label: string } {
   if (day.status === 'Close') return { tone: 'closed', label: 'Closed' };
@@ -81,7 +85,7 @@ export default function AppPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [propForm, setPropForm] = useState('');
   const [roomForm, setRoomForm] = useState({ name: '', quantity: 5 });
-  const [baseForm, setBaseForm] = useState(120);
+  const [baseForm, setBaseForm] = useState(18000);
   const [bookForm, setBookForm] = useState({ name: '', checkin: '2026-08-04', checkout: '2026-08-06' });
   const [showPropForm, setShowPropForm] = useState(false);
   const [showRoomForm, setShowRoomForm] = useState(false);
@@ -251,7 +255,7 @@ export default function AppPage() {
       if (roomId) await loadRoomData(roomId);
       setMsg({
         tone: 'avail',
-        text: `Base $${baseForm.toFixed(2)} → selling $${res.selling.toFixed(2)} (commission $${res.commission.toFixed(2)}) across 14 days.`,
+        text: `Base ${money(baseForm)} → selling ${money(res.selling)} (commission ${money(res.commission)}) across 14 days.`,
       });
     } catch (e) {
       setMsg({ tone: 'closed', text: e instanceof ApiError ? e.message : 'Something went wrong' });
@@ -276,7 +280,7 @@ export default function AppPage() {
       setShowBookForm(false);
       setBookForm((f) => ({ ...f, name: '' }));
       await Promise.all([loadBookings(), loadRoomData(roomId)]);
-      setMsg({ tone: 'avail', text: `Booked ${b.reference} — $${Number(b.amount).toFixed(2)}.` });
+      setMsg({ tone: 'avail', text: `Booked ${b.reference} — ${money(b.amount)}.` });
     } catch (err) {
       setMsg({
         tone: 'closed',
@@ -437,7 +441,7 @@ export default function AppPage() {
           <div className="mt-5 flex flex-wrap items-end gap-2 rounded-xl border border-line bg-surface-2 p-3">
             <div className="w-40">
               <Field
-                label="Base price (per night)"
+                label="Base price (Rs / night)"
                 type="number"
                 min={1}
                 value={baseForm}
@@ -614,7 +618,7 @@ export default function AppPage() {
                       <Pill tone={bookingTone(b.status)}>{b.status}</Pill>
                     </td>
                     <td className="px-4 py-2 text-right font-mono font-semibold">
-                      ${Number(b.amount).toFixed(2)}
+                      {money(b.amount)}
                     </td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex justify-end gap-1">
@@ -657,7 +661,7 @@ export default function AppPage() {
               Revenue · approved
             </div>
             <div className="mt-1 text-2xl font-extrabold text-ink">
-              ${revenue ? revenue.approvedGross.toFixed(2) : '0.00'}
+              {money(revenue ? revenue.approvedGross : 0)}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {revenue &&
@@ -675,22 +679,22 @@ export default function AppPage() {
             {payout && payout.bookingCount > 0 ? (
               <>
                 <div className="mt-1 text-2xl font-extrabold text-ink">
-                  ${payout.netPayable.toFixed(2)}{' '}
+                  {money(payout.netPayable)}{' '}
                   <span className="text-sm font-semibold text-ink-3">net payable</span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-sm">
                   <span className="text-ink-3">Gross selling</span>
-                  <span className="text-right">${payout.grossSelling.toFixed(2)}</span>
+                  <span className="text-right">{money(payout.grossSelling)}</span>
                   <span className="text-ink-3">Property base</span>
-                  <span className="text-right">${payout.propertyBase.toFixed(2)}</span>
+                  <span className="text-right">{money(payout.propertyBase)}</span>
                   <span className="text-ink-3">Yoho commission</span>
-                  <span className="text-right">${payout.yohoCommission.toFixed(2)}</span>
+                  <span className="text-right">{money(payout.yohoCommission)}</span>
                   <span className="text-ink-3">OTA commission</span>
-                  <span className="text-right">${payout.otaCommission.toFixed(2)}</span>
+                  <span className="text-right">{money(payout.otaCommission)}</span>
                 </div>
                 <div className="mt-2 text-xs" style={{ color: 'var(--avail-ink)' }}>
-                  ✓ base + yoho + ota = $
-                  {(payout.propertyBase + payout.yohoCommission + payout.otaCommission).toFixed(2)}{' '}
+                  ✓ base + yoho + ota ={' '}
+                  {money(payout.propertyBase + payout.yohoCommission + payout.otaCommission)}{' '}
                   reconciles to gross
                 </div>
               </>

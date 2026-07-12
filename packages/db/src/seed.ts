@@ -141,7 +141,7 @@ try {
   await db.delete(rateCalendar).where(eq(rateCalendar.occupancyId, occ!.id));
   await db.insert(rateCalendar).values(
     dateRange(START, 14).map((date) => {
-      const base = isWeekend(date) ? 150 : 120;
+      const base = isWeekend(date) ? 25000 : 18000; // realistic LKR nightly base
       const priced = priceDay(base, structure, 18);
       return {
         tenantId,
