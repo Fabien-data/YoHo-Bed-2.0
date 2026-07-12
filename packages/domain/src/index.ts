@@ -12,3 +12,4 @@ export * from './rounding';
 export * from './commission';
 export * from './tax';
 export * from './pricing';
+export * from './finance';

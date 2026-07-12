@@ -204,3 +204,37 @@ export function bookingTransition(
     body: action === 'reject' ? JSON.stringify({}) : undefined,
   });
 }
+
+export interface PayoutStatement {
+  propertyId: string;
+  from: string;
+  to: string;
+  bookingCount: number;
+  grossSelling: number;
+  propertyBase: number;
+  yohoCommission: number;
+  otaCommission: number;
+  netPayable: number;
+}
+
+export function getPayoutStatement(
+  propertyId: string,
+  from: string,
+  to: string,
+): Promise<PayoutStatement> {
+  return apiFetch<PayoutStatement>(
+    `/finance/payout-statement?propertyId=${propertyId}&from=${from}&to=${to}`,
+  );
+}
+
+export interface Revenue {
+  from: string;
+  to: string;
+  byStatus: Record<string, { count: number; gross: number }>;
+  approvedGross: number;
+  totalBookings: number;
+}
+
+export function getRevenue(from: string, to: string): Promise<Revenue> {
+  return apiFetch<Revenue>(`/finance/revenue?from=${from}&to=${to}`);
+}

@@ -8,6 +8,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { RatesModule } from './rates/rates.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { DistributionModule } from './distribution/distribution.module';
+import { FinanceModule } from './finance/finance.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -20,6 +21,7 @@ import { HealthController } from './health/health.controller';
     RatesModule,
     BookingsModule,
     DistributionModule,
+    FinanceModule,
   ],
   controllers: [HealthController],
 })

@@ -43,6 +43,13 @@
       "when": 1783834280421,
       "tag": "0005_tired_sharon_carter",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783837269567,
+      "tag": "0006_sticky_venus",
+      "breakpoints": true
     }
   ]
 }

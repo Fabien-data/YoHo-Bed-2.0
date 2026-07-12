@@ -19,9 +19,13 @@ import {
   listBookings,
   createBooking,
   bookingTransition,
+  getPayoutStatement,
+  getRevenue,
   ApiError,
   type AvailabilityDay,
   type Booking,
+  type PayoutStatement,
+  type Revenue,
   type Property,
   type Room,
   type SessionUser,
@@ -30,6 +34,8 @@ import { Button, Card, Field, Logo, Pill } from '@/components/ui';
 
 const FROM = '2026-08-01';
 const TO = '2026-08-14';
+const FIN_FROM = '2026-08-01';
+const FIN_TO = '2026-08-31';
 
 function dow(d: string) {
   return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
@@ -82,8 +88,20 @@ export default function AppPage() {
   const [showBookForm, setShowBookForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [payout, setPayout] = useState<PayoutStatement | null>(null);
+  const [revenue, setRevenue] = useState<Revenue | null>(null);
+
   const loadBookings = useCallback(async () => {
     setBookings(await listBookings().catch(() => []));
+  }, []);
+
+  const loadFinance = useCallback(async (pid: string | null) => {
+    const [rev, pay] = await Promise.all([
+      getRevenue(FIN_FROM, FIN_TO).catch(() => null),
+      pid ? getPayoutStatement(pid, FIN_FROM, FIN_TO).catch(() => null) : Promise.resolve(null),
+    ]);
+    setRevenue(rev);
+    setPayout(pay);
   }, []);
 
   const propertyRooms = useMemo(
@@ -119,6 +137,7 @@ export default function AppPage() {
         setRoomId(firstRoom?.id ?? null);
         if (firstRoom) await loadRoomData(firstRoom.id);
         await loadBookings();
+        await loadFinance(pid);
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           clearSession();
@@ -126,7 +145,7 @@ export default function AppPage() {
         }
       }
     })();
-  }, [router, loadRoomData, loadBookings]);
+  }, [router, loadRoomData, loadBookings, loadFinance]);
 
   async function selectProperty(pid: string) {
     setPropertyId(pid);
@@ -141,6 +160,7 @@ export default function AppPage() {
       setPrices({});
       setOccupancyId(null);
     }
+    await loadFinance(pid);
   }
 
   async function selectRoom(id: string) {
@@ -277,7 +297,11 @@ export default function AppPage() {
     setMsg(null);
     try {
       await bookingTransition(id, action);
-      await Promise.all([loadBookings(), roomId ? loadRoomData(roomId) : Promise.resolve()]);
+      await Promise.all([
+        loadBookings(),
+        loadFinance(propertyId),
+        roomId ? loadRoomData(roomId) : Promise.resolve(),
+      ]);
     } catch (err) {
       setMsg({ tone: 'closed', text: err instanceof ApiError ? err.message : 'Something went wrong' });
     } finally {
@@ -621,6 +645,60 @@ export default function AppPage() {
             </table>
           )}
         </Card>
+
+        {/* Finance */}
+        <div className="mt-8 mb-3 flex items-center gap-3">
+          <h2 className="text-lg font-bold tracking-tight text-ink">Finance</h2>
+          <span className="font-mono text-xs text-ink-3">Aug 2026</span>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card className="p-4">
+            <div className="font-mono text-[0.62rem] uppercase tracking-widest text-ink-3">
+              Revenue · approved
+            </div>
+            <div className="mt-1 text-2xl font-extrabold text-ink">
+              ${revenue ? revenue.approvedGross.toFixed(2) : '0.00'}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {revenue &&
+                Object.entries(revenue.byStatus).map(([st, v]) => (
+                  <Pill key={st} tone={st === 'Approved' ? 'avail' : st === 'Pending' ? 'low' : 'muted'}>
+                    {st} · {v.count}
+                  </Pill>
+                ))}
+            </div>
+          </Card>
+          <Card className="p-4">
+            <div className="font-mono text-[0.62rem] uppercase tracking-widest text-ink-3">
+              Payout statement · this property
+            </div>
+            {payout && payout.bookingCount > 0 ? (
+              <>
+                <div className="mt-1 text-2xl font-extrabold text-ink">
+                  ${payout.netPayable.toFixed(2)}{' '}
+                  <span className="text-sm font-semibold text-ink-3">net payable</span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-sm">
+                  <span className="text-ink-3">Gross selling</span>
+                  <span className="text-right">${payout.grossSelling.toFixed(2)}</span>
+                  <span className="text-ink-3">Property base</span>
+                  <span className="text-right">${payout.propertyBase.toFixed(2)}</span>
+                  <span className="text-ink-3">Yoho commission</span>
+                  <span className="text-right">${payout.yohoCommission.toFixed(2)}</span>
+                  <span className="text-ink-3">OTA commission</span>
+                  <span className="text-right">${payout.otaCommission.toFixed(2)}</span>
+                </div>
+                <div className="mt-2 text-xs" style={{ color: 'var(--avail-ink)' }}>
+                  ✓ base + yoho + ota = $
+                  {(payout.propertyBase + payout.yohoCommission + payout.otaCommission).toFixed(2)}{' '}
+                  reconciles to gross
+                </div>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-ink-3">No approved bookings in this period.</p>
+            )}
+          </Card>
+        </div>
       </main>
     </div>
   );

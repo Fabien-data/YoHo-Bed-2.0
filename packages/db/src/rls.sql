@@ -85,6 +85,30 @@ CREATE POLICY tenant_isolation ON booking_approvals
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON payments;
+CREATE POLICY tenant_isolation ON payments
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON invoices;
+CREATE POLICY tenant_isolation ON invoices
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE invoice_lines ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON invoice_lines;
+CREATE POLICY tenant_isolation ON invoice_lines
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE payouts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON payouts;
+CREATE POLICY tenant_isolation ON payouts
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 ALTER TABLE availability_calendar ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON availability_calendar;
 CREATE POLICY tenant_isolation ON availability_calendar
