@@ -8,6 +8,7 @@ import {
   occupancies,
   rateCalendar,
   rateCodes,
+  enqueueOutbox,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { dateRangeInclusive } from '../common/dates';
@@ -84,6 +85,14 @@ export class RatesService {
             set: { ...values, updatedAt: sql`now()` },
           });
       }
+      // Transactional outbox: schedule a channel-manager rate push atomically with the change.
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'rate',
+        aggregateId: occupancyId,
+        eventType: 'ari.rate',
+        payload: { occupancyId, from, to, base },
+      });
       return { updated: dates.length, base, selling: priced.selling, commission: priced.commission };
     });
   }

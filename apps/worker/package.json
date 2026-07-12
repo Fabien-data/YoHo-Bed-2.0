@@ -1,0 +1,22 @@
+{
+  "name": "@yohobed/worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "YoHoBed background worker — drains the transactional outbox to the channel manager.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@yohobed/cm-adapter": "workspace:*",
+    "@yohobed/db": "workspace:*",
+    "bullmq": "^5.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

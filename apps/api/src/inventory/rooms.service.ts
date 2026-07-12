@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
-import { properties, rooms, roomtypes, availabilityCalendar } from '@yohobed/db';
+import { properties, rooms, roomtypes, availabilityCalendar, enqueueOutbox } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { dateRangeInclusive } from '../common/dates';
 import type { CreateRoomDto, OpenAvailabilityDto, RoomtypeDto, UpdateRoomDto } from './dto';
@@ -105,6 +105,13 @@ export class RoomsService {
             },
           });
       }
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'availability',
+        aggregateId: roomId,
+        eventType: 'ari.availability',
+        payload: { roomId, from: dto.from, to: dto.to, action: 'open' },
+      });
       return { opened: dates.length, from: dto.from, to: dto.to, roomsToSell };
     });
   }

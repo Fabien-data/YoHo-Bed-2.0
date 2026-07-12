@@ -4,6 +4,7 @@ import {
   availabilityCalendar,
   reserveStay,
   releaseStay,
+  enqueueOutbox,
   InsufficientAvailabilityError,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
@@ -26,7 +27,16 @@ export class InventoryService {
   async reserve(tenantId: string, roomId: string, checkin: string, checkout: string, rooms: number) {
     const nights = eachNight(checkin, checkout);
     try {
-      await this.dbs.withTenant(tenantId, (tx) => reserveStay(tx, roomId, nights, rooms));
+      await this.dbs.withTenant(tenantId, async (tx) => {
+        await reserveStay(tx, roomId, nights, rooms);
+        await enqueueOutbox(tx, {
+          tenantId,
+          aggregate: 'availability',
+          aggregateId: roomId,
+          eventType: 'ari.availability',
+          payload: { roomId, nights, rooms, action: 'reserve' },
+        });
+      });
       return { reserved: true, roomId, checkin, checkout, rooms, nights };
     } catch (err) {
       if (err instanceof InsufficientAvailabilityError) {
@@ -42,7 +52,16 @@ export class InventoryService {
 
   async release(tenantId: string, roomId: string, checkin: string, checkout: string, rooms: number) {
     const nights = eachNight(checkin, checkout);
-    await this.dbs.withTenant(tenantId, (tx) => releaseStay(tx, roomId, nights, rooms));
+    await this.dbs.withTenant(tenantId, async (tx) => {
+      await releaseStay(tx, roomId, nights, rooms);
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'availability',
+        aggregateId: roomId,
+        eventType: 'ari.availability',
+        payload: { roomId, nights, rooms, action: 'release' },
+      });
+    });
     return { released: true, roomId, checkin, checkout, rooms, nights };
   }
 }
