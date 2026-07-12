@@ -1,0 +1,231 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import {
+  bookings,
+  bookingDays,
+  bookingApprovals,
+  customers,
+  occupancies,
+  ratePlans,
+  rooms,
+  rateCalendar,
+  reserveStay,
+  releaseStay,
+  InsufficientAvailabilityError,
+  nextBookingReference,
+} from '@yohobed/db';
+import { DatabaseService } from '../database/database.service';
+import { eachNight } from '../common/dates';
+import type { CreateBookingDto } from './dto';
+
+type Transition = 'approve' | 'reject' | 'cancel' | 'no_show';
+
+@Injectable()
+export class BookingService {
+  constructor(private readonly dbs: DatabaseService) {}
+
+  list(tenantId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select({
+          id: bookings.id,
+          reference: bookings.reference,
+          status: bookings.status,
+          source: bookings.source,
+          checkin: bookings.checkin,
+          checkout: bookings.checkout,
+          nights: bookings.nights,
+          rooms: bookings.rooms,
+          amount: bookings.amount,
+          roomId: bookings.roomId,
+          customerName: customers.name,
+        })
+        .from(bookings)
+        .innerJoin(customers, eq(customers.id, bookings.customerId))
+        .orderBy(desc(bookings.createdAt)),
+    );
+  }
+
+  get(tenantId: string, id: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [booking] = await tx.select().from(bookings).where(eq(bookings.id, id));
+      if (!booking) throw new NotFoundException('Booking not found');
+      const days = await tx
+        .select()
+        .from(bookingDays)
+        .where(eq(bookingDays.bookingId, id))
+        .orderBy(bookingDays.date);
+      const trail = await tx
+        .select()
+        .from(bookingApprovals)
+        .where(eq(bookingApprovals.bookingId, id))
+        .orderBy(bookingApprovals.createdAt);
+      return { ...booking, days, trail };
+    });
+  }
+
+  createWalkIn(tenantId: string, dto: CreateBookingDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      // BUG #2: price on the EXPLICIT occupancy key, and verify it belongs to the room.
+      const [occ] = await tx
+        .select({ propertyId: rooms.propertyId, roomId: ratePlans.roomId })
+        .from(occupancies)
+        .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
+        .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
+        .where(eq(occupancies.id, dto.occupancyId));
+      if (!occ) throw new NotFoundException('Occupancy not found');
+      if (occ.roomId !== dto.roomId) {
+        throw new BadRequestException('Occupancy does not belong to this room');
+      }
+
+      const nights = eachNight(dto.checkin, dto.checkout);
+
+      // Price snapshot for the correct occupancy.
+      const priceRows = await tx
+        .select()
+        .from(rateCalendar)
+        .where(and(eq(rateCalendar.occupancyId, dto.occupancyId), inArray(rateCalendar.date, nights)));
+      if (priceRows.length !== nights.length) {
+        throw new BadRequestException('Prices are not set for all nights of this stay');
+      }
+      const byDate = new Map(priceRows.map((r) => [r.date, r]));
+
+      let amount = 0;
+      let totalBase = 0;
+      for (const d of nights) {
+        const p = byDate.get(d)!;
+        amount += Number(p.sellingPrice) * dto.rooms;
+        totalBase += Number(p.basePrice) * dto.rooms;
+      }
+
+      // Reserve inventory atomically (BUG #1).
+      try {
+        await reserveStay(tx, dto.roomId, nights, dto.rooms);
+      } catch (e) {
+        if (e instanceof InsufficientAvailabilityError) {
+          throw new ConflictException({ reason: 'insufficient_availability', date: e.date });
+        }
+        throw e;
+      }
+
+      // Customer (reuse by email, else create).
+      let customerId: string | undefined;
+      if (dto.customerEmail) {
+        const [c] = await tx.select().from(customers).where(eq(customers.email, dto.customerEmail));
+        customerId = c?.id;
+      }
+      if (!customerId) {
+        const [c] = await tx
+          .insert(customers)
+          .values({
+            tenantId,
+            name: dto.customerName,
+            email: dto.customerEmail ?? null,
+            phone: dto.customerPhone ?? null,
+          })
+          .returning();
+        customerId = c!.id;
+      }
+
+      // Safe reference (BUG #4).
+      const today = new Date().toISOString().slice(0, 10);
+      const reference = await nextBookingReference(tx, today);
+
+      const [booking] = await tx
+        .insert(bookings)
+        .values({
+          tenantId,
+          propertyId: occ.propertyId,
+          roomId: dto.roomId,
+          occupancyId: dto.occupancyId,
+          customerId,
+          reference,
+          checkin: dto.checkin,
+          checkout: dto.checkout,
+          nights: nights.length,
+          rooms: dto.rooms,
+          status: 'Pending',
+          source: 'Extranet',
+          amount: amount.toFixed(2),
+          totalBasePrice: totalBase.toFixed(2),
+        })
+        .returning();
+
+      await tx.insert(bookingDays).values(
+        nights.map((d) => {
+          const p = byDate.get(d)!;
+          return {
+            tenantId,
+            bookingId: booking!.id,
+            date: d,
+            basePrice: p.basePrice,
+            sellingPrice: p.sellingPrice,
+            commission: p.commission,
+          };
+        }),
+      );
+      await tx.insert(bookingApprovals).values({ tenantId, bookingId: booking!.id, action: 'created' });
+
+      return booking;
+    });
+  }
+
+  approve(tenantId: string, id: string) {
+    return this.transition(tenantId, id, 'approve');
+  }
+  reject(tenantId: string, id: string, reason?: string) {
+    return this.transition(tenantId, id, 'reject', reason);
+  }
+  cancel(tenantId: string, id: string) {
+    return this.transition(tenantId, id, 'cancel');
+  }
+  noShow(tenantId: string, id: string) {
+    return this.transition(tenantId, id, 'no_show');
+  }
+
+  private transition(tenantId: string, id: string, kind: Transition, reason?: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [b] = await tx.select().from(bookings).where(eq(bookings.id, id));
+      if (!b) throw new NotFoundException('Booking not found');
+      const nights = eachNight(b.checkin, b.checkout);
+
+      let status: 'Approved' | 'Rejected' | 'Cancelled' | 'NoShow';
+      let action: 'approved' | 'rejected' | 'cancelled' | 'no_show';
+
+      if (kind === 'approve') {
+        if (b.status !== 'Pending') throw new BadRequestException(`Cannot approve a ${b.status} booking`);
+        status = 'Approved';
+        action = 'approved';
+      } else if (kind === 'reject') {
+        if (b.status !== 'Pending') throw new BadRequestException(`Cannot reject a ${b.status} booking`);
+        status = 'Rejected';
+        action = 'rejected';
+        await releaseStay(tx, b.roomId, nights, b.rooms);
+      } else if (kind === 'cancel') {
+        if (b.status !== 'Pending' && b.status !== 'Approved') {
+          throw new BadRequestException(`Cannot cancel a ${b.status} booking`);
+        }
+        status = 'Cancelled';
+        action = 'cancelled';
+        await releaseStay(tx, b.roomId, nights, b.rooms);
+      } else {
+        if (b.status !== 'Approved') throw new BadRequestException(`Cannot no-show a ${b.status} booking`);
+        status = 'NoShow';
+        action = 'no_show';
+      }
+
+      const [updated] = await tx
+        .update(bookings)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(bookings.id, id))
+        .returning();
+      await tx.insert(bookingApprovals).values({ tenantId, bookingId: id, action, reason: reason ?? null });
+      return updated;
+    });
+  }
+}
