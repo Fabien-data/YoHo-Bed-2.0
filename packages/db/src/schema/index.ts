@@ -4,3 +4,4 @@ export * from './rates';
 export * from './bookings';
 export * from './finance';
 export * from './distribution';
+export * from './audit';

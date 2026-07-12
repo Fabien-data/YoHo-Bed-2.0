@@ -154,8 +154,21 @@ try {
     }),
   );
 
+  // Cross-tenant YoHo staff user (tenantId null) for the staff console.
+  const STAFF_EMAIL = 'staff@yohobed.test';
+  let [staff] = await db.select().from(users).where(eq(users.email, STAFF_EMAIL));
+  if (!staff) {
+    const staffHash = await bcrypt.hash(OWNER_PASSWORD, 10);
+    [staff] = await db
+      .insert(users)
+      .values({ email: STAFF_EMAIL, name: 'YoHo Staff', passwordHash: staffHash })
+      .returning();
+    await db.insert(memberships).values({ userId: staff!.id, tenantId: null, role: 'YOHO_STAFF' });
+  }
+
   console.log('✓ Seed ready');
   console.log(`  Owner login : ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
+  console.log(`  Staff login : ${STAFF_EMAIL} / ${OWNER_PASSWORD}`);
   console.log(`  tenantId    : ${tenantId}`);
   console.log(`  roomId      : ${roomId}`);
   console.log(`  last-room   : ${LAST_ROOM_DATE} (rooms_to_sell = 1)`);

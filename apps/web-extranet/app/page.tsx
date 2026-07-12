@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { login, ApiError } from '@/lib/api';
+import { login, isStaff, ApiError } from '@/lib/api';
 import { Button, Card, Field, Logo } from '@/components/ui';
 
 export default function LoginPage() {
@@ -17,8 +17,8 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await login(email, password);
-      router.push('/app');
+      const user = await login(email, password);
+      router.push(isStaff(user) ? '/staff' : '/app');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong');
       setBusy(false);

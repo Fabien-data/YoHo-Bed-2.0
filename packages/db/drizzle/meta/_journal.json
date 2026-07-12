@@ -50,6 +50,13 @@
       "when": 1783837269567,
       "tag": "0006_sticky_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783840383746,
+      "tag": "0007_melodic_vance_astro",
+      "breakpoints": true
     }
   ]
 }

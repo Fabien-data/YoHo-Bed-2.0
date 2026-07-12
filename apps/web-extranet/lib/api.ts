@@ -238,3 +238,61 @@ export interface Revenue {
 export function getRevenue(from: string, to: string): Promise<Revenue> {
   return apiFetch<Revenue>(`/finance/revenue?from=${from}&to=${to}`);
 }
+
+// --- Staff console ----------------------------------------------------------
+
+export function isStaff(user: SessionUser | null): boolean {
+  return !!user?.memberships.some((m) => m.role === 'YOHO_STAFF' || m.role === 'YOHO_ADMIN');
+}
+
+export interface StaffTenant {
+  id: string;
+  name: string;
+  email: string;
+  status: 'active' | 'inactive' | 'suspended';
+  pending: number;
+}
+
+export function listStaffTenants(): Promise<StaffTenant[]> {
+  return apiFetch<StaffTenant[]>('/staff/tenants');
+}
+
+export function getStaffTenantBookings(tenantId: string): Promise<Booking[]> {
+  return apiFetch<Booking[]>(`/staff/tenants/${tenantId}/bookings`);
+}
+
+export function staffBookingAction(
+  tenantId: string,
+  bookingId: string,
+  action: 'approve' | 'reject',
+): Promise<Booking> {
+  return apiFetch(`/staff/tenants/${tenantId}/bookings/${bookingId}/${action}`, {
+    method: 'POST',
+    body: action === 'reject' ? JSON.stringify({}) : undefined,
+  });
+}
+
+export function setTenantStatus(
+  tenantId: string,
+  status: 'active' | 'inactive' | 'suspended',
+): Promise<StaffTenant> {
+  return apiFetch(`/staff/tenants/${tenantId}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export interface AuditEntry {
+  id: string;
+  tenantId: string | null;
+  actorEmail: string | null;
+  action: string;
+  entity: string | null;
+  entityId: string | null;
+  detail: unknown;
+  createdAt: string;
+}
+
+export function getAudit(): Promise<AuditEntry[]> {
+  return apiFetch<AuditEntry[]>('/staff/audit');
+}
