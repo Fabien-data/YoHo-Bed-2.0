@@ -12,6 +12,7 @@ import { FinanceModule } from './finance/finance.module';
 import { StaffModule } from './staff/staff.module';
 import { CommercialModule } from './commercial/commercial.module';
 import { CommsModule } from './comms/comms.module';
+import { OtaModule } from './ota/ota.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -28,6 +29,7 @@ import { HealthController } from './health/health.controller';
     StaffModule,
     CommercialModule,
     CommsModule,
+    OtaModule,
   ],
   controllers: [HealthController],
 })

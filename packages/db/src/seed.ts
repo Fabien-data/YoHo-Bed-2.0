@@ -26,6 +26,7 @@ import {
   commissionSlabs,
   languages,
   templates,
+  cmRoomMappings,
 } from './schema';
 
 /**
@@ -337,6 +338,13 @@ try {
         'ආදරණීය {{guestName}},\n\nඔබගේ වෙන්කරවා ගැනීම {{reference}} {{checkin}} සිට {{checkout}} දක්වා ' +
         '({{nights}} රාත්‍රී) තහවුරු කර ඇත.\nමුළු මුදල: රු {{amount}}.\n\nස්තූතියි.\nYoHoBed',
     },
+  ]);
+
+  // Channel-manager room-code mappings (Compartment F) — routes webhook pushes to our rooms.
+  await db.delete(cmRoomMappings).where(eq(cmRoomMappings.tenantId, tenantId));
+  await db.insert(cmRoomMappings).values([
+    { tenantId, propertyId, roomId, code: 'CM-DLX-001' },
+    { tenantId, propertyId: taxPropId, roomId: taxRoomId, code: 'CM-OCN-101' },
   ]);
 
   // Cross-tenant YoHo staff user (tenantId null) for the staff console.

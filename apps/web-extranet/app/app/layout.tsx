@@ -10,6 +10,7 @@ import { NotificationsBell } from '@/components/notifications-bell';
 const TABS = [
   { href: '/app', label: 'Calendar' },
   { href: '/app/bookings', label: 'Bookings' },
+  { href: '/app/inbox', label: 'Inbox' },
   { href: '/app/deals', label: 'Deals' },
   { href: '/app/finance', label: 'Finance' },
   { href: '/app/comms', label: 'Comms' },

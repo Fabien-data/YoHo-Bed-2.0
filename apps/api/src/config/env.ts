@@ -6,6 +6,8 @@ export const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('1d'),
+  /** Shared secret the channel manager sends on POST /cm/reservations (x-cm-secret header). */
+  CM_WEBHOOK_SECRET: z.string().min(16).default('dev-cm-webhook-secret-0001'),
 });
 
 export type Env = z.infer<typeof envSchema>;

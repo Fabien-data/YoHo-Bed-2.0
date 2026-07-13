@@ -192,3 +192,12 @@ DROP POLICY IF EXISTS tenant_isolation ON messages;
 CREATE POLICY tenant_isolation ON messages
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE ota_reservations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON ota_reservations;
+CREATE POLICY tenant_isolation ON ota_reservations
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- cm_room_mappings deliberately has NO RLS (like outbox): the webhook resolves the tenant FROM
+-- the room code before any tenant context exists. Owner endpoints filter by tenant in the service.

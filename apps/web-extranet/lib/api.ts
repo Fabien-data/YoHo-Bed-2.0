@@ -560,3 +560,53 @@ export function updateTemplate(
 export function listLanguages(): Promise<Language[]> {
   return apiFetch<Language[]>('/languages');
 }
+
+// --- OTA reservation inbox (Compartment F) ------------------------------------
+
+export interface OtaReservation {
+  id: string;
+  channel: string;
+  externalRef: string;
+  guestName: string;
+  guestEmail: string | null;
+  checkin: string;
+  checkout: string;
+  rooms: number;
+  otaAmount: string | null;
+  status: 'received' | 'imported' | 'failed' | 'cancelled' | 'ignored';
+  error: string | null;
+  bookingId: string | null;
+  roomId: string | null;
+  receivedAt: string;
+  processedAt: string | null;
+}
+export interface CmMapping {
+  id: string;
+  roomId: string;
+  propertyId: string;
+  code: string;
+}
+
+export function listOtaReservations(): Promise<OtaReservation[]> {
+  return apiFetch<OtaReservation[]>('/ota/reservations');
+}
+export function retryOtaReservation(
+  id: string,
+): Promise<{ id: string; status: string; reference?: string; error?: string }> {
+  return apiFetch(`/ota/reservations/${id}/retry`, { method: 'POST' });
+}
+export function listCmMappings(): Promise<CmMapping[]> {
+  return apiFetch<CmMapping[]>('/ota/mappings');
+}
+export function setCmMapping(roomId: string, code: string): Promise<CmMapping> {
+  return apiFetch('/ota/mappings', { method: 'PUT', body: JSON.stringify({ roomId, code }) });
+}
+export function simulateOta(body: {
+  checkin: string;
+  checkout: string;
+  roomId?: string;
+  channel?: string;
+  guestName?: string;
+}): Promise<{ id: string; status: string; reference?: string; error?: string }> {
+  return apiFetch('/ota/simulate', { method: 'POST', body: JSON.stringify(body) });
+}
