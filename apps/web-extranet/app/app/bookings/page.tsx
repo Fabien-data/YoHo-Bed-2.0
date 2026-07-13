@@ -8,6 +8,7 @@ import {
   listBookings,
   createBooking,
   bookingTransition,
+  amendBooking,
   ApiError,
   type Booking,
   type Room,
@@ -16,14 +17,31 @@ import {
 import { Button, Card, Field, Pill } from '@/components/ui';
 import { money } from '@/lib/format';
 
-const STATUSES = ['All', 'Pending', 'Approved', 'Rejected', 'Cancelled', 'NoShow'] as const;
+const STATUSES = [
+  'All',
+  'Pending',
+  'Approved',
+  'CheckedIn',
+  'CheckedOut',
+  'Rejected',
+  'Cancelled',
+  'NoShow',
+] as const;
 type Filter = (typeof STATUSES)[number];
 
 function tone(s: Booking['status']): 'avail' | 'low' | 'closed' | 'muted' {
-  if (s === 'Approved') return 'avail';
+  if (s === 'Approved' || s === 'CheckedIn') return 'avail';
   if (s === 'Pending') return 'low';
   if (s === 'Rejected' || s === 'Cancelled') return 'closed';
   return 'muted';
+}
+
+/** Stay (dates/rooms) can move while Pending/Approved; guest details also after check-in. */
+function canEditStay(s: Booking['status']) {
+  return s === 'Pending' || s === 'Approved';
+}
+function canEdit(s: Booking['status']) {
+  return canEditStay(s) || s === 'CheckedIn' || s === 'CheckedOut';
 }
 
 const selectClass =
@@ -90,7 +108,10 @@ export default function BookingsPage() {
     return c;
   }, [bookings]);
 
-  async function act(id: string, action: 'approve' | 'reject' | 'cancel' | 'no-show') {
+  async function act(
+    id: string,
+    action: 'approve' | 'reject' | 'cancel' | 'no-show' | 'check-in' | 'check-out',
+  ) {
     setBusy(true);
     setMsg(null);
     try {
@@ -98,6 +119,64 @@ export default function BookingsPage() {
       await load();
     } catch (e) {
       setMsg({ tone: 'closed', text: e instanceof ApiError ? e.message : 'Failed' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const [edit, setEdit] = useState<{
+    id: string;
+    reference: string;
+    stayEditable: boolean;
+    name: string;
+    email: string;
+    phone: string;
+    checkin: string;
+    checkout: string;
+    rooms: number;
+  } | null>(null);
+
+  function startEdit(b: Booking) {
+    setEdit({
+      id: b.id,
+      reference: b.reference,
+      stayEditable: canEditStay(b.status),
+      name: b.customerName,
+      email: b.customerEmail ?? '',
+      phone: b.customerPhone ?? '',
+      checkin: b.checkin,
+      checkout: b.checkout,
+      rooms: b.rooms,
+    });
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!edit) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const b = await amendBooking(edit.id, {
+        customerName: edit.name.trim() || undefined,
+        customerEmail: edit.email.trim(),
+        customerPhone: edit.phone.trim(),
+        ...(edit.stayEditable
+          ? { checkin: edit.checkin, checkout: edit.checkout, rooms: edit.rooms }
+          : {}),
+      });
+      setEdit(null);
+      await load();
+      setMsg({ tone: 'avail', text: `Updated ${edit.reference} — new total ${money(b.amount)}.` });
+    } catch (err) {
+      setMsg({
+        tone: 'closed',
+        text:
+          err instanceof ApiError
+            ? err.status === 409
+              ? 'No availability for the new dates.'
+              : err.message
+            : 'Something went wrong',
+      });
     } finally {
       setBusy(false);
     }
@@ -222,6 +301,82 @@ export default function BookingsPage() {
         </Card>
       )}
 
+      {edit && (
+        <Card className="mt-4 p-4">
+          <div className="mb-3 font-mono text-xs uppercase tracking-widest text-ink-3">
+            Edit booking {edit.reference}
+            {!edit.stayEditable && ' · guest details only (already checked in)'}
+          </div>
+          <form onSubmit={saveEdit} className="flex flex-wrap items-end gap-3">
+            <div className="w-48">
+              <Field
+                label="Guest name"
+                value={edit.name}
+                onChange={(e) => setEdit((v) => v && { ...v, name: e.target.value })}
+              />
+            </div>
+            <div className="w-56">
+              <Field
+                label="Email"
+                type="email"
+                value={edit.email}
+                onChange={(e) => setEdit((v) => v && { ...v, email: e.target.value })}
+                placeholder="guest@example.com"
+              />
+            </div>
+            <div className="w-40">
+              <Field
+                label="Phone"
+                value={edit.phone}
+                onChange={(e) => setEdit((v) => v && { ...v, phone: e.target.value })}
+                placeholder="+94 …"
+              />
+            </div>
+            {edit.stayEditable && (
+              <>
+                <div className="w-40">
+                  <Field
+                    label="Check-in"
+                    type="date"
+                    value={edit.checkin}
+                    onChange={(e) => setEdit((v) => v && { ...v, checkin: e.target.value })}
+                  />
+                </div>
+                <div className="w-40">
+                  <Field
+                    label="Check-out"
+                    type="date"
+                    value={edit.checkout}
+                    onChange={(e) => setEdit((v) => v && { ...v, checkout: e.target.value })}
+                  />
+                </div>
+                <div className="w-24">
+                  <Field
+                    label="Rooms"
+                    type="number"
+                    min={1}
+                    value={String(edit.rooms)}
+                    onChange={(e) => setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })}
+                  />
+                </div>
+              </>
+            )}
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setEdit(null)}>
+              Cancel
+            </Button>
+          </form>
+          {edit.stayEditable && (
+            <p className="mt-2 text-xs text-ink-3">
+              Changing dates or rooms re-prices the stay from the rate calendar and swaps inventory
+              atomically; any coupon discount is kept as granted.
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* filters */}
       <div className="mt-5 flex flex-wrap items-center gap-2">
         {STATUSES.map((s) => (
@@ -306,6 +461,9 @@ export default function BookingsPage() {
                       )}
                       {b.status === 'Approved' && (
                         <>
+                          <Button className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => act(b.id, 'check-in')}>
+                            Check in
+                          </Button>
                           <Button
                             variant="secondary"
                             className="!px-2 !py-1 text-xs"
@@ -323,6 +481,21 @@ export default function BookingsPage() {
                             Cancel
                           </Button>
                         </>
+                      )}
+                      {b.status === 'CheckedIn' && (
+                        <Button className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => act(b.id, 'check-out')}>
+                          Check out
+                        </Button>
+                      )}
+                      {canEdit(b.status) && (
+                        <Button
+                          variant="ghost"
+                          className="!px-2 !py-1 text-xs"
+                          disabled={busy}
+                          onClick={() => startEdit(b)}
+                        >
+                          Edit
+                        </Button>
                       )}
                     </div>
                   </td>

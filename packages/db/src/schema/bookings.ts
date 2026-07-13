@@ -14,6 +14,8 @@ import { occupancies } from './rates';
 export const bookingStatus = pgEnum('booking_status', [
   'Pending',
   'Approved',
+  'CheckedIn',
+  'CheckedOut',
   'Rejected',
   'Cancelled',
   'NoShow',
@@ -25,6 +27,9 @@ export const bookingAction = pgEnum('booking_action', [
   'rejected',
   'cancelled',
   'no_show',
+  'checked_in',
+  'checked_out',
+  'amended',
 ]);
 
 export const customers = pgTable('customers', {
@@ -75,6 +80,9 @@ export const bookings = pgTable('bookings', {
   /** Coupon discount off the amount (Compartment D). The guest pays amount − discount. */
   discount: numeric('discount', { precision: 12, scale: 2 }).notNull().default('0'),
   currency: text('currency').notNull().default('LKR'),
+  /** Front-desk timestamps (Compartment G): set when the guest physically arrives/leaves. */
+  checkedInAt: timestamp('checked_in_at', { withTimezone: true }),
+  checkedOutAt: timestamp('checked_out_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

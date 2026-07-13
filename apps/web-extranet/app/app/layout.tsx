@@ -8,7 +8,8 @@ import { Logo, Button } from '@/components/ui';
 import { NotificationsBell } from '@/components/notifications-bell';
 
 const TABS = [
-  { href: '/app', label: 'Calendar' },
+  { href: '/app', label: 'Dashboard' },
+  { href: '/app/calendar', label: 'Calendar' },
   { href: '/app/bookings', label: 'Bookings' },
   { href: '/app/inbox', label: 'Inbox' },
   { href: '/app/deals', label: 'Deals' },

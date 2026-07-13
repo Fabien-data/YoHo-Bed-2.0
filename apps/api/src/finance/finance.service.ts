@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { decomposeBooking } from '@yohobed/domain';
 import {
   bookings,
@@ -119,12 +119,15 @@ export class FinanceService {
 
   // --- Settlement / payouts ---------------------------------------------------
 
-  /** A settlement statement for a property over a period. Reconciles to its Approved bookings. */
+  /**
+   * A settlement statement for a property over a period. Reconciles to its confirmed bookings —
+   * Approved and beyond (CheckedIn/CheckedOut are still revenue; Compartment G added them).
+   */
   payoutStatement(tenantId: string, propertyId: string, from: string, to: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const where = and(
         eq(bookings.propertyId, propertyId),
-        eq(bookings.status, 'Approved'),
+        inArray(bookings.status, ['Approved', 'CheckedIn', 'CheckedOut']),
         gte(bookings.checkin, from),
         lte(bookings.checkin, to),
       );
@@ -204,7 +207,9 @@ export class FinanceService {
       let totalBookings = 0;
       for (const r of rows) {
         byStatus[r.status] = { count: r.count, gross: Number(r.gross) };
-        if (r.status === 'Approved') approvedGross += Number(r.gross);
+        if (r.status === 'Approved' || r.status === 'CheckedIn' || r.status === 'CheckedOut') {
+          approvedGross += Number(r.gross);
+        }
         totalBookings += r.count;
       }
       return { from, to, byStatus, approvedGross, totalBookings };

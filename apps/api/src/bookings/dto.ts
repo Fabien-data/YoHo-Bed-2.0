@@ -23,3 +23,16 @@ export type CreateBookingDto = z.infer<typeof createBookingSchema>;
 
 export const rejectSchema = z.object({ reason: z.string().max(500).optional() });
 export type RejectDto = z.infer<typeof rejectSchema>;
+
+/** Amend (Compartment G): guest details and/or the stay. Empty string clears email/phone. */
+export const amendBookingSchema = z
+  .object({
+    customerName: z.string().min(1).max(200).optional(),
+    customerEmail: z.union([z.string().email(), z.literal('')]).optional(),
+    customerPhone: z.string().max(40).optional(),
+    checkin: isoDate.optional(),
+    checkout: isoDate.optional(),
+    rooms: z.number().int().positive().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to amend' });
+export type AmendBookingDto = z.infer<typeof amendBookingSchema>;

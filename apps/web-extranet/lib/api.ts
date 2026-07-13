@@ -268,10 +268,19 @@ export function release(roomId: string, checkin: string, checkout: string, rooms
   });
 }
 
+export type BookingStatus =
+  | 'Pending'
+  | 'Approved'
+  | 'CheckedIn'
+  | 'CheckedOut'
+  | 'Rejected'
+  | 'Cancelled'
+  | 'NoShow';
+
 export interface Booking {
   id: string;
   reference: string;
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled' | 'NoShow';
+  status: BookingStatus;
   source: string;
   checkin: string;
   checkout: string;
@@ -280,6 +289,8 @@ export interface Booking {
   amount: string;
   roomId: string;
   customerName: string;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
 }
 
 export function listBookings(): Promise<Booking[]> {
@@ -301,12 +312,61 @@ export function createBooking(body: {
 
 export function bookingTransition(
   id: string,
-  action: 'approve' | 'reject' | 'cancel' | 'no-show',
+  action: 'approve' | 'reject' | 'cancel' | 'no-show' | 'check-in' | 'check-out',
 ): Promise<Booking> {
   return apiFetch(`/bookings/${id}/${action}`, {
     method: 'POST',
     body: action === 'reject' ? JSON.stringify({}) : undefined,
   });
+}
+
+export function amendBooking(
+  id: string,
+  body: {
+    customerName?: string;
+    customerEmail?: string;
+    customerPhone?: string;
+    checkin?: string;
+    checkout?: string;
+    rooms?: number;
+  },
+): Promise<Booking> {
+  return apiFetch(`/bookings/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+// --- Dashboard (Compartment G) ------------------------------------------------
+
+export interface DashboardBooking {
+  id: string;
+  reference: string;
+  status: BookingStatus;
+  source: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  rooms: number;
+  amount: string;
+  customerName: string;
+  roomName: string;
+}
+
+export interface DashboardOverview {
+  date: string;
+  arrivals: DashboardBooking[];
+  departures: DashboardBooking[];
+  inHouse: number;
+  pendingApprovals: number;
+  occupancy: { totalRooms: number; occupied: number; pct: number };
+  month: { from: string; gross: number; nightsSold: number };
+  recent: DashboardBooking[];
+}
+
+export function getDashboard(date?: string, propertyId?: string): Promise<DashboardOverview> {
+  const params = new URLSearchParams();
+  if (date) params.set('date', date);
+  if (propertyId) params.set('propertyId', propertyId);
+  const qs = params.toString();
+  return apiFetch<DashboardOverview>(`/dashboard${qs ? `?${qs}` : ''}`);
 }
 
 export interface PayoutStatement {

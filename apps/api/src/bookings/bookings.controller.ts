@@ -1,10 +1,17 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { BookingService } from './booking.service';
-import { createBookingSchema, rejectSchema, type CreateBookingDto, type RejectDto } from './dto';
+import {
+  amendBookingSchema,
+  createBookingSchema,
+  rejectSchema,
+  type AmendBookingDto,
+  type CreateBookingDto,
+  type RejectDto,
+} from './dto';
 
 @Controller('bookings')
 @UseGuards(JwtAuthGuard, TenantGuard)
@@ -56,5 +63,26 @@ export class BookingsController {
   @HttpCode(200)
   noShow(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.bookings.noShow(tenantId, id);
+  }
+
+  @Post(':id/check-in')
+  @HttpCode(200)
+  checkIn(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.bookings.checkIn(tenantId, id);
+  }
+
+  @Post(':id/check-out')
+  @HttpCode(200)
+  checkOut(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.bookings.checkOut(tenantId, id);
+  }
+
+  @Patch(':id')
+  amend(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(amendBookingSchema)) dto: AmendBookingDto,
+  ) {
+    return this.bookings.amend(tenantId, id, dto);
   }
 }
