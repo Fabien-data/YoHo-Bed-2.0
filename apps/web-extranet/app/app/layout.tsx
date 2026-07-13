@@ -42,31 +42,39 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center gap-5 px-6 py-3">
+      {/* Persistent left sidebar: full-height, fixed, never scrolls away. */}
+      <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-line bg-surface">
+        <div className="flex items-center justify-between px-5 py-5">
           <Logo />
-          <nav className="flex items-center gap-1">
-            {TABS.map((t) => {
-              const active = t.href === '/app' ? pathname === '/app' : pathname.startsWith(t.href);
-              return (
-                <Link
-                  key={t.href}
-                  href={t.href}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                    active ? 'text-brand-ink' : 'text-ink-2 hover:text-ink'
-                  }`}
-                  style={active ? { background: 'var(--brand-soft)' } : undefined}
-                >
-                  {t.label}
-                </Link>
-              );
-            })}
-          </nav>
-          <div className="flex-1" />
-          <NotificationsBell />
-          {user && <span className="hidden text-sm text-ink-2 sm:inline">{user.email}</span>}
+          <NotificationsBell placement="sidebar" />
+        </div>
+        <nav className="flex flex-col gap-1 overflow-y-auto px-3 pb-3">
+          {TABS.map((t) => {
+            const active = t.href === '/app' ? pathname === '/app' : pathname.startsWith(t.href);
+            return (
+              <Link
+                key={t.href}
+                href={t.href}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  active ? 'text-brand-ink' : 'text-ink-2 hover:bg-[var(--surface-2)] hover:text-ink'
+                }`}
+                style={active ? { background: 'var(--brand-soft)' } : undefined}
+              >
+                {t.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="flex-1" />
+        <div className="border-t border-line px-5 py-4">
+          {user && (
+            <p className="mb-3 truncate text-xs text-ink-3" title={user.email}>
+              {user.email}
+            </p>
+          )}
           <Button
             variant="secondary"
+            className="w-full"
             onClick={() => {
               clearSession();
               router.replace('/');
@@ -75,8 +83,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             Sign out
           </Button>
         </div>
-      </header>
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      </aside>
+      <main className="ml-64 px-8 py-8">
+        <div className="mx-auto max-w-7xl">{children}</div>
+      </main>
     </div>
   );
 }

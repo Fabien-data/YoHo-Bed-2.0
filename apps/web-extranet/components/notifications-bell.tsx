@@ -17,7 +17,7 @@ function ago(iso: string): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export function NotificationsBell() {
+export function NotificationsBell({ placement = 'header' }: { placement?: 'header' | 'sidebar' }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AppNotification[]>([]);
   const [count, setCount] = useState(0);
@@ -78,7 +78,11 @@ export function NotificationsBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-12 z-30 w-80 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_8px_30px_rgba(20,22,31,0.18)]">
+        <div
+          className={`absolute z-30 w-80 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_8px_30px_rgba(20,22,31,0.18)] ${
+            placement === 'sidebar' ? 'left-full top-0 ml-3' : 'right-0 top-12'
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
             <span className="text-sm font-bold text-ink">Notifications</span>
             {count > 0 && (
