@@ -76,3 +76,13 @@ export function geniusAmount(
 export function dealAmount(commissionable: number, dealRate: number): number {
   return round2(commissionable / ((100 - dealRate) / 100) - commissionable);
 }
+
+/**
+ * Apply an owner-set last-minute discount to a (tax-inclusive) selling price.
+ * Source: legacy lastminutepricedrops — the charged price becomes `selling * (1 - drop/100)`.
+ * A zero (or falsy) drop returns the selling price unchanged.
+ */
+export function applyLastMinuteDrop(selling: number, dropPct: number): number {
+  if (!dropPct) return selling;
+  return round2(selling * (1 - dropPct / 100));
+}

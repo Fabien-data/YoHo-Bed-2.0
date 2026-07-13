@@ -73,6 +73,7 @@ export const payouts = pgTable('payouts', {
   propertyBase: numeric('property_base', { precision: 14, scale: 2 }).notNull(),
   yohoCommission: numeric('yoho_commission', { precision: 14, scale: 2 }).notNull(),
   otaCommission: numeric('ota_commission', { precision: 14, scale: 2 }).notNull(),
+  taxes: numeric('taxes', { precision: 14, scale: 2 }).notNull().default('0'),
   netPayable: numeric('net_payable', { precision: 14, scale: 2 }).notNull(),
   status: payoutStatus('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

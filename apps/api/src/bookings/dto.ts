@@ -12,6 +12,8 @@ export const createBookingSchema = z
     checkin: isoDate,
     checkout: isoDate,
     rooms: z.number().int().positive().default(1),
+    couponCode: z.string().max(40).optional(),
+    referralCode: z.string().max(40).optional(),
   })
   .refine((v) => v.checkout > v.checkin, {
     message: 'checkout must be after checkin',

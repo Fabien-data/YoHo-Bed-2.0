@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taxFromSelling, commissionableTotal } from '../src/index';
+import { taxFromSelling, commissionableTotal, sellingFromCommissionable } from '../src/index';
 import type { TaxRates } from '../src/index';
 
 const noTax: TaxRates = { serviceCharge: 0, nbt: 0, vat: 0 };
@@ -27,5 +27,28 @@ describe('taxFromSelling — nested reverse-division (VAT -> NBT -> service char
 describe('commissionableTotal', () => {
   it('is selling minus taxes', () => {
     expect(commissionableTotal(1000, 174.75)).toBe(825.25);
+  });
+});
+
+describe('sellingFromCommissionable — inverse gross-up (service charge -> NBT -> VAT)', () => {
+  it('returns the commissionable unchanged when there are no taxes', () => {
+    expect(sellingFromCommissionable(100, noTax)).toBe(100);
+  });
+
+  it('adds a single VAT layer', () => {
+    expect(sellingFromCommissionable(100, { serviceCharge: 0, nbt: 0, vat: 0.1 })).toBe(110);
+  });
+
+  it('stacks layers multiplicatively (not additively)', () => {
+    // 100 * 1.1 * 1.1 = 121 (additive would be 120)
+    expect(sellingFromCommissionable(100, { serviceCharge: 0, nbt: 0.1, vat: 0.1 })).toBe(121);
+  });
+
+  it('round-trips with taxFromSelling: commissionable = selling - taxes', () => {
+    const rates: TaxRates = { serviceCharge: 0.1, nbt: 0.02, vat: 0.15 };
+    const commissionable = 1000;
+    const selling = sellingFromCommissionable(commissionable, rates);
+    const taxes = taxFromSelling(selling, rates);
+    expect(selling - taxes).toBeCloseTo(commissionable, 2);
   });
 });

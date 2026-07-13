@@ -66,6 +66,14 @@ export const bookings = pgTable('bookings', {
   source: bookingSource('source').notNull().default('Extranet'),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   totalBasePrice: numeric('total_base_price', { precision: 12, scale: 2 }).notNull(),
+  /** Tax portion decomposed out of `amount` (legacy PricingCalculator::calculateTaxFromSelling). */
+  taxes: numeric('taxes', { precision: 12, scale: 2 }).notNull().default('0'),
+  /** `amount − taxes` (legacy `commissionable_amount`) — the base for the settlement split. */
+  commissionableAmount: numeric('commissionable_amount', { precision: 12, scale: 2 })
+    .notNull()
+    .default('0'),
+  /** Coupon discount off the amount (Compartment D). The guest pays amount − discount. */
+  discount: numeric('discount', { precision: 12, scale: 2 }).notNull().default('0'),
   currency: text('currency').notNull().default('LKR'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -84,6 +92,8 @@ export const bookingDays = pgTable('booking_days', {
   basePrice: numeric('base_price', { precision: 12, scale: 2 }).notNull(),
   sellingPrice: numeric('selling_price', { precision: 12, scale: 2 }).notNull(),
   commission: numeric('commission', { precision: 12, scale: 2 }).notNull(),
+  /** Per-night tax portion decomposed from the selling price (0 when no tax configured). */
+  tax: numeric('tax', { precision: 12, scale: 2 }).notNull().default('0'),
 });
 
 /** Single audit trail for the booking lifecycle. */

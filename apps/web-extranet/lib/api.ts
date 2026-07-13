@@ -113,10 +113,11 @@ export function openAvailability(
   from: string,
   to: string,
   roomsToSell: number,
+  status: 'Open' | 'Close' = 'Open',
 ): Promise<{ opened: number }> {
   return apiFetch(`/rooms/${roomId}/availability`, {
     method: 'POST',
-    body: JSON.stringify({ from, to, roomsToSell }),
+    body: JSON.stringify({ from, to, roomsToSell, status }),
   });
 }
 
@@ -132,8 +133,41 @@ export interface RateDay {
   basePrice: string;
   commission: string;
   sellingPrice: string;
+  lastMinuteDropPct: string;
+  effectiveSelling: string;
   rateCode: string;
   accommodates: number;
+}
+
+export interface RateCode {
+  id: string;
+  code: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface RatePlan {
+  id: string;
+  roomId: string;
+  rateCodeId: string;
+  code: string;
+  name: string;
+  status: 'Active' | 'Inactive';
+}
+
+export interface Occupancy {
+  id: string;
+  ratePlanId: string;
+  label: string;
+  accommodates: number;
+}
+
+export interface Season {
+  id: string;
+  propertyId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
 }
 
 export function getRoomRates(roomId: string, from: string, to: string): Promise<RateDay[]> {
@@ -149,6 +183,74 @@ export function setPrice(
   return apiFetch(`/occupancies/${occupancyId}/price`, {
     method: 'POST',
     body: JSON.stringify({ from, to, base }),
+  });
+}
+
+export function listRateCodes(): Promise<RateCode[]> {
+  return apiFetch<RateCode[]>('/rate-codes');
+}
+
+export function listRatePlans(roomId: string): Promise<RatePlan[]> {
+  return apiFetch<RatePlan[]>(`/rooms/${roomId}/rate-plans`);
+}
+
+export function createRatePlan(roomId: string, rateCodeId: string): Promise<RatePlan> {
+  return apiFetch<RatePlan>(`/rooms/${roomId}/rate-plans`, {
+    method: 'POST',
+    body: JSON.stringify({ rateCodeId }),
+  });
+}
+
+export function listOccupancies(ratePlanId: string): Promise<Occupancy[]> {
+  return apiFetch<Occupancy[]>(`/rate-plans/${ratePlanId}/occupancies`);
+}
+
+export function createOccupancy(
+  ratePlanId: string,
+  label: string,
+  accommodates: number,
+): Promise<Occupancy> {
+  return apiFetch<Occupancy>(`/rate-plans/${ratePlanId}/occupancies`, {
+    method: 'POST',
+    body: JSON.stringify({ label, accommodates }),
+  });
+}
+
+export function listSeasons(propertyId: string): Promise<Season[]> {
+  return apiFetch<Season[]>(`/properties/${propertyId}/seasons`);
+}
+
+export function createSeason(
+  propertyId: string,
+  name: string,
+  from: string,
+  to: string,
+): Promise<Season> {
+  return apiFetch<Season>(`/properties/${propertyId}/seasons`, {
+    method: 'POST',
+    body: JSON.stringify({ name, from, to }),
+  });
+}
+
+export function applySeason(
+  seasonId: string,
+  prices: { occupancyId: string; base: number }[],
+): Promise<{ season: string; from: string; to: string; occupancies: number }> {
+  return apiFetch(`/seasons/${seasonId}/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ prices }),
+  });
+}
+
+export function setLastMinuteDrop(
+  occupancyId: string,
+  from: string,
+  to: string,
+  dropPct: number,
+): Promise<{ updated: number }> {
+  return apiFetch(`/occupancies/${occupancyId}/last-minute-drop`, {
+    method: 'POST',
+    body: JSON.stringify({ from, to, dropPct }),
   });
 }
 
@@ -191,6 +293,8 @@ export function createBooking(body: {
   checkin: string;
   checkout: string;
   rooms?: number;
+  couponCode?: string;
+  referralCode?: string;
 }): Promise<{ id: string; reference: string; amount: string }> {
   return apiFetch('/bookings', { method: 'POST', body: JSON.stringify(body) });
 }
@@ -214,6 +318,7 @@ export interface PayoutStatement {
   propertyBase: number;
   yohoCommission: number;
   otaCommission: number;
+  taxes: number;
   netPayable: number;
 }
 
@@ -295,4 +400,163 @@ export interface AuditEntry {
 
 export function getAudit(): Promise<AuditEntry[]> {
   return apiFetch<AuditEntry[]>('/staff/audit');
+}
+
+// --- Commercial (deals / coupons / referrals) --------------------------------
+
+export interface Promotion {
+  id: string;
+  propertyId: string;
+  name: string;
+  discountPct: string;
+  startDate: string;
+  endDate: string;
+  minNights: number;
+  active: boolean;
+}
+export interface Coupon {
+  id: string;
+  propertyId: string | null;
+  code: string;
+  type: 'percentage' | 'fixed';
+  value: string;
+  startDate: string;
+  endDate: string;
+  maxUses: number;
+  usedCount: number;
+  active: boolean;
+}
+export interface ReferralPartner {
+  id: string;
+  name: string;
+  code: string;
+  commissionPct: string;
+  active: boolean;
+}
+export interface ReferralCommission {
+  id: string;
+  amount: string;
+  status: 'pending' | 'paid';
+  createdAt: string;
+  partnerName: string;
+  bookingReference: string;
+}
+
+export function listPromotions(propertyId: string): Promise<Promotion[]> {
+  return apiFetch<Promotion[]>(`/properties/${propertyId}/promotions`);
+}
+export function createPromotion(
+  propertyId: string,
+  body: { name: string; discountPct: number; from: string; to: string; minNights: number },
+): Promise<Promotion> {
+  return apiFetch(`/properties/${propertyId}/promotions`, { method: 'POST', body: JSON.stringify(body) });
+}
+export function applyPromotion(id: string): Promise<{ promotion: string; ratesUpdated: number }> {
+  return apiFetch(`/promotions/${id}/apply`, { method: 'POST' });
+}
+export function deletePromotion(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/promotions/${id}`, { method: 'DELETE' });
+}
+
+export function listCoupons(): Promise<Coupon[]> {
+  return apiFetch<Coupon[]>('/coupons');
+}
+export function createCoupon(body: {
+  code: string;
+  type: 'percentage' | 'fixed';
+  value: number;
+  from: string;
+  to: string;
+  maxUses: number;
+  propertyId?: string;
+}): Promise<Coupon> {
+  return apiFetch('/coupons', { method: 'POST', body: JSON.stringify(body) });
+}
+export function deleteCoupon(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/coupons/${id}`, { method: 'DELETE' });
+}
+
+export function listReferralPartners(): Promise<ReferralPartner[]> {
+  return apiFetch<ReferralPartner[]>('/referral-partners');
+}
+export function createReferralPartner(body: {
+  name: string;
+  code: string;
+  commissionPct: number;
+}): Promise<ReferralPartner> {
+  return apiFetch('/referral-partners', { method: 'POST', body: JSON.stringify(body) });
+}
+export function deleteReferralPartner(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/referral-partners/${id}`, { method: 'DELETE' });
+}
+export function listReferralCommissions(): Promise<ReferralCommission[]> {
+  return apiFetch<ReferralCommission[]>('/referral-commissions');
+}
+
+// --- Communications ----------------------------------------------------------
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  entity: string | null;
+  entityId: string | null;
+  read: boolean;
+  createdAt: string;
+}
+export interface MessageLog {
+  id: string;
+  bookingId: string | null;
+  channel: 'email' | 'sms';
+  toAddress: string | null;
+  templateKey: string;
+  language: string;
+  subject: string;
+  body: string;
+  status: 'queued' | 'sent' | 'failed';
+  sentAt: string | null;
+  createdAt: string;
+}
+export interface Template {
+  id: string;
+  key: string;
+  language: string;
+  channel: 'email' | 'sms';
+  subject: string;
+  body: string;
+}
+export interface Language {
+  id: string;
+  code: string;
+  name: string;
+  isDefault: boolean;
+}
+
+export function listNotifications(): Promise<AppNotification[]> {
+  return apiFetch<AppNotification[]>('/notifications');
+}
+export function getUnreadCount(): Promise<{ count: number }> {
+  return apiFetch<{ count: number }>('/notifications/unread-count');
+}
+export function markNotificationRead(id: string): Promise<{ read: boolean }> {
+  return apiFetch(`/notifications/${id}/read`, { method: 'POST' });
+}
+export function markAllNotificationsRead(): Promise<{ updated: number }> {
+  return apiFetch('/notifications/read-all', { method: 'POST' });
+}
+export function listMessages(): Promise<MessageLog[]> {
+  return apiFetch<MessageLog[]>('/messages');
+}
+export function listTemplates(): Promise<Template[]> {
+  return apiFetch<Template[]>('/templates');
+}
+export function updateTemplate(
+  id: string,
+  body: { subject: string; body: string },
+): Promise<Template> {
+  return apiFetch(`/templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function listLanguages(): Promise<Language[]> {
+  return apiFetch<Language[]>('/languages');
 }

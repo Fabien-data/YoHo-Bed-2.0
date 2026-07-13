@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
   bookings,
   bookingDays,
@@ -18,7 +18,22 @@ import {
   releaseStay,
   InsufficientAvailabilityError,
   nextBookingReference,
+  resolveTaxRatesForDates,
+  coupons,
+  couponRedemptions,
+  referralPartners,
+  referralCommissions,
+  notifications,
+  messages,
+  templates,
 } from '@yohobed/db';
+import {
+  taxFromSelling,
+  applyLastMinuteDrop,
+  couponDiscount,
+  referralCommission,
+  renderTemplate,
+} from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { eachNight } from '../common/dates';
 import type { CreateBookingDto } from './dto';
@@ -95,12 +110,54 @@ export class BookingService {
       }
       const byDate = new Map(priceRows.map((r) => [r.date, r]));
 
+      // Charge the effective price (after any last-minute drop) and decompose tax out of it, for
+      // settlement + parity. Untaxed properties resolve to zero rates, so taxes = 0.
+      const taxByDate = await resolveTaxRatesForDates(tx, occ.propertyId, nights);
+      const nightSelling = new Map<string, number>();
+      const nightTax = new Map<string, number>();
       let amount = 0;
       let totalBase = 0;
+      let taxes = 0;
       for (const d of nights) {
         const p = byDate.get(d)!;
-        amount += Number(p.sellingPrice) * dto.rooms;
+        const selling = applyLastMinuteDrop(Number(p.sellingPrice), Number(p.lastMinuteDropPct));
+        const t = taxFromSelling(selling, taxByDate.get(d)!);
+        nightSelling.set(d, selling);
+        nightTax.set(d, t);
+        amount += selling * dto.rooms;
         totalBase += Number(p.basePrice) * dto.rooms;
+        taxes += t * dto.rooms;
+      }
+      const commissionable = amount - taxes;
+
+      // Optional coupon (marketing discount off the amount) and referral (partner commission).
+      const bookingDate = new Date().toISOString().slice(0, 10);
+      let discount = 0;
+      let couponId: string | null = null;
+      if (dto.couponCode) {
+        const code = dto.couponCode.trim().toUpperCase();
+        const [c] = await tx.select().from(coupons).where(eq(coupons.code, code));
+        if (!c || !c.active) throw new BadRequestException('Invalid coupon code');
+        if (bookingDate < c.startDate || bookingDate > c.endDate) {
+          throw new BadRequestException('Coupon is not valid today');
+        }
+        if (c.maxUses > 0 && c.usedCount >= c.maxUses) {
+          throw new BadRequestException('Coupon usage limit reached');
+        }
+        if (c.propertyId && c.propertyId !== occ.propertyId) {
+          throw new BadRequestException('Coupon is not valid for this property');
+        }
+        discount = couponDiscount(amount, c.type, Number(c.value));
+        couponId = c.id;
+      }
+      let referralPartnerId: string | null = null;
+      let referralPct = 0;
+      if (dto.referralCode) {
+        const code = dto.referralCode.trim().toUpperCase();
+        const [p] = await tx.select().from(referralPartners).where(eq(referralPartners.code, code));
+        if (!p || !p.active) throw new BadRequestException('Invalid referral code');
+        referralPartnerId = p.id;
+        referralPct = Number(p.commissionPct);
       }
 
       // Reserve inventory atomically (BUG #1).
@@ -153,6 +210,9 @@ export class BookingService {
           source: 'Extranet',
           amount: amount.toFixed(2),
           totalBasePrice: totalBase.toFixed(2),
+          taxes: taxes.toFixed(2),
+          commissionableAmount: commissionable.toFixed(2),
+          discount: discount.toFixed(2),
         })
         .returning();
 
@@ -164,12 +224,71 @@ export class BookingService {
             bookingId: booking!.id,
             date: d,
             basePrice: p.basePrice,
-            sellingPrice: p.sellingPrice,
+            sellingPrice: (nightSelling.get(d) ?? Number(p.sellingPrice)).toFixed(2),
             commission: p.commission,
+            tax: (nightTax.get(d) ?? 0).toFixed(2),
           };
         }),
       );
       await tx.insert(bookingApprovals).values({ tenantId, bookingId: booking!.id, action: 'created' });
+
+      // Record the coupon redemption + referral commission (Compartment D).
+      if (couponId) {
+        await tx.insert(couponRedemptions).values({
+          tenantId,
+          couponId,
+          bookingId: booking!.id,
+          amount: discount.toFixed(2),
+        });
+        await tx
+          .update(coupons)
+          .set({ usedCount: sql`${coupons.usedCount} + 1` })
+          .where(eq(coupons.id, couponId));
+      }
+      if (referralPartnerId) {
+        await tx.insert(referralCommissions).values({
+          tenantId,
+          referralPartnerId,
+          bookingId: booking!.id,
+          amount: referralCommission(commissionable, referralPct).toFixed(2),
+        });
+      }
+
+      // Notify the property + queue a guest confirmation from the template (Compartment E).
+      await tx.insert(notifications).values({
+        tenantId,
+        type: 'booking_created',
+        title: `New booking ${reference}`,
+        body: `${dto.customerName} · ${dto.checkin} → ${dto.checkout} · Rs ${amount.toFixed(2)}`,
+        entity: 'booking',
+        entityId: booking!.id,
+      });
+      const [tpl] = await tx
+        .select()
+        .from(templates)
+        .where(and(eq(templates.key, 'booking_created'), eq(templates.language, 'en')));
+      if (tpl) {
+        const vars = {
+          guestName: dto.customerName,
+          reference,
+          amount: amount.toFixed(2),
+          checkin: dto.checkin,
+          checkout: dto.checkout,
+          nights: nights.length,
+        };
+        await tx.insert(messages).values({
+          tenantId,
+          bookingId: booking!.id,
+          channel: 'email',
+          toAddress: dto.customerEmail ?? '',
+          templateKey: 'booking_created',
+          language: 'en',
+          subject: renderTemplate(tpl.subject, vars),
+          body: renderTemplate(tpl.body, vars),
+          status: 'sent',
+          sentAt: new Date(),
+        });
+      }
 
       return booking;
     });

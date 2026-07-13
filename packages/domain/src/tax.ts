@@ -21,3 +21,19 @@ export function taxFromSelling(selling: number, rates: TaxRates): number {
 export function commissionableTotal(selling: number, taxes: number): number {
   return selling - taxes;
 }
+
+/**
+ * Gross a tax-exclusive commissionable amount up into a tax-inclusive selling price, applying the
+ * priority-ordered rates as nested multipliers (service charge → NBT → VAT). This is the exact
+ * inverse of `taxFromSelling`.
+ * Source: PricingCalculator.php:180-183
+ *   $selling = (($commissionable * (1 + $service_charge) * (1 + $nbt)) * (1 + $vat));
+ *   return round($selling, 2);
+ * With all rates zero this returns the commissionable unchanged — untaxed properties are untouched.
+ */
+export function sellingFromCommissionable(commissionable: number, rates: TaxRates): number {
+  return round2(
+    commissionable * (1 + rates.serviceCharge) * (1 + rates.nbt) * (1 + rates.vat),
+    2,
+  );
+}

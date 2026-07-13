@@ -5,6 +5,7 @@ import {
   systemBaseRate,
   geniusAmount,
   dealAmount,
+  applyLastMinuteDrop,
 } from '../src/index';
 import type { CommissionStructure } from '../src/index';
 
@@ -58,5 +59,16 @@ describe('downstream economics', () => {
     expect(dealAmount(1000, 20)).toBe(250);
     // 800 / 0.75 - 800 = 266.666... -> 266.67
     expect(dealAmount(800, 25)).toBe(266.67);
+  });
+});
+
+describe('applyLastMinuteDrop — last-minute discount on the selling price', () => {
+  it('returns the selling price unchanged when the drop is zero', () => {
+    expect(applyLastMinuteDrop(31625, 0)).toBe(31625);
+  });
+
+  it('applies a percentage discount, rounded to 2 places', () => {
+    // 31625 * (1 - 0.15) = 26881.25
+    expect(applyLastMinuteDrop(31625, 15)).toBe(26881.25);
   });
 });

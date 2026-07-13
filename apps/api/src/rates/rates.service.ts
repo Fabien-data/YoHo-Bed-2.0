@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, between, eq, sql } from 'drizzle-orm';
-import { priceDay, type CommissionStructure } from '@yohobed/domain';
+import {
+  computeCommission,
+  sellingPrice,
+  sellingFromCommissionable,
+  applyLastMinuteDrop,
+  type CommissionStructure,
+} from '@yohobed/domain';
 import {
   properties,
   rooms,
@@ -8,7 +14,10 @@ import {
   occupancies,
   rateCalendar,
   rateCodes,
+  seasons,
+  commissionSlabs,
   enqueueOutbox,
+  resolveTaxRatesForDates,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { dateRangeInclusive } from '../common/dates';
@@ -20,9 +29,9 @@ const OTA_RATE = 18;
 export class RatesService {
   constructor(private readonly dbs: DatabaseService) {}
 
-  /** The per-date selling prices for a room (joined rate plan → occupancy → calendar). */
-  getRoomRates(tenantId: string, roomId: string, from: string, to: string) {
-    return this.dbs.withTenant(tenantId, (tx) =>
+  /** The per-date prices for a room, with the effective charged price after any last-minute drop. */
+  async getRoomRates(tenantId: string, roomId: string, from: string, to: string) {
+    const rows = await this.dbs.withTenant(tenantId, (tx) =>
       tx
         .select({
           date: rateCalendar.date,
@@ -30,6 +39,7 @@ export class RatesService {
           basePrice: rateCalendar.basePrice,
           commission: rateCalendar.commission,
           sellingPrice: rateCalendar.sellingPrice,
+          lastMinuteDropPct: rateCalendar.lastMinuteDropPct,
           rateCode: rateCodes.code,
           accommodates: occupancies.accommodates,
         })
@@ -40,16 +50,27 @@ export class RatesService {
         .where(and(eq(ratePlans.roomId, roomId), between(rateCalendar.date, from, to)))
         .orderBy(rateCalendar.date),
     );
+    return rows.map((r) => ({
+      ...r,
+      effectiveSelling: applyLastMinuteDrop(
+        Number(r.sellingPrice),
+        Number(r.lastMinuteDropPct),
+      ).toFixed(2),
+    }));
   }
 
   /**
    * Set the base price for an occupancy across a date range; the selling price is derived by the
-   * parity-tested domain engine (commission + OTA gross-up), never entered by hand.
+   * parity-tested domain engine, never entered by hand:
+   *   base → Yoho commission (slab or percentage) → OTA gross-up (÷0.82) → per-day tax gross-up.
+   * Tax rates can vary by date, so the selling price is computed per day; base and commission are
+   * date-independent. Untaxed properties gross up by ×1, so their stored numbers are unchanged.
    */
   setPriceRange(tenantId: string, occupancyId: string, from: string, to: string, base: number) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [ctx] = await tx
         .select({
+          propertyId: properties.id,
           commissionType: properties.commissionType,
           commissionPercentage: properties.commissionPercentage,
         })
@@ -60,23 +81,46 @@ export class RatesService {
         .where(eq(occupancies.id, occupancyId));
       if (!ctx) throw new NotFoundException('Occupancy not found');
 
+      // Resolve the property's Yoho commission model (percentage or slab-based).
+      let structure: CommissionStructure;
       if (ctx.commissionType === 'slab') {
-        throw new BadRequestException('Slab commission is not configured for this property yet');
+        const slabs = await tx
+          .select()
+          .from(commissionSlabs)
+          .where(eq(commissionSlabs.propertyId, ctx.propertyId));
+        if (slabs.length === 0) {
+          throw new BadRequestException(
+            'Property uses slab commission but has no commission slabs configured',
+          );
+        }
+        structure = {
+          type: 'slab',
+          slabs: slabs.map((s) => ({
+            slabStart: Number(s.slabStart),
+            slabEnd: Number(s.slabEnd),
+            commission: Number(s.commission),
+          })),
+        };
+      } else {
+        structure = { type: 'percentage', percentage: Number(ctx.commissionPercentage) };
       }
-      const structure: CommissionStructure = {
-        type: 'percentage',
-        percentage: Number(ctx.commissionPercentage),
-      };
 
-      const priced = priceDay(base, structure, OTA_RATE);
-      const values = {
-        basePrice: base.toFixed(2),
-        commission: priced.commission.toFixed(2),
-        sellingPrice: priced.selling.toFixed(2),
-      };
+      // Commission and the tax-exclusive commissionable are date-independent; tax may vary per day.
+      const commission = computeCommission(base, structure);
+      const commissionable = sellingPrice(base, commission, OTA_RATE);
 
       const dates = dateRangeInclusive(from, to);
+      const taxByDate = await resolveTaxRatesForDates(tx, ctx.propertyId, dates);
+
+      let firstSelling = commissionable;
       for (const date of dates) {
+        const selling = sellingFromCommissionable(commissionable, taxByDate.get(date)!);
+        if (date === dates[0]) firstSelling = selling;
+        const values = {
+          basePrice: base.toFixed(2),
+          commission: commission.toFixed(2),
+          sellingPrice: selling.toFixed(2),
+        };
         await tx
           .insert(rateCalendar)
           .values({ tenantId, occupancyId, date, ...values })
@@ -93,7 +137,147 @@ export class RatesService {
         eventType: 'ari.rate',
         payload: { occupancyId, from, to, base },
       });
-      return { updated: dates.length, base, selling: priced.selling, commission: priced.commission };
+      return { updated: dates.length, base, selling: firstSelling, commission };
+    });
+  }
+
+  // --- Rate plans / occupancies / seasons / last-minute drops (Compartment B) ------
+
+  /** The global meal-plan lookup (RO/BB/HB/FB/AI) for building rate plans. */
+  listRateCodes() {
+    return this.dbs.db.select().from(rateCodes).orderBy(rateCodes.sortOrder);
+  }
+
+  /** Rate plans (room × meal plan) for a room. */
+  listRatePlans(tenantId: string, roomId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select({
+          id: ratePlans.id,
+          roomId: ratePlans.roomId,
+          rateCodeId: ratePlans.rateCodeId,
+          code: rateCodes.code,
+          name: rateCodes.name,
+          status: ratePlans.status,
+        })
+        .from(ratePlans)
+        .innerJoin(rateCodes, eq(rateCodes.id, ratePlans.rateCodeId))
+        .where(eq(ratePlans.roomId, roomId))
+        .orderBy(rateCodes.sortOrder),
+    );
+  }
+
+  createRatePlan(tenantId: string, roomId: string, rateCodeId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [room] = await tx
+        .select({ propertyId: rooms.propertyId })
+        .from(rooms)
+        .where(eq(rooms.id, roomId));
+      if (!room) throw new NotFoundException('Room not found');
+      const [dupe] = await tx
+        .select({ id: ratePlans.id })
+        .from(ratePlans)
+        .where(and(eq(ratePlans.roomId, roomId), eq(ratePlans.rateCodeId, rateCodeId)));
+      if (dupe) throw new BadRequestException('That meal plan already exists for this room');
+      const [rp] = await tx
+        .insert(ratePlans)
+        .values({ tenantId, propertyId: room.propertyId, roomId, rateCodeId })
+        .returning();
+      return rp;
+    });
+  }
+
+  /** Occupancies (guest configurations) for a rate plan. */
+  listOccupancies(tenantId: string, ratePlanId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select()
+        .from(occupancies)
+        .where(eq(occupancies.ratePlanId, ratePlanId))
+        .orderBy(occupancies.accommodates),
+    );
+  }
+
+  createOccupancy(tenantId: string, ratePlanId: string, label: string, accommodates: number) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [rp] = await tx
+        .select({ id: ratePlans.id })
+        .from(ratePlans)
+        .where(eq(ratePlans.id, ratePlanId));
+      if (!rp) throw new NotFoundException('Rate plan not found');
+      const [occ] = await tx
+        .insert(occupancies)
+        .values({ tenantId, ratePlanId, label, accommodates })
+        .returning();
+      return occ;
+    });
+  }
+
+  /** Named seasonal ranges for a property (an authoring overlay for the calendar). */
+  listSeasons(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx.select().from(seasons).where(eq(seasons.propertyId, propertyId)).orderBy(seasons.startDate),
+    );
+  }
+
+  createSeason(tenantId: string, propertyId: string, name: string, from: string, to: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [prop] = await tx
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, propertyId));
+      if (!prop) throw new NotFoundException('Property not found');
+      const [s] = await tx
+        .insert(seasons)
+        .values({ tenantId, propertyId, name, startDate: from, endDate: to })
+        .returning();
+      return s;
+    });
+  }
+
+  /** Paint a base price across a season's range for one or more occupancies (reuses setPriceRange). */
+  async applySeason(
+    tenantId: string,
+    seasonId: string,
+    prices: { occupancyId: string; base: number }[],
+  ) {
+    const [season] = await this.dbs.withTenant(tenantId, (tx) =>
+      tx.select().from(seasons).where(eq(seasons.id, seasonId)),
+    );
+    if (!season) throw new NotFoundException('Season not found');
+    for (const p of prices) {
+      await this.setPriceRange(tenantId, p.occupancyId, season.startDate, season.endDate, p.base);
+    }
+    return {
+      season: season.name,
+      from: season.startDate,
+      to: season.endDate,
+      occupancies: prices.length,
+    };
+  }
+
+  /** Set a last-minute discount % across a date range for an occupancy; queues a rate push. */
+  setLastMinuteDrop(
+    tenantId: string,
+    occupancyId: string,
+    from: string,
+    to: string,
+    dropPct: number,
+  ) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const updated = await tx
+        .update(rateCalendar)
+        .set({ lastMinuteDropPct: dropPct.toFixed(2), updatedAt: sql`now()` })
+        .where(and(eq(rateCalendar.occupancyId, occupancyId), between(rateCalendar.date, from, to)))
+        .returning({ id: rateCalendar.id });
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'rate',
+        aggregateId: occupancyId,
+        eventType: 'ari.rate',
+        payload: { occupancyId, from, to, lastMinuteDropPct: dropPct },
+      });
+      return { updated: updated.length, occupancyId, from, to, dropPct };
     });
   }
 }

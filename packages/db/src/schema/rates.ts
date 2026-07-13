@@ -66,8 +66,48 @@ export const rateCalendar = pgTable(
     basePrice: numeric('base_price', { precision: 12, scale: 2 }).notNull(),
     commission: numeric('commission', { precision: 12, scale: 2 }).notNull(),
     sellingPrice: numeric('selling_price', { precision: 12, scale: 2 }).notNull(),
+    /** Owner-set last-minute discount % on the selling price for near-term stays (0 = none). */
+    lastMinuteDropPct: numeric('last_minute_drop_pct', { precision: 5, scale: 2 }).notNull().default('0'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ occDateUnique: unique('rate_calendar_occ_date_uq').on(t.occupancyId, t.date) }),
 );
+
+/**
+ * Commission slabs for properties whose `commission_type = 'slab'` (legacy `commissionslabs`).
+ * The Yoho commission for a base price is the value of the slab where
+ * `slab_start <= base <= slab_end`. Percentage-commission properties don't use this table.
+ */
+export const commissionSlabs = pgTable('commission_slabs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  propertyId: uuid('property_id')
+    .notNull()
+    .references(() => properties.id, { onDelete: 'cascade' }),
+  slabStart: numeric('slab_start', { precision: 12, scale: 2 }).notNull(),
+  slabEnd: numeric('slab_end', { precision: 12, scale: 2 }).notNull(),
+  commission: numeric('commission', { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A named date range for seasonal authoring (legacy `seasons`). It gives a span a name the owner
+ * can paint prices across; the resulting per-day prices live in `rate_calendar` (the source of
+ * truth), so a season is an authoring overlay, not a second price store.
+ */
+export const seasons = pgTable('seasons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  propertyId: uuid('property_id')
+    .notNull()
+    .references(() => properties.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

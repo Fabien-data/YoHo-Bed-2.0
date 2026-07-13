@@ -1,6 +1,13 @@
 import bcrypt from 'bcryptjs';
-import { and, eq } from 'drizzle-orm';
-import { priceDay } from '@yohobed/domain';
+import { and, eq, inArray } from 'drizzle-orm';
+import {
+  priceDay,
+  computeCommission,
+  sellingPrice,
+  sellingFromCommissionable,
+  taxFromSelling,
+  applyLastMinuteDrop,
+} from '@yohobed/domain';
 import { createDb } from './client';
 import {
   tenants,
@@ -13,6 +20,12 @@ import {
   ratePlans,
   occupancies,
   rateCalendar,
+  taxTypes,
+  taxDurations,
+  propertyTaxTypes,
+  commissionSlabs,
+  languages,
+  templates,
 } from './schema';
 
 /**
@@ -67,8 +80,15 @@ try {
     await db.insert(memberships).values({ userId: user!.id, tenantId, role: 'OWNER' });
   }
 
-  // Property
-  let [property] = await db.select().from(properties).where(eq(properties.tenantId, tenantId));
+  // Reset the demo tenant's inventory so the seed is deterministic even after ad-hoc test data.
+  // (Dev seed only — cascades to rooms, rate plans, availability, bookings, etc. for this tenant.)
+  await db.delete(properties).where(eq(properties.tenantId, tenantId));
+
+  // Property (selected by name so stray properties never shadow it)
+  let [property] = await db
+    .select()
+    .from(properties)
+    .where(and(eq(properties.tenantId, tenantId), eq(properties.name, 'Cinnamon Lakeside')));
   if (!property) {
     [property] = await db
       .insert(properties)
@@ -154,6 +174,171 @@ try {
     }),
   );
 
+  // --- A tax + slab-commission property (Compartment A parity demo) ----------------
+  // "Ceylon Tax Villa" exercises the two new pricing paths together: slab-based Yoho commission
+  // plus a 10% service charge (priority 1) and 15% VAT (priority 3). Its selling prices are the
+  // tax-inclusive charged prices; a booking decomposes the tax back out and reconciles exactly.
+  const taxRates = { serviceCharge: 0.1, nbt: 0, vat: 0.15 };
+  const slabStructure = {
+    type: 'slab' as const,
+    slabs: [
+      { slabStart: 0, slabEnd: 20000, commission: 2500 },
+      { slabStart: 20000.01, slabEnd: 100000, commission: 4000 },
+    ],
+  };
+
+  let [taxProp] = await db
+    .select()
+    .from(properties)
+    .where(and(eq(properties.tenantId, tenantId), eq(properties.name, 'Ceylon Tax Villa')));
+  if (!taxProp) {
+    [taxProp] = await db
+      .insert(properties)
+      .values({ tenantId, name: 'Ceylon Tax Villa', commissionType: 'slab' })
+      .returning();
+  }
+  const taxPropId = taxProp!.id;
+
+  // Commission slabs (reset deterministically).
+  await db.delete(commissionSlabs).where(eq(commissionSlabs.propertyId, taxPropId));
+  await db.insert(commissionSlabs).values([
+    { tenantId, propertyId: taxPropId, slabStart: '0.00', slabEnd: '20000.00', commission: '2500.00' },
+    { tenantId, propertyId: taxPropId, slabStart: '20000.01', slabEnd: '100000.00', commission: '4000.00' },
+  ]);
+
+  // Tax config: Service Charge (priority 1, 10%) + VAT (priority 3, 15%), for all of 2026.
+  await db.delete(propertyTaxTypes).where(eq(propertyTaxTypes.propertyId, taxPropId));
+  await db.delete(taxTypes).where(eq(taxTypes.tenantId, tenantId)); // cascades tax_durations
+  const [scType] = await db.insert(taxTypes).values({ tenantId, name: 'Service Charge' }).returning();
+  const [vatType] = await db.insert(taxTypes).values({ tenantId, name: 'VAT' }).returning();
+  await db.insert(taxDurations).values([
+    { tenantId, taxTypeId: scType!.id, startDate: '2026-01-01', endDate: '2026-12-31', ratePercent: '10.0000' },
+    { tenantId, taxTypeId: vatType!.id, startDate: '2026-01-01', endDate: '2026-12-31', ratePercent: '15.0000' },
+  ]);
+  await db.insert(propertyTaxTypes).values([
+    { tenantId, propertyId: taxPropId, taxTypeId: scType!.id, priority: 1 },
+    { tenantId, propertyId: taxPropId, taxTypeId: vatType!.id, priority: 3 },
+  ]);
+
+  // Room + availability for the taxed property.
+  let [taxRoom] = await db
+    .select()
+    .from(rooms)
+    .where(and(eq(rooms.tenantId, tenantId), eq(rooms.name, 'Ocean Suite')));
+  if (!taxRoom) {
+    [taxRoom] = await db
+      .insert(rooms)
+      .values({ tenantId, propertyId: taxPropId, name: 'Ocean Suite', quantity: 3 })
+      .returning();
+  }
+  const taxRoomId = taxRoom!.id;
+  await db.delete(availabilityCalendar).where(eq(availabilityCalendar.roomId, taxRoomId));
+  await db.insert(availabilityCalendar).values(
+    dateRange(START, 14).map((date) => ({
+      tenantId,
+      propertyId: taxPropId,
+      roomId: taxRoomId,
+      date,
+      physicalQuantity: 3,
+      roomsToSell: 3,
+      status: 'Open' as const,
+    })),
+  );
+
+  // BB rate plan + Double occupancy, priced tax-awarely: base → slab commission → OTA → tax.
+  let [taxRatePlan] = await db
+    .select()
+    .from(ratePlans)
+    .where(and(eq(ratePlans.roomId, taxRoomId), eq(ratePlans.rateCodeId, bb!.id)));
+  if (!taxRatePlan) {
+    [taxRatePlan] = await db
+      .insert(ratePlans)
+      .values({ tenantId, propertyId: taxPropId, roomId: taxRoomId, rateCodeId: bb!.id })
+      .returning();
+  }
+  let [taxOcc] = await db.select().from(occupancies).where(eq(occupancies.ratePlanId, taxRatePlan!.id));
+  if (!taxOcc) {
+    [taxOcc] = await db
+      .insert(occupancies)
+      .values({ tenantId, ratePlanId: taxRatePlan!.id, label: 'Double', accommodates: 2 })
+      .returning();
+  }
+  await db.delete(rateCalendar).where(eq(rateCalendar.occupancyId, taxOcc!.id));
+  await db.insert(rateCalendar).values(
+    dateRange(START, 14).map((date) => {
+      const base = isWeekend(date) ? 25000 : 18000;
+      const commission = computeCommission(base, slabStructure);
+      const commissionable = sellingPrice(base, commission, 18);
+      const selling = sellingFromCommissionable(commissionable, taxRates);
+      return {
+        tenantId,
+        occupancyId: taxOcc!.id,
+        date,
+        basePrice: base.toFixed(2),
+        commission: commission.toFixed(2),
+        sellingPrice: selling.toFixed(2),
+      };
+    }),
+  );
+
+  // Demo: a 15% last-minute drop on the first 3 nights of the taxed occupancy (Compartment B).
+  const dropDates = dateRange(START, 3);
+  await db
+    .update(rateCalendar)
+    .set({ lastMinuteDropPct: '15.00' })
+    .where(and(eq(rateCalendar.occupancyId, taxOcc!.id), inArray(rateCalendar.date, dropDates)));
+
+  // Live reconciliation proof for one weekday night (printed below).
+  const demoBase = 18000;
+  const demoCommission = computeCommission(demoBase, slabStructure); // slab → 2500
+  const demoCommissionable = sellingPrice(demoBase, demoCommission, 18); // ÷0.82 → 25000
+  const demoSelling = sellingFromCommissionable(demoCommissionable, taxRates); // ×1.265 → 31625
+  const demoTaxes = taxFromSelling(demoSelling, taxRates); // → 6625
+  const demoOta = demoCommissionable - demoBase - demoCommission; // 4500
+  const demoEffective = applyLastMinuteDrop(demoSelling, 15); // 31625 → 26881.25
+
+  // Languages (global) + message templates (Compartment E).
+  for (const l of [
+    { code: 'en', name: 'English', isDefault: true },
+    { code: 'si', name: 'Sinhala', isDefault: false },
+    { code: 'ta', name: 'Tamil', isDefault: false },
+  ]) {
+    await db.insert(languages).values(l).onConflictDoNothing({ target: languages.code });
+  }
+  await db.delete(templates).where(eq(templates.tenantId, tenantId));
+  await db.insert(templates).values([
+    {
+      tenantId,
+      key: 'booking_created',
+      language: 'en',
+      channel: 'email' as const,
+      subject: 'Booking confirmed — {{reference}}',
+      body:
+        'Dear {{guestName}},\n\nYour booking {{reference}} is confirmed for {{checkin}} to ' +
+        '{{checkout}} ({{nights}} nights).\nTotal: Rs {{amount}}.\n\nThank you for choosing us.\nYoHoBed',
+    },
+    {
+      tenantId,
+      key: 'booking_approved',
+      language: 'en',
+      channel: 'email' as const,
+      subject: 'Booking approved — {{reference}}',
+      body:
+        'Dear {{guestName}},\n\nGreat news — your booking {{reference}} ({{checkin}} → {{checkout}}) ' +
+        'has been approved. We look forward to welcoming you.\n\nYoHoBed',
+    },
+    {
+      tenantId,
+      key: 'booking_created',
+      language: 'si',
+      channel: 'email' as const,
+      subject: 'වෙන්කරවා ගැනීම තහවුරුයි — {{reference}}',
+      body:
+        'ආදරණීය {{guestName}},\n\nඔබගේ වෙන්කරවා ගැනීම {{reference}} {{checkin}} සිට {{checkout}} දක්වා ' +
+        '({{nights}} රාත්‍රී) තහවුරු කර ඇත.\nමුළු මුදල: රු {{amount}}.\n\nස්තූතියි.\nYoHoBed',
+    },
+  ]);
+
   // Cross-tenant YoHo staff user (tenantId null) for the staff console.
   const STAFF_EMAIL = 'staff@yohobed.test';
   let [staff] = await db.select().from(users).where(eq(users.email, STAFF_EMAIL));
@@ -173,6 +358,14 @@ try {
   console.log(`  roomId      : ${roomId}`);
   console.log(`  last-room   : ${LAST_ROOM_DATE} (rooms_to_sell = 1)`);
   console.log(`  occupancyId : ${occ!.id} (BB / Double, priced via @yohobed/domain)`);
+  console.log(`  taxed occ   : ${taxOcc!.id} (Ceylon Tax Villa · slab + 10% SC + 15% VAT)`);
+  console.log(
+    `    reconcile : base ${demoBase} + yoho ${demoCommission} + ota ${demoOta} + taxes ${demoTaxes} = ` +
+      `${demoBase + demoCommission + demoOta + demoTaxes} (selling ${demoSelling})`,
+  );
+  console.log(
+    `    last-min  : 15% drop on ${dropDates[0]}–${dropDates[2]} → weekday selling ${demoSelling} charged as ${demoEffective}`,
+  );
 } finally {
   await close();
 }

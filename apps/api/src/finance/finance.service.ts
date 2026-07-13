@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { computeSettlement } from '@yohobed/domain';
+import { decomposeBooking } from '@yohobed/domain';
 import {
   bookings,
   bookingDays,
@@ -134,6 +134,7 @@ export class FinanceService {
           count: sql<number>`count(*)::int`,
           gross: sql<string>`coalesce(sum(${bookings.amount}), 0)`,
           base: sql<string>`coalesce(sum(${bookings.totalBasePrice}), 0)`,
+          taxes: sql<string>`coalesce(sum(${bookings.taxes}), 0)`,
         })
         .from(bookings)
         .where(where);
@@ -144,7 +145,13 @@ export class FinanceService {
         .innerJoin(bookings, eq(bookings.id, bookingDays.bookingId))
         .where(where);
 
-      const s = computeSettlement(Number(totals!.gross), Number(totals!.base), Number(yohoAgg!.yoho));
+      // Tax-aware split: gross = propertyBase + yohoCommission + otaCommission + taxes.
+      const s = decomposeBooking(
+        Number(totals!.gross),
+        Number(totals!.taxes),
+        Number(totals!.base),
+        Number(yohoAgg!.yoho),
+      );
       return { propertyId, from, to, bookingCount: totals!.count, ...s, netPayable: s.propertyBase };
     });
   }
@@ -164,6 +171,7 @@ export class FinanceService {
           propertyBase: stmt.propertyBase.toFixed(2),
           yohoCommission: stmt.yohoCommission.toFixed(2),
           otaCommission: stmt.otaCommission.toFixed(2),
+          taxes: stmt.taxes.toFixed(2),
           netPayable: stmt.netPayable.toFixed(2),
           status: 'pending',
         })
