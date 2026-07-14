@@ -37,6 +37,7 @@ import {
   renderTemplate,
 } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
+import { MailerService } from '../email/mailer.service';
 import { eachNight } from '../common/dates';
 import type { AmendBookingDto, CreateBookingDto } from './dto';
 
@@ -44,7 +45,10 @@ type Transition = 'approve' | 'reject' | 'cancel' | 'no_show' | 'check_in' | 'ch
 
 @Injectable()
 export class BookingService {
-  constructor(private readonly dbs: DatabaseService) {}
+  constructor(
+    private readonly dbs: DatabaseService,
+    private readonly mailer: MailerService,
+  ) {}
 
   list(tenantId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
@@ -88,8 +92,10 @@ export class BookingService {
     });
   }
 
-  createWalkIn(tenantId: string, dto: CreateBookingDto) {
-    return this.dbs.withTenant(tenantId, (tx) => this.create(tx, tenantId, dto));
+  async createWalkIn(tenantId: string, dto: CreateBookingDto) {
+    const booking = await this.dbs.withTenant(tenantId, (tx) => this.create(tx, tenantId, dto));
+    this.mailer.deliverQueuedSafe(tenantId); // after commit: send the queued confirmation
+    return booking;
   }
 
   /**
@@ -310,6 +316,7 @@ export class BookingService {
         checkout: dto.checkout,
         nights: nights.length,
       };
+      // Queued in the same txn; the MailerService delivers it after commit (Compartment H).
       await tx.insert(messages).values({
         tenantId,
         bookingId: booking!.id,
@@ -319,8 +326,7 @@ export class BookingService {
         language: 'en',
         subject: renderTemplate(tpl.subject, vars),
         body: renderTemplate(tpl.body, vars),
-        status: 'sent',
-        sentAt: new Date(),
+        status: 'queued',
       });
     }
 

@@ -6,6 +6,7 @@ const USER_KEY = 'yoho_user';
 export interface Membership {
   tenantId: string | null;
   role: string;
+  tenantStatus?: string | null;
 }
 export interface SessionUser {
   id: string;
@@ -87,6 +88,124 @@ export async function login(email: string, password: string): Promise<SessionUse
   localStorage.setItem(TOKEN_KEY, data.accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(data.user));
   return data.user;
+}
+
+export function register(body: {
+  ownerName: string;
+  businessName: string;
+  email: string;
+  password: string;
+}): Promise<{ tenantId: string; status: string; message: string }> {
+  return apiFetch('/auth/register', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function forgotPassword(email: string): Promise<{ message: string }> {
+  return apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+}
+
+export function resetPassword(token: string, password: string): Promise<{ message: string }> {
+  return apiFetch('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  });
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  return apiFetch('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+// --- Profile (Compartment H) ---------------------------------------------------
+
+export interface PayoutAccount {
+  id: string;
+  bankName: string;
+  branchName: string | null;
+  accountName: string;
+  accountNumber: string;
+  swiftCode: string | null;
+  currency: string;
+}
+export interface Profile {
+  user: { id: string; email: string; name: string };
+  tenant: {
+    id: string;
+    name: string;
+    email: string;
+    status: 'pending' | 'active' | 'inactive' | 'suspended';
+    agreementAcceptedAt: string | null;
+  };
+  payoutAccount: PayoutAccount | null;
+}
+
+export function getProfile(): Promise<Profile> {
+  return apiFetch<Profile>('/profile');
+}
+export function setPayoutAccount(body: {
+  bankName: string;
+  branchName?: string;
+  accountName: string;
+  accountNumber: string;
+  swiftCode?: string;
+}): Promise<PayoutAccount> {
+  return apiFetch('/profile/payout-account', { method: 'PUT', body: JSON.stringify(body) });
+}
+export function acceptAgreement(): Promise<{ agreementAcceptedAt: string }> {
+  return apiFetch('/profile/agreement/accept', { method: 'POST' });
+}
+
+// --- Photos (Compartment H) ----------------------------------------------------
+
+export interface Photo {
+  id: string;
+  propertyId: string | null;
+  roomId: string | null;
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sortOrder: number;
+}
+
+export function mediaUrl(storageKey: string): string {
+  return `${API_BASE}/media/${storageKey}`;
+}
+
+async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const token = getToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new ApiError(res.status, (data && data.message) || res.statusText, data);
+  }
+  return data as T;
+}
+
+export function uploadPropertyPhoto(propertyId: string, file: File): Promise<Photo> {
+  return apiUpload(`/properties/${propertyId}/photos`, file);
+}
+export function uploadRoomPhoto(roomId: string, file: File): Promise<Photo> {
+  return apiUpload(`/rooms/${roomId}/photos`, file);
+}
+export function listPropertyPhotos(propertyId: string): Promise<Photo[]> {
+  return apiFetch<Photo[]>(`/properties/${propertyId}/photos`);
+}
+export function listRoomPhotos(roomId: string): Promise<Photo[]> {
+  return apiFetch<Photo[]>(`/rooms/${roomId}/photos`);
+}
+export function deletePhoto(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/photos/${id}`, { method: 'DELETE' });
 }
 
 export function listProperties(): Promise<Property[]> {
@@ -414,7 +533,7 @@ export interface StaffTenant {
   id: string;
   name: string;
   email: string;
-  status: 'active' | 'inactive' | 'suspended';
+  status: 'pending' | 'active' | 'inactive' | 'suspended';
   pending: number;
 }
 

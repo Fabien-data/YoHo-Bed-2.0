@@ -201,3 +201,20 @@ CREATE POLICY tenant_isolation ON ota_reservations
 
 -- cm_room_mappings deliberately has NO RLS (like outbox): the webhook resolves the tenant FROM
 -- the room code before any tenant context exists. Owner endpoints filter by tenant in the service.
+
+ALTER TABLE payout_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON payout_accounts;
+CREATE POLICY tenant_isolation ON payout_accounts
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE media ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON media;
+CREATE POLICY tenant_isolation ON media
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- media: writes stay tenant-fenced, but SELECT is open — the public photo route serves bytes by
+-- an unguessable 128-bit random key with no tenant context (browser <img> can't send JWTs).
+DROP POLICY IF EXISTS media_public_read ON media;
+CREATE POLICY media_public_read ON media FOR SELECT USING (true);

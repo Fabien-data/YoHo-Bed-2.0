@@ -8,6 +8,14 @@ export const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default('1d'),
   /** Shared secret the channel manager sends on POST /cm/reservations (x-cm-secret header). */
   CM_WEBHOOK_SECRET: z.string().min(16).default('dev-cm-webhook-secret-0001'),
+  /** Email seam (Compartment H): 'console' logs instead of sending; 'resend' needs the API key. */
+  EMAIL_PROVIDER: z.enum(['console', 'resend']).default('console'),
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('YoHoBed <onboarding@resend.dev>'),
+  /** Public web app origin, used to build links in emails (reset password, etc.). */
+  WEB_URL: z.string().url().default('http://localhost:3000'),
+  /** Where uploaded photos live (local-disk storage adapter). */
+  MEDIA_DIR: z.string().default('./uploads'),
 });
 
 export type Env = z.infer<typeof envSchema>;

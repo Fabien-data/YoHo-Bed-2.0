@@ -10,6 +10,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { cmRoomMappings, otaReservations, occupancies, ratePlans, rooms } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { BookingService } from '../bookings/booking.service';
+import { MailerService } from '../email/mailer.service';
 import type { CmReservationDto, SetMappingDto, SimulateDto } from './dto';
 
 type OtaReservationRow = typeof otaReservations.$inferSelect;
@@ -28,6 +29,7 @@ export class OtaService {
   constructor(
     private readonly dbs: DatabaseService,
     private readonly bookings: BookingService,
+    private readonly mailer: MailerService,
   ) {}
 
   /** Webhook entry. Idempotent on (channel, externalRef). */
@@ -185,6 +187,7 @@ export class OtaService {
           .where(eq(otaReservations.id, row.id));
         return b!;
       });
+      this.mailer.deliverQueuedSafe(row.tenantId); // after commit: send the queued confirmation
       return { id: row.id, status: 'imported' as const, bookingId: booking.id, reference: booking.reference };
     } catch (e) {
       const error =

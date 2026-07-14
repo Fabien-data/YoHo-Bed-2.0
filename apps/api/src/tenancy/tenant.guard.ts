@@ -6,6 +6,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { eq } from 'drizzle-orm';
+import { tenants } from '@yohobed/db';
+import { DatabaseService } from '../database/database.service';
 import type { AuthPrincipal } from '../auth/dto';
 
 export interface TenantRequest extends Request {
@@ -24,7 +27,9 @@ export interface TenantRequest extends Request {
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly dbs: DatabaseService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<TenantRequest>();
     const user = req.user;
     if (!user) {
@@ -41,6 +46,16 @@ export class TenantGuard implements CanActivate {
     const membership = scoped.find((m) => m.tenantId === active);
     if (!membership) {
       throw new ForbiddenException('You are not a member of this tenant');
+    }
+
+    // Suspension takes effect immediately, not at next login (Compartment H). 'pending' owners
+    // may keep working — they are setting up while awaiting approval.
+    const [t] = await this.dbs.db
+      .select({ status: tenants.status })
+      .from(tenants)
+      .where(eq(tenants.id, active as string));
+    if (!t || t.status === 'suspended' || t.status === 'inactive') {
+      throw new ForbiddenException('This account is suspended. Contact YoHoBed support.');
     }
 
     req.tenantId = active as string;

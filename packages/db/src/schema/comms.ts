@@ -73,5 +73,7 @@ export const messages = pgTable('messages', {
   body: text('body').notNull(),
   status: messageStatus('status').notNull().default('queued'),
   sentAt: timestamp('sent_at', { withTimezone: true }),
+  /** Provider error on the last delivery attempt (Compartment H real sending). */
+  error: text('error'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

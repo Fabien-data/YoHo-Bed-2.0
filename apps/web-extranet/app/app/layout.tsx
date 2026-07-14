@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { clearSession, getToken, getUser, isStaff, type SessionUser } from '@/lib/api';
+import { clearSession, getProfile, getToken, getUser, isStaff, type SessionUser } from '@/lib/api';
 import { Logo, Button } from '@/components/ui';
 import { NotificationsBell } from '@/components/notifications-bell';
 
@@ -16,6 +16,7 @@ const TABS = [
   { href: '/app/finance', label: 'Finance' },
   { href: '/app/comms', label: 'Comms' },
   { href: '/app/setup', label: 'Setup' },
+  { href: '/app/profile', label: 'Profile' },
 ];
 
 /** The owner PMS shell: auth guard + product navigation. Staff are routed to their own console. */
@@ -24,6 +25,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [ready, setReady] = useState(false);
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -37,6 +39,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
     setUser(u);
     setReady(true);
+    getProfile()
+      .then((p) => setPending(p.tenant.status === 'pending'))
+      .catch(() => {});
   }, [router]);
 
   if (!ready) return null;
@@ -86,7 +91,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="ml-64 px-8 py-8">
-        <div className="mx-auto max-w-7xl">{children}</div>
+        <div className="mx-auto max-w-7xl">
+          {pending && (
+            <div
+              className="mb-6 rounded-lg px-4 py-3 text-sm font-semibold"
+              style={{ color: 'var(--low-ink)', background: 'var(--low-soft)' }}
+            >
+              Your account is awaiting approval — you can set everything up now; taking bookings
+              unlocks once our team activates you. You&rsquo;ll get an email when it&rsquo;s done.
+            </div>
+          )}
+          {children}
+        </div>
       </main>
     </div>
   );

@@ -71,6 +71,16 @@ export default function LoginPage() {
           </form>
         </Card>
         <p className="mt-4 text-center text-xs text-ink-3">
+          New to YoHoBed?{' '}
+          <a href="/register" className="font-semibold text-brand-ink">
+            Create an account
+          </a>{' '}
+          ·{' '}
+          <a href="/forgot" className="font-semibold text-brand-ink">
+            Forgot password
+          </a>
+        </p>
+        <p className="mt-2 text-center text-xs text-ink-3">
           Demo: owner@demo.yohobed.test / password123
         </p>
       </div>

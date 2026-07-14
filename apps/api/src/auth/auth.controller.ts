@@ -3,12 +3,16 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CurrentUser } from '../tenancy/decorators';
 import { AuthService } from './auth.service';
 import {
+  changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
+  registerSchema,
   resetPasswordSchema,
   type AuthPrincipal,
+  type ChangePasswordDto,
   type ForgotPasswordDto,
   type LoginDto,
+  type RegisterDto,
   type ResetPasswordDto,
 } from './dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -46,5 +50,22 @@ export class AuthController {
     return { id: user.sub, email: user.email, memberships: user.memberships };
   }
 
-  // NOTE: self-registration is intentionally NOT exposed. Owners are onboarded by staff.
+  /** Self-serve owner signup (Compartment H): creates a PENDING tenant; staff approve it. */
+  @Post('register')
+  @HttpCode(201)
+  @UsePipes(new ZodValidationPipe(registerSchema))
+  register(@Body() dto: RegisterDto) {
+    return this.auth.register(dto);
+  }
+
+  @Post('change-password')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @CurrentUser() user: AuthPrincipal,
+    @Body(new ZodValidationPipe(changePasswordSchema)) dto: ChangePasswordDto,
+  ) {
+    await this.auth.changePassword(user.sub, dto);
+    return { message: 'Password updated.' };
+  }
 }

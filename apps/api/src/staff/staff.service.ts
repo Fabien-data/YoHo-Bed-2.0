@@ -3,6 +3,7 @@ import { desc, eq, sql } from 'drizzle-orm';
 import { tenants, bookings, auditLog } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { BookingService } from '../bookings/booking.service';
+import { EmailService } from '../email/email.service';
 import type { AuthPrincipal } from '../auth/dto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class StaffService {
   constructor(
     private readonly dbs: DatabaseService,
     private readonly bookingService: BookingService,
+    private readonly email: EmailService,
   ) {}
 
   /** Every tenant, with a count of bookings awaiting approval (staff overview). */
@@ -52,13 +54,29 @@ export class StaffService {
     tenantId: string,
     status: 'active' | 'inactive' | 'suspended',
   ) {
+    const [before] = await this.dbs.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    if (!before) throw new NotFoundException('Tenant not found');
     const [t] = await this.dbs.db
       .update(tenants)
       .set({ status, updatedAt: new Date() })
       .where(eq(tenants.id, tenantId))
       .returning();
-    if (!t) throw new NotFoundException('Tenant not found');
-    await this.audit(actor, tenantId, 'tenant.status', 'tenant', tenantId, { status });
+    await this.audit(actor, tenantId, 'tenant.status', 'tenant', tenantId, {
+      status,
+      previous: before.status,
+    });
+
+    // Approving a self-registered owner (pending → active) sends the welcome email.
+    if (before.status === 'pending' && status === 'active') {
+      void this.email.send({
+        to: t!.email,
+        subject: 'Your YoHoBed account is approved 🎉',
+        text:
+          `Great news — "${t!.name}" has been approved on YoHoBed.\n\n` +
+          `Your property can now take bookings. Sign in to finish your setup:\n` +
+          `${this.email.webUrl}\n\n— The YoHoBed team`,
+      });
+    }
     return t;
   }
 

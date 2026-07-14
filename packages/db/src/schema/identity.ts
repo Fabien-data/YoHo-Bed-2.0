@@ -9,7 +9,8 @@ import { pgTable, pgEnum, uuid, text, integer, numeric, timestamp, unique } from
  * a real role, and isolation is enforced by both an application query-scope and Postgres RLS.
  */
 
-export const tenantStatus = pgEnum('tenant_status', ['active', 'inactive', 'suspended']);
+/** 'pending' = self-registered, awaiting YoHo staff approval (Compartment H onboarding). */
+export const tenantStatus = pgEnum('tenant_status', ['pending', 'active', 'inactive', 'suspended']);
 export const userStatus = pgEnum('user_status', ['active', 'invited', 'disabled']);
 
 /** OWNER/OWNER_STAFF are tenant-scoped; YOHO_STAFF/YOHO_ADMIN are cross-tenant staff roles. */
@@ -22,6 +23,8 @@ export const tenants = pgTable('tenants', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   status: tenantStatus('status').notNull().default('active'),
+  /** When the owner accepted the platform agreement (Compartment H; legacy property agreement). */
+  agreementAcceptedAt: timestamp('agreement_accepted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

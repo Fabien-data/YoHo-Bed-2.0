@@ -28,7 +28,7 @@ function money(v?: string | number | null) {
     : 'Rs ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function tenantTone(status: StaffTenant['status']): 'avail' | 'low' | 'closed' {
-  return status === 'active' ? 'avail' : status === 'inactive' ? 'low' : 'closed';
+  return status === 'active' ? 'avail' : status === 'pending' ? 'low' : 'closed';
 }
 function bookingTone(s: Booking['status']): 'avail' | 'low' | 'closed' | 'muted' {
   if (s === 'Approved') return 'avail';
@@ -97,6 +97,17 @@ export default function StaffPage() {
     }
   }
 
+  /** Approve a self-registered owner (pending → active). Sends the welcome email server-side. */
+  async function approveTenant(t: StaffTenant) {
+    setBusy(true);
+    try {
+      await setTenantStatus(t.id, 'active');
+      await refresh(tenantId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selected = tenants.find((t) => t.id === tenantId) ?? null;
 
   return (
@@ -139,15 +150,26 @@ export default function StaffPage() {
                     {t.pending > 0 && <Pill tone="low">{t.pending} pending</Pill>}
                   </div>
                 </div>
-                <div className="mt-2 flex justify-end">
-                  <Button
-                    variant="ghost"
-                    className="!px-2 !py-1 text-xs"
-                    disabled={busy}
-                    onClick={() => toggleStatus(t)}
-                  >
-                    {t.status === 'active' ? 'Suspend' : 'Activate'}
-                  </Button>
+                <div className="mt-2 flex justify-end gap-1">
+                  {t.status === 'pending' && (
+                    <Button
+                      className="!px-2 !py-1 text-xs"
+                      disabled={busy}
+                      onClick={() => approveTenant(t)}
+                    >
+                      Approve
+                    </Button>
+                  )}
+                  {t.status !== 'pending' && (
+                    <Button
+                      variant="ghost"
+                      className="!px-2 !py-1 text-xs"
+                      disabled={busy}
+                      onClick={() => toggleStatus(t)}
+                    >
+                      {t.status === 'active' ? 'Suspend' : 'Activate'}
+                    </Button>
+                  )}
                 </div>
               </Card>
             ))}

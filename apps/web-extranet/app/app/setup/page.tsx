@@ -19,6 +19,7 @@ import {
   type Occupancy,
 } from '@/lib/api';
 import { Button, Card, Field, Pill } from '@/components/ui';
+import { PhotoManager } from '@/components/photo-manager';
 
 const selectClass =
   'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
@@ -205,6 +206,13 @@ export default function SetupPage() {
               Add
             </Button>
           </form>
+          {propertyId && (
+            <PhotoManager
+              target="property"
+              id={propertyId}
+              label={properties.find((p) => p.id === propertyId)?.name ?? 'property'}
+            />
+          )}
         </Section>
 
         {/* Rooms */}
@@ -251,6 +259,13 @@ export default function SetupPage() {
                   Add
                 </Button>
               </form>
+              {roomId && (
+                <PhotoManager
+                  target="room"
+                  id={roomId}
+                  label={propertyRooms.find((r) => r.id === roomId)?.name ?? 'room'}
+                />
+              )}
             </>
           )}
         </Section>

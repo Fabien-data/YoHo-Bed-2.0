@@ -9,3 +9,4 @@ export * from './comms';
 export * from './distribution';
 export * from './audit';
 export * from './ota';
+export * from './profile';
