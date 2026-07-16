@@ -1,7 +1,8 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
-import { TenantId } from '../tenancy/decorators';
+import { CurrentUser, TenantId } from '../tenancy/decorators';
+import type { AuthPrincipal } from '../auth/dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RatesService } from './rates.service';
 import {
@@ -74,20 +75,22 @@ export class RatesController {
   @HttpCode(200)
   setPrice(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
     @Param('id') occupancyId: string,
     @Body(new ZodValidationPipe(setPriceSchema)) dto: SetPriceDto,
   ) {
-    return this.rates.setPriceRange(tenantId, occupancyId, dto.from, dto.to, dto.base);
+    return this.rates.setPriceRange(tenantId, occupancyId, dto.from, dto.to, dto.base, user.email);
   }
 
   @Post('occupancies/:id/last-minute-drop')
   @HttpCode(200)
   lastMinuteDrop(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
     @Param('id') occupancyId: string,
     @Body(new ZodValidationPipe(lastMinuteDropSchema)) dto: LastMinuteDropDto,
   ) {
-    return this.rates.setLastMinuteDrop(tenantId, occupancyId, dto.from, dto.to, dto.dropPct);
+    return this.rates.setLastMinuteDrop(tenantId, occupancyId, dto.from, dto.to, dto.dropPct, user.email);
   }
 
   @Get('properties/:id/seasons')

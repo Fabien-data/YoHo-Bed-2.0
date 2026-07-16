@@ -789,3 +789,82 @@ export function simulateOta(body: {
 }): Promise<{ id: string; status: string; reference?: string; error?: string }> {
   return apiFetch('/ota/simulate', { method: 'POST', body: JSON.stringify(body) });
 }
+
+// --- Compartment I: restrictions, ARI history, reviews, customers -------------
+
+export function setRestrictions(
+  roomId: string,
+  body: { from: string; to: string; minStay: number; maxStay: number },
+): Promise<{ updated: number; from: string; to: string; minStay: number; maxStay: number }> {
+  return apiFetch(`/rooms/${roomId}/restrictions`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface AriHistoryEntry {
+  id: string;
+  roomId: string;
+  kind: 'availability' | 'price' | 'drop' | 'restriction';
+  fromDate: string;
+  toDate: string;
+  detail: Record<string, unknown>;
+  actorEmail: string | null;
+  createdAt: string;
+}
+export function getAriHistory(roomId: string): Promise<AriHistoryEntry[]> {
+  return apiFetch<AriHistoryEntry[]>(`/rooms/${roomId}/ari-history`);
+}
+
+export interface Review {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  bookingReference: string;
+  rating: number;
+  comment: string | null;
+  guestName: string;
+  createdAt: string;
+}
+export interface ReviewSummary {
+  propertyId: string;
+  propertyName: string;
+  count: number;
+  average: number;
+}
+export function listReviews(): Promise<{ reviews: Review[]; summary: ReviewSummary[] }> {
+  return apiFetch('/reviews');
+}
+
+export interface ReviewInviteInfo {
+  guestName: string;
+  propertyName: string;
+  checkin: string;
+  checkout: string;
+  used: boolean;
+}
+export function getReviewInvite(token: string): Promise<ReviewInviteInfo> {
+  return apiFetch<ReviewInviteInfo>(`/reviews/invite/${token}`);
+}
+export function submitReview(body: {
+  token: string;
+  rating: number;
+  comment?: string;
+}): Promise<{ submitted: boolean; propertyName: string }> {
+  return apiFetch('/reviews', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface CustomerRow {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  firstSeen: string;
+  bookings: number;
+  nights: number;
+  totalSpend: string;
+  lastCheckin: string | null;
+}
+export function listCustomers(): Promise<CustomerRow[]> {
+  return apiFetch<CustomerRow[]>('/customers');
+}
+export function getCustomer(id: string): Promise<CustomerRow & { history: Booking[] }> {
+  return apiFetch(`/customers/${id}`);
+}

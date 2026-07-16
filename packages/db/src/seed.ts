@@ -330,6 +330,16 @@ try {
     },
     {
       tenantId,
+      key: 'review_invite',
+      language: 'en',
+      channel: 'email' as const,
+      subject: 'How was your stay at {{propertyName}}?',
+      body:
+        'Dear {{guestName}},\n\nThank you for staying at {{propertyName}} ({{checkin}} → {{checkout}}).\n' +
+        'We would love to hear about your stay — it takes a minute:\n{{link}}\n\nYoHoBed',
+    },
+    {
+      tenantId,
       key: 'booking_created',
       language: 'si',
       channel: 'email' as const,

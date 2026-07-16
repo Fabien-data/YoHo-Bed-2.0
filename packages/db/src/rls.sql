@@ -218,3 +218,19 @@ CREATE POLICY tenant_isolation ON media
 -- an unguessable 128-bit random key with no tenant context (browser <img> can't send JWTs).
 DROP POLICY IF EXISTS media_public_read ON media;
 CREATE POLICY media_public_read ON media FOR SELECT USING (true);
+
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON reviews;
+CREATE POLICY tenant_isolation ON reviews
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- review_invites deliberately has NO RLS (like cm_room_mappings): a guest submitting a review
+-- has no tenant context; the unguessable 128-bit token IS the authorization and resolves the
+-- tenant. The service only ever reads by exact token.
+
+ALTER TABLE ari_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON ari_history;
+CREATE POLICY tenant_isolation ON ari_history
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

@@ -26,6 +26,9 @@ import {
   notifications,
   messages,
   templates,
+  availabilityCalendar,
+  properties,
+  reviewInvites,
   enqueueOutbox,
   type Tx,
 } from '@yohobed/db';
@@ -36,9 +39,11 @@ import {
   referralCommission,
   renderTemplate,
 } from '@yohobed/domain';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
 import { eachNight } from '../common/dates';
+import type { Env } from '../config/env';
 import type { AmendBookingDto, CreateBookingDto } from './dto';
 
 type Transition = 'approve' | 'reject' | 'cancel' | 'no_show' | 'check_in' | 'check_out';
@@ -48,6 +53,7 @@ export class BookingService {
   constructor(
     private readonly dbs: DatabaseService,
     private readonly mailer: MailerService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   list(tenantId: string) {
@@ -121,6 +127,24 @@ export class BookingService {
     }
 
     const nights = eachNight(dto.checkin, dto.checkout);
+
+    // Min/max-stay restriction on the arrival date (legacy parity: arrival-based rules).
+    const [arrival] = await tx
+      .select({ minStay: availabilityCalendar.minStay, maxStay: availabilityCalendar.maxStay })
+      .from(availabilityCalendar)
+      .where(and(eq(availabilityCalendar.roomId, dto.roomId), eq(availabilityCalendar.date, nights[0]!)));
+    if (arrival) {
+      if (nights.length < arrival.minStay) {
+        throw new BadRequestException(
+          `Minimum stay for arrivals on ${nights[0]} is ${arrival.minStay} nights`,
+        );
+      }
+      if (arrival.maxStay > 0 && nights.length > arrival.maxStay) {
+        throw new BadRequestException(
+          `Maximum stay for arrivals on ${nights[0]} is ${arrival.maxStay} nights`,
+        );
+      }
+    }
 
     // Price snapshot for the correct occupancy.
     const priceRows = await tx
@@ -348,8 +372,10 @@ export class BookingService {
   checkIn(tenantId: string, id: string) {
     return this.transition(tenantId, id, 'check_in');
   }
-  checkOut(tenantId: string, id: string) {
-    return this.transition(tenantId, id, 'check_out');
+  async checkOut(tenantId: string, id: string) {
+    const updated = await this.transition(tenantId, id, 'check_out');
+    this.mailer.deliverQueuedSafe(tenantId); // after commit: send the queued review invite
+    return updated;
   }
 
   private transition(tenantId: string, id: string, kind: Transition, reason?: string) {
@@ -417,6 +443,56 @@ export class BookingService {
         .where(eq(bookings.id, id))
         .returning();
       await tx.insert(bookingApprovals).values({ tenantId, bookingId: id, action, reason: reason ?? null });
+
+      // Check-out opens the review window: mint a single-use invite + queue the guest email
+      // (Compartment I). The invite row has no RLS — its unguessable token IS the authorization.
+      if (kind === 'check_out') {
+        const [cust] = await tx.select().from(customers).where(eq(customers.id, b.customerId));
+        const [prop] = await tx
+          .select({ name: properties.name })
+          .from(properties)
+          .where(eq(properties.id, b.propertyId));
+        const [invite] = await tx
+          .insert(reviewInvites)
+          .values({
+            tenantId,
+            propertyId: b.propertyId,
+            bookingId: b.id,
+            guestName: cust?.name ?? 'Guest',
+            propertyName: prop?.name ?? 'your property',
+            checkin: b.checkin,
+            checkout: b.checkout,
+          })
+          .onConflictDoNothing({ target: reviewInvites.bookingId })
+          .returning();
+        if (invite && cust?.email) {
+          const [tpl] = await tx
+            .select()
+            .from(templates)
+            .where(and(eq(templates.key, 'review_invite'), eq(templates.language, 'en')));
+          if (tpl) {
+            const vars = {
+              guestName: invite.guestName,
+              propertyName: invite.propertyName,
+              reference: b.reference,
+              checkin: b.checkin,
+              checkout: b.checkout,
+              link: `${this.config.get('WEB_URL', { infer: true })}/review/${invite.token}`,
+            };
+            await tx.insert(messages).values({
+              tenantId,
+              bookingId: b.id,
+              channel: 'email',
+              toAddress: cust.email,
+              templateKey: 'review_invite',
+              language: 'en',
+              subject: renderTemplate(tpl.subject, vars),
+              body: renderTemplate(tpl.body, vars),
+              status: 'queued',
+            });
+          }
+        }
+      }
       return updated;
     });
   }

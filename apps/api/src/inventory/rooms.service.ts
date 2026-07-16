@@ -1,9 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
-import { properties, rooms, roomtypes, availabilityCalendar, enqueueOutbox } from '@yohobed/db';
+import { and, between, desc, eq, sql } from 'drizzle-orm';
+import {
+  properties,
+  rooms,
+  roomtypes,
+  availabilityCalendar,
+  ariHistory,
+  enqueueOutbox,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { dateRangeInclusive } from '../common/dates';
-import type { CreateRoomDto, OpenAvailabilityDto, RoomtypeDto, UpdateRoomDto } from './dto';
+import type { CreateRoomDto, OpenAvailabilityDto, RestrictionsDto, RoomtypeDto, UpdateRoomDto } from './dto';
 
 @Injectable()
 export class RoomsService {
@@ -76,7 +83,7 @@ export class RoomsService {
   }
 
   /** Open (or update) a room's availability for an inclusive date range. */
-  openAvailability(tenantId: string, roomId: string, dto: OpenAvailabilityDto) {
+  openAvailability(tenantId: string, roomId: string, dto: OpenAvailabilityDto, actorEmail?: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [room] = await tx.select().from(rooms).where(eq(rooms.id, roomId));
       if (!room) throw new NotFoundException('Room not found');
@@ -112,7 +119,67 @@ export class RoomsService {
         eventType: 'ari.availability',
         payload: { roomId, from: dto.from, to: dto.to, action: 'open' },
       });
+      await tx.insert(ariHistory).values({
+        tenantId,
+        propertyId: room.propertyId,
+        roomId,
+        kind: 'availability',
+        fromDate: dto.from,
+        toDate: dto.to,
+        detail: { roomsToSell, status: dto.status },
+        actorEmail: actorEmail ?? null,
+      });
       return { opened: dates.length, from: dto.from, to: dto.to, roomsToSell };
     });
+  }
+
+  /** Set arrival-based min/max-stay restrictions across a date range (legacy ARI parity). */
+  setRestrictions(tenantId: string, roomId: string, dto: RestrictionsDto, actorEmail?: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [room] = await tx.select().from(rooms).where(eq(rooms.id, roomId));
+      if (!room) throw new NotFoundException('Room not found');
+
+      const updated = await tx
+        .update(availabilityCalendar)
+        .set({ minStay: dto.minStay, maxStay: dto.maxStay, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(availabilityCalendar.roomId, roomId),
+            between(availabilityCalendar.date, dto.from, dto.to),
+          ),
+        )
+        .returning({ id: availabilityCalendar.id });
+
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'availability',
+        aggregateId: roomId,
+        eventType: 'ari.restriction',
+        payload: { roomId, from: dto.from, to: dto.to, minStay: dto.minStay, maxStay: dto.maxStay },
+      });
+      await tx.insert(ariHistory).values({
+        tenantId,
+        propertyId: room.propertyId,
+        roomId,
+        kind: 'restriction',
+        fromDate: dto.from,
+        toDate: dto.to,
+        detail: { minStay: dto.minStay, maxStay: dto.maxStay },
+        actorEmail: actorEmail ?? null,
+      });
+      return { updated: updated.length, from: dto.from, to: dto.to, minStay: dto.minStay, maxStay: dto.maxStay };
+    });
+  }
+
+  /** The owner-facing ARI change log for one room, newest first. */
+  getAriHistory(tenantId: string, roomId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select()
+        .from(ariHistory)
+        .where(eq(ariHistory.roomId, roomId))
+        .orderBy(desc(ariHistory.createdAt))
+        .limit(100),
+    );
   }
 }

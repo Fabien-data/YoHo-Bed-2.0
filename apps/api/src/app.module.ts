@@ -14,6 +14,8 @@ import { CommercialModule } from './commercial/commercial.module';
 import { CommsModule } from './comms/comms.module';
 import { OtaModule } from './ota/ota.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { CustomersModule } from './customers/customers.module';
 import { EmailModule } from './email/email.module';
 import { ProfileModule } from './profile/profile.module';
 import { MediaModule } from './media/media.module';
@@ -38,6 +40,8 @@ import { HealthController } from './health/health.controller';
     EmailModule,
     ProfileModule,
     MediaModule,
+    ReviewsModule,
+    CustomersModule,
   ],
   controllers: [HealthController],
 })

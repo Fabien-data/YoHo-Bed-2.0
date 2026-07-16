@@ -13,7 +13,8 @@ import { rooms } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
-import { TenantId } from '../tenancy/decorators';
+import { CurrentUser, TenantId } from '../tenancy/decorators';
+import type { AuthPrincipal } from '../auth/dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { InventoryService } from './inventory.service';
 import { RoomsService } from './rooms.service';
@@ -21,9 +22,11 @@ import {
   reserveSchema,
   updateRoomSchema,
   openAvailabilitySchema,
+  restrictionsSchema,
   type ReserveDto,
   type UpdateRoomDto,
   type OpenAvailabilityDto,
+  type RestrictionsDto,
 } from './dto';
 
 @Controller('rooms')
@@ -53,10 +56,27 @@ export class RoomsController {
   @HttpCode(200)
   openAvailability(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
     @Param('id') roomId: string,
     @Body(new ZodValidationPipe(openAvailabilitySchema)) dto: OpenAvailabilityDto,
   ) {
-    return this.roomsService.openAvailability(tenantId, roomId, dto);
+    return this.roomsService.openAvailability(tenantId, roomId, dto, user.email);
+  }
+
+  @Post(':id/restrictions')
+  @HttpCode(200)
+  setRestrictions(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Param('id') roomId: string,
+    @Body(new ZodValidationPipe(restrictionsSchema)) dto: RestrictionsDto,
+  ) {
+    return this.roomsService.setRestrictions(tenantId, roomId, dto, user.email);
+  }
+
+  @Get(':id/ari-history')
+  ariHistory(@TenantId() tenantId: string, @Param('id') roomId: string) {
+    return this.roomsService.getAriHistory(tenantId, roomId);
   }
 
   @Get(':id/availability')

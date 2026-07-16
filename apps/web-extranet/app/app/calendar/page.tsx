@@ -11,15 +11,18 @@ import {
   listRatePlans,
   listOccupancies,
   setLastMinuteDrop,
+  setRestrictions,
+  getAriHistory,
   ApiError,
   type Property,
   type Room,
   type AvailabilityDay,
   type RateDay,
   type Occupancy,
+  type AriHistoryEntry,
 } from '@/lib/api';
-import { Button, Card } from '@/components/ui';
-import { money, moneyShort, dom, monthDays, addMonths, monthYear } from '@/lib/format';
+import { Button, Card, Pill } from '@/components/ui';
+import { money, moneyShort, dom, monthDays, addMonths, monthYear, longDate } from '@/lib/format';
 
 const INITIAL_MONTH = '2026-08-01';
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -61,6 +64,10 @@ export default function CalendarPage() {
   const [bulkBase, setBulkBase] = useState(18000);
   const [bulkRooms, setBulkRooms] = useState(5);
   const [bulkDrop, setBulkDrop] = useState(15);
+  const [bulkMin, setBulkMin] = useState(1);
+  const [bulkMax, setBulkMax] = useState(0);
+  const [history, setHistory] = useState<AriHistoryEntry[] | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const [editing, setEditing] = useState<Editing>(null);
   const [draft, setDraft] = useState('');
@@ -220,6 +227,35 @@ export default function CalendarPage() {
       () => setLastMinuteDrop(occId, monthFrom, monthTo, bulkDrop).then(() => undefined),
       `Applied a ${bulkDrop}% last-minute drop across ${dates.length} nights.`,
     );
+  const applyBulkRestrictions = () =>
+    selectedRoom &&
+    guard(
+      () =>
+        setRestrictions(selectedRoom.id, {
+          from: monthFrom,
+          to: monthTo,
+          minStay: bulkMin,
+          maxStay: bulkMax,
+        }).then(() => undefined),
+      `Min stay ${bulkMin} / max stay ${bulkMax === 0 ? 'unlimited' : bulkMax} set for arrivals in ${monthYear(month)}.`,
+    );
+
+  async function toggleHistory() {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (next && selectedRoom) {
+      setHistory(await getAriHistory(selectedRoom.id).catch(() => []));
+    }
+  }
+
+  function historyLine(h: AriHistoryEntry): string {
+    const d = h.detail as Record<string, unknown>;
+    if (h.kind === 'price') return `base ${money(Number(d.base))} → selling ${money(Number(d.selling))}`;
+    if (h.kind === 'drop') return `last-minute drop ${d.dropPct}%`;
+    if (h.kind === 'restriction')
+      return `min stay ${d.minStay} / max stay ${Number(d.maxStay) === 0 ? 'unlimited' : d.maxStay}`;
+    return `${d.roomsToSell} rooms to sell · ${d.status}`;
+  }
 
   const noRooms = propertyRooms.length === 0;
   const noPlans = !loading && selectedRoom && occs.length === 0;
@@ -323,6 +359,33 @@ export default function CalendarPage() {
             </Button>
             <Button variant="secondary" onClick={() => applyBulkAvail('Close')} disabled={busy} className="!py-2.5">
               Close
+            </Button>
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Min stay</span>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                className={`${selectClass} w-20`}
+                value={bulkMin}
+                onChange={(e) => setBulkMin(Number(e.target.value) || 1)}
+              />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Max (0 = ∞)</span>
+              <input
+                type="number"
+                min={0}
+                max={365}
+                className={`${selectClass} w-20`}
+                value={bulkMax}
+                onChange={(e) => setBulkMax(Number(e.target.value) || 0)}
+              />
+            </label>
+            <Button variant="ghost" onClick={applyBulkRestrictions} disabled={busy || !selectedRoom} className="!py-2.5">
+              Restrictions
             </Button>
           </div>
           <span className="pb-2 text-xs text-ink-3">applies to all of {monthYear(month)}</span>
@@ -520,6 +583,54 @@ export default function CalendarPage() {
         price to type a new base (Enter to save, Esc to cancel); click rooms-to-sell to edit inventory
         or open/close. Selling prices come from the parity-tested engine.
       </p>
+
+      {/* ARI change history (Compartment I) */}
+      <section className="mt-8">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-bold tracking-tight text-ink">Change history</h2>
+          <Button variant="secondary" onClick={toggleHistory} disabled={!selectedRoom}>
+            {showHistory ? 'Hide' : 'Show'}
+          </Button>
+        </div>
+        {showHistory && (
+          <Card className="mt-3 overflow-hidden">
+            {!history || history.length === 0 ? (
+              <p className="p-8 text-center text-sm text-ink-3">
+                No changes recorded yet for {selectedRoom?.name ?? 'this room'}.
+              </p>
+            ) : (
+              <div className="flex flex-col">
+                {history.map((h) => (
+                  <div key={h.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5 text-sm last:border-0">
+                    <Pill
+                      tone={
+                        h.kind === 'price'
+                          ? 'brand'
+                          : h.kind === 'availability'
+                            ? 'avail'
+                            : h.kind === 'drop'
+                              ? 'closed'
+                              : 'low'
+                      }
+                    >
+                      {h.kind}
+                    </Pill>
+                    <span className="whitespace-nowrap text-ink-2">
+                      {longDate(h.fromDate)}
+                      {h.toDate !== h.fromDate ? ` → ${longDate(h.toDate)}` : ''}
+                    </span>
+                    <span className="font-mono text-xs text-ink">{historyLine(h)}</span>
+                    <span className="ml-auto font-mono text-[0.65rem] text-ink-3">
+                      {h.actorEmail ?? 'system'} ·{' '}
+                      {new Date(h.createdAt).toLocaleString('en-GB', { hour12: false }).replace(',', '')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+      </section>
     </div>
   );
 }

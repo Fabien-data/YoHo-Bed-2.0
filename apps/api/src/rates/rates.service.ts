@@ -16,6 +16,7 @@ import {
   rateCodes,
   seasons,
   commissionSlabs,
+  ariHistory,
   enqueueOutbox,
   resolveTaxRatesForDates,
 } from '@yohobed/db';
@@ -66,11 +67,19 @@ export class RatesService {
    * Tax rates can vary by date, so the selling price is computed per day; base and commission are
    * date-independent. Untaxed properties gross up by ×1, so their stored numbers are unchanged.
    */
-  setPriceRange(tenantId: string, occupancyId: string, from: string, to: string, base: number) {
+  setPriceRange(
+    tenantId: string,
+    occupancyId: string,
+    from: string,
+    to: string,
+    base: number,
+    actorEmail?: string,
+  ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [ctx] = await tx
         .select({
           propertyId: properties.id,
+          roomId: rooms.id,
           commissionType: properties.commissionType,
           commissionPercentage: properties.commissionPercentage,
         })
@@ -136,6 +145,16 @@ export class RatesService {
         aggregateId: occupancyId,
         eventType: 'ari.rate',
         payload: { occupancyId, from, to, base },
+      });
+      await tx.insert(ariHistory).values({
+        tenantId,
+        propertyId: ctx.propertyId,
+        roomId: ctx.roomId,
+        kind: 'price',
+        fromDate: from,
+        toDate: to,
+        detail: { occupancyId, base, commission, selling: firstSelling },
+        actorEmail: actorEmail ?? null,
       });
       return { updated: dates.length, base, selling: firstSelling, commission };
     });
@@ -263,6 +282,7 @@ export class RatesService {
     from: string,
     to: string,
     dropPct: number,
+    actorEmail?: string,
   ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const updated = await tx
@@ -277,6 +297,24 @@ export class RatesService {
         eventType: 'ari.rate',
         payload: { occupancyId, from, to, lastMinuteDropPct: dropPct },
       });
+      const [ctx] = await tx
+        .select({ propertyId: rooms.propertyId, roomId: rooms.id })
+        .from(occupancies)
+        .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
+        .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
+        .where(eq(occupancies.id, occupancyId));
+      if (ctx) {
+        await tx.insert(ariHistory).values({
+          tenantId,
+          propertyId: ctx.propertyId,
+          roomId: ctx.roomId,
+          kind: 'drop',
+          fromDate: from,
+          toDate: to,
+          detail: { occupancyId, dropPct },
+          actorEmail: actorEmail ?? null,
+        });
+      }
       return { updated: updated.length, occupancyId, from, to, dropPct };
     });
   }

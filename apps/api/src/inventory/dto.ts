@@ -33,6 +33,22 @@ export const roomtypeSchema = z.object({
 });
 export type RoomtypeDto = z.infer<typeof roomtypeSchema>;
 
+export const restrictionsSchema = z
+  .object({
+    from: isoDate,
+    to: isoDate,
+    /** Minimum stay (nights) for arrivals in the range. 1 = no restriction. */
+    minStay: z.number().int().min(1).max(60).default(1),
+    /** Maximum stay (nights) for arrivals in the range. 0 = unlimited. */
+    maxStay: z.number().int().min(0).max(365).default(0),
+  })
+  .refine((v) => v.to >= v.from, { message: 'to must be on or after from', path: ['to'] })
+  .refine((v) => v.maxStay === 0 || v.maxStay >= v.minStay, {
+    message: 'maxStay must be 0 (unlimited) or at least minStay',
+    path: ['maxStay'],
+  });
+export type RestrictionsDto = z.infer<typeof restrictionsSchema>;
+
 export const openAvailabilitySchema = z
   .object({
     from: isoDate,

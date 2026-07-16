@@ -58,6 +58,10 @@ export const availabilityCalendar = pgTable(
     /** How many rooms may still be sold. Never allowed below zero. */
     roomsToSell: integer('rooms_to_sell').notNull(),
     status: availabilityStatus('status').notNull().default('Open'),
+    /** Minimum stay (nights) for arrivals on this date. 1 = no restriction. */
+    minStay: integer('min_stay').notNull().default(1),
+    /** Maximum stay (nights) for arrivals on this date. 0 = unlimited. */
+    maxStay: integer('max_stay').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
