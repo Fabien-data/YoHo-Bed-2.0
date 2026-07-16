@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Migrations/seeds run as the owner; the app + tests connect as the RLS-fenced yoho_app role.
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/yohobed
+  TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/yohobed
+  APP_DATABASE_URL: postgres://yoho_app:yoho_app_pw@localhost:5432/yohobed
+  JWT_SECRET: ci-secret-jwt-key-32-characters!!
+  CM_WEBHOOK_SECRET: ci-cm-webhook-secret-000001
+  EMAIL_PROVIDER: console
+  WEB_URL: http://localhost:3000
+
+jobs:
+  verify:
+    name: build · typecheck · test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: yohobed
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d yohobed"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.11.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Apply migrations + RLS
+        run: pnpm --filter @yohobed/db db:migrate
+
+      - name: Seed reference data
+        run: pnpm --filter @yohobed/db db:seed
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # domain (pure units) + db (RLS/concurrency integration) + api (HTTP e2e)
+      - name: Test
+        run: pnpm test
+
+      - name: Format check
+        run: pnpm format:check

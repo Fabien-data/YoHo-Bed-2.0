@@ -20,6 +20,11 @@ import {
  * Requires a running, migrated database. Skips without DATABASE_URL.
  */
 const superUrl = process.env.DATABASE_URL;
+// Skipping silently is fine locally, but in CI a skipped integration suite is a green build that
+// proved nothing — fail loudly instead.
+if (!superUrl && process.env.CI) {
+  throw new Error('DATABASE_URL must be set in CI: these integration tests must never be skipped.');
+}
 const run = superUrl ? describe : describe.skip;
 
 function appUrlFrom(url: string): string {

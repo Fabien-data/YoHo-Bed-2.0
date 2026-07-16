@@ -9,6 +9,11 @@ import { createDb, withTenant, tenants, properties, type DbHandle } from '../src
  * Skips when DATABASE_URL is not set so the default `pnpm test` stays green offline.
  */
 const superUrl = process.env.DATABASE_URL;
+// Skipping silently is fine locally, but in CI a skipped integration suite is a green build that
+// proved nothing — fail loudly instead.
+if (!superUrl && process.env.CI) {
+  throw new Error('DATABASE_URL must be set in CI: these integration tests must never be skipped.');
+}
 const run = superUrl ? describe : describe.skip;
 
 function appUrlFrom(url: string): string {

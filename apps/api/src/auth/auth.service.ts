@@ -8,7 +8,14 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { and, eq, gt, inArray } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import { users, memberships, passwordResets, tenants } from '@yohobed/db';
+import {
+  users,
+  memberships,
+  passwordResets,
+  tenants,
+  seedDefaultTemplates,
+  setTenantContext,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { EmailService } from '../email/email.service';
 import type {
@@ -89,7 +96,10 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase();
     const [existingUser] = await this.dbs.db.select().from(users).where(eq(users.email, email));
-    const [existingTenant] = await this.dbs.db.select().from(tenants).where(eq(tenants.email, email));
+    const [existingTenant] = await this.dbs.db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.email, email));
     if (existingUser || existingTenant) {
       throw new ConflictException('An account with this email already exists');
     }
@@ -105,6 +115,11 @@ export class AuthService {
         .values({ tenantId: t!.id, email, passwordHash, name: dto.ownerName })
         .returning();
       await tx.insert(memberships).values({ userId: u!.id, tenantId: t!.id, role: 'OWNER' });
+      // Without these the tenant has no templates, so guest confirmations and review invites
+      // would silently never be queued. Owners can edit them later in Comms.
+      // `templates` is RLS-fenced, so adopt the just-created tenant's context for this insert.
+      await setTenantContext(tx, t!.id);
+      await seedDefaultTemplates(tx, t!.id);
       return t!;
     });
 
@@ -118,7 +133,11 @@ export class AuthService {
         `Sign in: ${this.email.webUrl}\n\n— The YoHoBed team`,
     });
 
-    return { tenantId: tenant.id, status: tenant.status, message: 'Registered — awaiting approval' };
+    return {
+      tenantId: tenant.id,
+      status: tenant.status,
+      message: 'Registered — awaiting approval',
+    };
   }
 
   /** Authenticated password change (profile screen). */
@@ -128,7 +147,10 @@ export class AuthService {
       throw new UnauthorizedException('Current password is incorrect');
     }
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
-    await this.dbs.db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+    await this.dbs.db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId));
   }
 
   /** Always returns success — never reveals whether an account exists. */
@@ -157,7 +179,9 @@ export class AuthService {
     const [reset] = await this.dbs.db
       .select()
       .from(passwordResets)
-      .where(and(eq(passwordResets.tokenHash, tokenHash), gt(passwordResets.expiresAt, new Date())));
+      .where(
+        and(eq(passwordResets.tokenHash, tokenHash), gt(passwordResets.expiresAt, new Date())),
+      );
 
     if (!reset) {
       throw new UnauthorizedException('Invalid or expired reset token');

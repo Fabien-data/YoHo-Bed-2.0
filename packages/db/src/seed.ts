@@ -9,6 +9,7 @@ import {
   applyLastMinuteDrop,
 } from '@yohobed/domain';
 import { createDb } from './client';
+import { seedDefaultTemplates } from './default-templates';
 import {
   tenants,
   users,
@@ -46,7 +47,11 @@ const LAST_ROOM_DATE = '2026-08-10'; // deliberately set to 1 room, for the conc
 
 function dateRange(start: string, days: number): string[] {
   const out: string[] = [];
-  for (let d = new Date(`${start}T00:00:00Z`), i = 0; i < days; i++, d.setUTCDate(d.getUTCDate() + 1)) {
+  for (
+    let d = new Date(`${start}T00:00:00Z`), i = 0;
+    i < days;
+    i++, d.setUTCDate(d.getUTCDate() + 1)
+  ) {
     out.push(d.toISOString().slice(0, 10));
   }
   return out;
@@ -203,18 +208,45 @@ try {
   // Commission slabs (reset deterministically).
   await db.delete(commissionSlabs).where(eq(commissionSlabs.propertyId, taxPropId));
   await db.insert(commissionSlabs).values([
-    { tenantId, propertyId: taxPropId, slabStart: '0.00', slabEnd: '20000.00', commission: '2500.00' },
-    { tenantId, propertyId: taxPropId, slabStart: '20000.01', slabEnd: '100000.00', commission: '4000.00' },
+    {
+      tenantId,
+      propertyId: taxPropId,
+      slabStart: '0.00',
+      slabEnd: '20000.00',
+      commission: '2500.00',
+    },
+    {
+      tenantId,
+      propertyId: taxPropId,
+      slabStart: '20000.01',
+      slabEnd: '100000.00',
+      commission: '4000.00',
+    },
   ]);
 
   // Tax config: Service Charge (priority 1, 10%) + VAT (priority 3, 15%), for all of 2026.
   await db.delete(propertyTaxTypes).where(eq(propertyTaxTypes.propertyId, taxPropId));
   await db.delete(taxTypes).where(eq(taxTypes.tenantId, tenantId)); // cascades tax_durations
-  const [scType] = await db.insert(taxTypes).values({ tenantId, name: 'Service Charge' }).returning();
+  const [scType] = await db
+    .insert(taxTypes)
+    .values({ tenantId, name: 'Service Charge' })
+    .returning();
   const [vatType] = await db.insert(taxTypes).values({ tenantId, name: 'VAT' }).returning();
   await db.insert(taxDurations).values([
-    { tenantId, taxTypeId: scType!.id, startDate: '2026-01-01', endDate: '2026-12-31', ratePercent: '10.0000' },
-    { tenantId, taxTypeId: vatType!.id, startDate: '2026-01-01', endDate: '2026-12-31', ratePercent: '15.0000' },
+    {
+      tenantId,
+      taxTypeId: scType!.id,
+      startDate: '2026-01-01',
+      endDate: '2026-12-31',
+      ratePercent: '10.0000',
+    },
+    {
+      tenantId,
+      taxTypeId: vatType!.id,
+      startDate: '2026-01-01',
+      endDate: '2026-12-31',
+      ratePercent: '15.0000',
+    },
   ]);
   await db.insert(propertyTaxTypes).values([
     { tenantId, propertyId: taxPropId, taxTypeId: scType!.id, priority: 1 },
@@ -257,7 +289,10 @@ try {
       .values({ tenantId, propertyId: taxPropId, roomId: taxRoomId, rateCodeId: bb!.id })
       .returning();
   }
-  let [taxOcc] = await db.select().from(occupancies).where(eq(occupancies.ratePlanId, taxRatePlan!.id));
+  let [taxOcc] = await db
+    .select()
+    .from(occupancies)
+    .where(eq(occupancies.ratePlanId, taxRatePlan!.id));
   if (!taxOcc) {
     [taxOcc] = await db
       .insert(occupancies)
@@ -306,49 +341,9 @@ try {
   ]) {
     await db.insert(languages).values(l).onConflictDoNothing({ target: languages.code });
   }
+  // Message templates: the SAME set new tenants get at registration (single source of truth).
   await db.delete(templates).where(eq(templates.tenantId, tenantId));
-  await db.insert(templates).values([
-    {
-      tenantId,
-      key: 'booking_created',
-      language: 'en',
-      channel: 'email' as const,
-      subject: 'Booking confirmed — {{reference}}',
-      body:
-        'Dear {{guestName}},\n\nYour booking {{reference}} is confirmed for {{checkin}} to ' +
-        '{{checkout}} ({{nights}} nights).\nTotal: Rs {{amount}}.\n\nThank you for choosing us.\nYoHoBed',
-    },
-    {
-      tenantId,
-      key: 'booking_approved',
-      language: 'en',
-      channel: 'email' as const,
-      subject: 'Booking approved — {{reference}}',
-      body:
-        'Dear {{guestName}},\n\nGreat news — your booking {{reference}} ({{checkin}} → {{checkout}}) ' +
-        'has been approved. We look forward to welcoming you.\n\nYoHoBed',
-    },
-    {
-      tenantId,
-      key: 'review_invite',
-      language: 'en',
-      channel: 'email' as const,
-      subject: 'How was your stay at {{propertyName}}?',
-      body:
-        'Dear {{guestName}},\n\nThank you for staying at {{propertyName}} ({{checkin}} → {{checkout}}).\n' +
-        'We would love to hear about your stay — it takes a minute:\n{{link}}\n\nYoHoBed',
-    },
-    {
-      tenantId,
-      key: 'booking_created',
-      language: 'si',
-      channel: 'email' as const,
-      subject: 'වෙන්කරවා ගැනීම තහවුරුයි — {{reference}}',
-      body:
-        'ආදරණීය {{guestName}},\n\nඔබගේ වෙන්කරවා ගැනීම {{reference}} {{checkin}} සිට {{checkout}} දක්වා ' +
-        '({{nights}} රාත්‍රී) තහවුරු කර ඇත.\nමුළු මුදල: රු {{amount}}.\n\nස්තූතියි.\nYoHoBed',
-    },
-  ]);
+  await seedDefaultTemplates(db, tenantId);
 
   // Channel-manager room-code mappings (Compartment F) — routes webhook pushes to our rooms.
   await db.delete(cmRoomMappings).where(eq(cmRoomMappings.tenantId, tenantId));

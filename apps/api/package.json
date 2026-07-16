@@ -7,6 +7,7 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "dev": "nest start --watch",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -26,10 +27,16 @@
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
     "@nestjs/schematics": "^10.2.3",
+    "@nestjs/testing": "^10.4.22",
+    "@swc/core": "^1.15.43",
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.9.0",
-    "typescript": "^5.6.3"
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.2.2",
+    "typescript": "^5.6.3",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "^2.1.9"
   }
 }

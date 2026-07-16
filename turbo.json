@@ -7,7 +7,23 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "cache": false,
+      // Strict env mode: without this passthrough the integration suites see no DATABASE_URL
+      // and silently SKIP — a green CI run that proved nothing.
+      "env": [
+        "CI",
+        "DATABASE_URL",
+        "TEST_DATABASE_URL",
+        "APP_DATABASE_URL",
+        "JWT_SECRET",
+        "CM_WEBHOOK_SECRET",
+        "EMAIL_PROVIDER",
+        "RESEND_API_KEY",
+        "EMAIL_FROM",
+        "WEB_URL",
+        "MEDIA_DIR"
+      ]
     },
     "typecheck": {
       "dependsOn": ["^build"]

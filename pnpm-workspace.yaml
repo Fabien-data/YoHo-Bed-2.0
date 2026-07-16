@@ -1,8 +1,9 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'
 
 allowBuilds:
   esbuild: true
+  '@swc/core': true
   '@nestjs/core': false
   msgpackr-extract: false

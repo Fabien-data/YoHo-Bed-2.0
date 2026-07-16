@@ -7,11 +7,11 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: yohobed
     ports:
-      - "5433:5432"
+      - '5433:5432'
     volumes:
       - yohobed_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d yohobed"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d yohobed']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,9 +20,9 @@ services:
     image: redis:7-alpine
     container_name: yohobed-redis
     ports:
-      - "6380:6379"
+      - '6380:6379'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 10

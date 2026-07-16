@@ -21,8 +21,20 @@ export async function withTenant<T>(
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
   return db.transaction(async (tx) => {
-    // set_config(key, value, is_local=true) — scoped to this transaction only.
-    await tx.execute(sql`select set_config(${TENANT_GUC}, ${tenantId}, true)`);
+    await setTenantContext(tx, tenantId);
     return fn(tx);
   });
+}
+
+/**
+ * Set the RLS tenant context on an ALREADY-OPEN transaction.
+ *
+ * For work that creates a tenant and then writes its first tenant-owned rows in the same
+ * transaction (registration), where `withTenant` can't be used because the tenant id doesn't
+ * exist until mid-transaction. This satisfies RLS rather than bypassing it: the context is
+ * LOCAL to the transaction and can only ever be the row we just created.
+ */
+export async function setTenantContext(tx: Tx, tenantId: string): Promise<void> {
+  // set_config(key, value, is_local=true) — scoped to this transaction only.
+  await tx.execute(sql`select set_config(${TENANT_GUC}, ${tenantId}, true)`);
 }
