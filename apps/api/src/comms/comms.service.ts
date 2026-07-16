@@ -22,7 +22,10 @@ export class CommsService {
 
   async unreadCount(tenantId: string) {
     const [row] = await this.dbs.withTenant(tenantId, (tx) =>
-      tx.select({ count: sql<number>`count(*)::int` }).from(notifications).where(eq(notifications.read, false)),
+      tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(notifications)
+        .where(eq(notifications.read, false)),
     );
     return { count: row?.count ?? 0 };
   }

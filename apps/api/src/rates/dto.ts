@@ -26,9 +26,7 @@ export const createSeasonSchema = z
 export type CreateSeasonDto = z.infer<typeof createSeasonSchema>;
 
 export const applySeasonSchema = z.object({
-  prices: z
-    .array(z.object({ occupancyId: z.string().uuid(), base: z.number().positive() }))
-    .min(1),
+  prices: z.array(z.object({ occupancyId: z.string().uuid(), base: z.number().positive() })).min(1),
 });
 export type ApplySeasonDto = z.infer<typeof applySeasonSchema>;
 

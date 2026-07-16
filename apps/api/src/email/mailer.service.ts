@@ -22,7 +22,10 @@ export class MailerService {
   /** Send every queued message for a tenant. Returns counts for tests/ops. */
   async deliverQueued(tenantId: string): Promise<{ sent: number; failed: number }> {
     const queued = await this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(messages).where(and(eq(messages.status, 'queued'), eq(messages.channel, 'email'))),
+      tx
+        .select()
+        .from(messages)
+        .where(and(eq(messages.status, 'queued'), eq(messages.channel, 'email'))),
     );
     let sent = 0;
     let failed = 0;
@@ -39,13 +42,19 @@ export class MailerService {
       await this.dbs.withTenant(tenantId, (tx) =>
         tx
           .update(messages)
-          .set(ok ? { status: 'sent', sentAt: new Date() } : { status: 'failed', error: error ?? null })
+          .set(
+            ok
+              ? { status: 'sent', sentAt: new Date() }
+              : { status: 'failed', error: error ?? null },
+          )
           .where(eq(messages.id, m.id)),
       );
       ok ? sent++ : failed++;
     }
     if (queued.length > 0) {
-      this.log.log(`delivered tenant=${tenantId}: ${sent} sent, ${failed} failed (${this.email.providerName})`);
+      this.log.log(
+        `delivered tenant=${tenantId}: ${sent} sent, ${failed} failed (${this.email.providerName})`,
+      );
     }
     return { sent, failed };
   }

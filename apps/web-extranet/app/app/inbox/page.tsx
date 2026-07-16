@@ -16,7 +16,10 @@ import {
 import { money, longDate } from '@/lib/format';
 import { Button, Card, Field, Pill } from '@/components/ui';
 
-const STATUS_TONE: Record<OtaReservation['status'], 'avail' | 'closed' | 'low' | 'muted' | 'brand'> = {
+const STATUS_TONE: Record<
+  OtaReservation['status'],
+  'avail' | 'closed' | 'low' | 'muted' | 'brand'
+> = {
   imported: 'avail',
   failed: 'closed',
   received: 'low',
@@ -33,7 +36,11 @@ export default function InboxPage() {
   const [mappings, setMappings] = useState<CmMapping[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [codes, setCodes] = useState<Record<string, string>>({});
-  const [sim, setSim] = useState({ guestName: 'Amara Perera', checkin: '2026-08-05', checkout: '2026-08-07' });
+  const [sim, setSim] = useState({
+    guestName: 'Amara Perera',
+    checkin: '2026-08-05',
+    checkout: '2026-08-07',
+  });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'avail' | 'closed'; text: string } | null>(null);
 
@@ -53,7 +60,10 @@ export default function InboxPage() {
     load().catch(() => {});
   }, []);
 
-  async function run(fn: () => Promise<{ status: string; reference?: string; error?: string } | unknown>, okText?: string) {
+  async function run(
+    fn: () => Promise<{ status: string; reference?: string; error?: string } | unknown>,
+    okText?: string,
+  ) {
     setBusy(true);
     setMsg(null);
     try {
@@ -75,12 +85,14 @@ export default function InboxPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">Distribution</div>
+      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
+        Distribution
+      </div>
       <h1 className="text-3xl font-bold tracking-tight text-ink">OTA reservation inbox</h1>
       <p className="mt-2 max-w-2xl text-base text-ink-2">
         Reservations pushed by the channel manager land here and are imported as bookings
-        automatically — inventory is reserved atomically, and failures stay visible below so
-        nothing is ever silently dropped. Retry a failed import after fixing its cause.
+        automatically — inventory is reserved atomically, and failures stay visible below so nothing
+        is ever silently dropped. Retry a failed import after fixing its cause.
       </p>
 
       {msg && (
@@ -97,7 +109,9 @@ export default function InboxPage() {
 
       {/* Simulate an incoming reservation (dev/demo) */}
       <Card className="mt-6 p-5">
-        <h2 className="text-lg font-bold tracking-tight text-ink">Simulate an incoming reservation</h2>
+        <h2 className="text-lg font-bold tracking-tight text-ink">
+          Simulate an incoming reservation
+        </h2>
         <p className="mt-1 text-sm text-ink-3">
           Fires the same webhook the channel manager would call, for the first mapped room.
         </p>
@@ -119,7 +133,10 @@ export default function InboxPage() {
             value={sim.checkout}
             onChange={(e) => setSim((s) => ({ ...s, checkout: e.target.value }))}
           />
-          <Button disabled={busy || mappings.length === 0} onClick={() => run(() => simulateOta(sim))}>
+          <Button
+            disabled={busy || mappings.length === 0}
+            onClick={() => run(() => simulateOta(sim))}
+          >
             {busy ? 'Working…' : 'Send OTA reservation'}
           </Button>
           {mappings.length === 0 && (
@@ -133,7 +150,9 @@ export default function InboxPage() {
         <h2 className="text-lg font-bold tracking-tight text-ink">Incoming reservations</h2>
         <Card className="mt-3 overflow-hidden">
           {reservations.length === 0 ? (
-            <p className="p-8 text-center text-sm text-ink-3">Nothing from the channel manager yet.</p>
+            <p className="p-8 text-center text-sm text-ink-3">
+              Nothing from the channel manager yet.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -155,7 +174,10 @@ export default function InboxPage() {
                       <td className="px-4 py-3">
                         <Pill tone={STATUS_TONE[r.status]}>{r.status}</Pill>
                         {r.error && (
-                          <div className="mt-1.5 max-w-[260px] break-words font-mono text-xs" style={{ color: 'var(--closed-ink)' }}>
+                          <div
+                            className="mt-1.5 max-w-[260px] break-words font-mono text-xs"
+                            style={{ color: 'var(--closed-ink)' }}
+                          >
                             {r.error}
                           </div>
                         )}
@@ -167,8 +189,12 @@ export default function InboxPage() {
                         {longDate(r.checkin)} → {longDate(r.checkout)}
                         {r.rooms > 1 ? ` · ${r.rooms} rooms` : ''}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-ink-2">{money(r.otaAmount)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-ink-3">{when(r.receivedAt)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-ink-2">
+                        {money(r.otaAmount)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-ink-3">
+                        {when(r.receivedAt)}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         {r.status === 'failed' && (
                           <Button
@@ -193,8 +219,8 @@ export default function InboxPage() {
       <section className="mt-8">
         <h2 className="text-lg font-bold tracking-tight text-ink">Channel-manager room codes</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-3">
-          The channel manager identifies rooms by these codes. A reservation for an unmapped code
-          is rejected back to the channel manager for retry.
+          The channel manager identifies rooms by these codes. A reservation for an unmapped code is
+          rejected back to the channel manager for retry.
         </p>
         <Card className="mt-3 divide-y divide-[var(--line)] overflow-hidden">
           {rooms.map((room) => (
@@ -217,7 +243,9 @@ export default function InboxPage() {
               </Button>
             </div>
           ))}
-          {rooms.length === 0 && <p className="p-8 text-center text-sm text-ink-3">No rooms yet.</p>}
+          {rooms.length === 0 && (
+            <p className="p-8 text-center text-sm text-ink-3">No rooms yet.</p>
+          )}
         </Card>
       </section>
     </div>

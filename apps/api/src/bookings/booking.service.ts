@@ -132,7 +132,9 @@ export class BookingService {
     const [arrival] = await tx
       .select({ minStay: availabilityCalendar.minStay, maxStay: availabilityCalendar.maxStay })
       .from(availabilityCalendar)
-      .where(and(eq(availabilityCalendar.roomId, dto.roomId), eq(availabilityCalendar.date, nights[0]!)));
+      .where(
+        and(eq(availabilityCalendar.roomId, dto.roomId), eq(availabilityCalendar.date, nights[0]!)),
+      );
     if (arrival) {
       if (nights.length < arrival.minStay) {
         throw new BadRequestException(
@@ -150,7 +152,9 @@ export class BookingService {
     const priceRows = await tx
       .select()
       .from(rateCalendar)
-      .where(and(eq(rateCalendar.occupancyId, dto.occupancyId), inArray(rateCalendar.date, nights)));
+      .where(
+        and(eq(rateCalendar.occupancyId, dto.occupancyId), inArray(rateCalendar.date, nights)),
+      );
     if (priceRows.length !== nights.length) {
       throw new BadRequestException('Prices are not set for all nights of this stay');
     }
@@ -220,7 +224,13 @@ export class BookingService {
       aggregate: 'availability',
       aggregateId: dto.roomId,
       eventType: 'ari.availability',
-      payload: { roomId: dto.roomId, nights, rooms: dto.rooms, action: 'reserve', origin: 'booking' },
+      payload: {
+        roomId: dto.roomId,
+        nights,
+        rooms: dto.rooms,
+        action: 'reserve',
+        origin: 'booking',
+      },
     });
 
     // Customer (reuse by email, else create).
@@ -283,13 +293,17 @@ export class BookingService {
         };
       }),
     );
-    await tx.insert(bookingApprovals).values({ tenantId, bookingId: booking!.id, action: 'created' });
+    await tx
+      .insert(bookingApprovals)
+      .values({ tenantId, bookingId: booking!.id, action: 'created' });
     if (opts.autoApprove) {
       await tx.insert(bookingApprovals).values({
         tenantId,
         bookingId: booking!.id,
         action: 'approved',
-        reason: opts.channelLabel ? `auto: confirmed by ${opts.channelLabel}` : 'auto: OTA confirmed',
+        reason: opts.channelLabel
+          ? `auto: confirmed by ${opts.channelLabel}`
+          : 'auto: OTA confirmed',
       });
     }
 
@@ -390,11 +404,13 @@ export class BookingService {
       let releasedInventory = false;
 
       if (kind === 'approve') {
-        if (b.status !== 'Pending') throw new BadRequestException(`Cannot approve a ${b.status} booking`);
+        if (b.status !== 'Pending')
+          throw new BadRequestException(`Cannot approve a ${b.status} booking`);
         status = 'Approved';
         action = 'approved';
       } else if (kind === 'reject') {
-        if (b.status !== 'Pending') throw new BadRequestException(`Cannot reject a ${b.status} booking`);
+        if (b.status !== 'Pending')
+          throw new BadRequestException(`Cannot reject a ${b.status} booking`);
         status = 'Rejected';
         action = 'rejected';
         await releaseStay(tx, b.roomId, nights, b.rooms);
@@ -408,7 +424,8 @@ export class BookingService {
         await releaseStay(tx, b.roomId, nights, b.rooms);
         releasedInventory = true;
       } else if (kind === 'no_show') {
-        if (b.status !== 'Approved') throw new BadRequestException(`Cannot no-show a ${b.status} booking`);
+        if (b.status !== 'Approved')
+          throw new BadRequestException(`Cannot no-show a ${b.status} booking`);
         status = 'NoShow';
         action = 'no_show';
       } else if (kind === 'check_in') {
@@ -433,7 +450,13 @@ export class BookingService {
           aggregate: 'availability',
           aggregateId: b.roomId,
           eventType: 'ari.availability',
-          payload: { roomId: b.roomId, nights, rooms: b.rooms, action: 'release', origin: 'booking' },
+          payload: {
+            roomId: b.roomId,
+            nights,
+            rooms: b.rooms,
+            action: 'release',
+            origin: 'booking',
+          },
         });
       }
 
@@ -442,7 +465,9 @@ export class BookingService {
         .set({ ...set, status })
         .where(eq(bookings.id, id))
         .returning();
-      await tx.insert(bookingApprovals).values({ tenantId, bookingId: id, action, reason: reason ?? null });
+      await tx
+        .insert(bookingApprovals)
+        .values({ tenantId, bookingId: id, action, reason: reason ?? null });
 
       // Check-out opens the review window: mint a single-use invite + queue the guest email
       // (Compartment I). The invite row has no RLS — its unguessable token IS the authorization.
@@ -526,13 +551,15 @@ export class BookingService {
       const newCheckin = dto.checkin ?? b.checkin;
       const newCheckout = dto.checkout ?? b.checkout;
       const newRooms = dto.rooms ?? b.rooms;
-      const stayChanged = newCheckin !== b.checkin || newCheckout !== b.checkout || newRooms !== b.rooms;
+      const stayChanged =
+        newCheckin !== b.checkin || newCheckout !== b.checkout || newRooms !== b.rooms;
 
       if (stayChanged) {
         if (b.status !== 'Pending' && b.status !== 'Approved') {
           throw new BadRequestException(`Cannot change the stay of a ${b.status} booking`);
         }
-        if (newCheckout <= newCheckin) throw new BadRequestException('checkout must be after checkin');
+        if (newCheckout <= newCheckin)
+          throw new BadRequestException('checkout must be after checkin');
 
         const oldNights = eachNight(b.checkin, b.checkout);
         const newNights = eachNight(newCheckin, newCheckout);
@@ -541,7 +568,9 @@ export class BookingService {
         const priceRows = await tx
           .select()
           .from(rateCalendar)
-          .where(and(eq(rateCalendar.occupancyId, b.occupancyId), inArray(rateCalendar.date, newNights)));
+          .where(
+            and(eq(rateCalendar.occupancyId, b.occupancyId), inArray(rateCalendar.date, newNights)),
+          );
         if (priceRows.length !== newNights.length) {
           throw new BadRequestException('Prices are not set for all nights of the new stay');
         }

@@ -1,4 +1,13 @@
-import { pgTable, pgEnum, uuid, text, integer, numeric, timestamp, unique } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  integer,
+  numeric,
+  timestamp,
+  unique,
+} from 'drizzle-orm/pg-core';
 
 /**
  * Identity & Tenancy (Phase 1).

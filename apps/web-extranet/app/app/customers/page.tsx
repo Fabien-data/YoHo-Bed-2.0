@@ -1,12 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import {
-  listCustomers,
-  getCustomer,
-  type CustomerRow,
-  type Booking,
-} from '@/lib/api';
+import { listCustomers, getCustomer, type CustomerRow, type Booking } from '@/lib/api';
 import { money, longDate } from '@/lib/format';
 import { Card, Pill } from '@/components/ui';
 
@@ -111,8 +106,13 @@ export default function CustomersPage() {
                           ) : (
                             <div className="flex flex-col gap-2">
                               {history[c.id]!.map((b) => (
-                                <div key={b.id} className="flex flex-wrap items-center gap-3 text-sm">
-                                  <span className="font-mono text-xs text-ink-3">{b.reference}</span>
+                                <div
+                                  key={b.id}
+                                  className="flex flex-wrap items-center gap-3 text-sm"
+                                >
+                                  <span className="font-mono text-xs text-ink-3">
+                                    {b.reference}
+                                  </span>
                                   <Pill tone={STATUS_TONE[b.status] ?? 'muted'}>{b.status}</Pill>
                                   <span className="text-ink-2">
                                     {longDate(b.checkin)} → {longDate(b.checkout)} · {b.nights}n

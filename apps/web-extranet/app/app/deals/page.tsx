@@ -109,7 +109,10 @@ export default function DealsPage() {
   const applyPromo = (id: string, name: string) =>
     guard(async () => {
       const res = await applyPromotion(id);
-      setMsg({ tone: 'avail', text: `Applied “${name}” to ${res.ratesUpdated} rate rows on the calendar.` });
+      setMsg({
+        tone: 'avail',
+        text: `Applied “${name}” to ${res.ratesUpdated} rate rows on the calendar.`,
+      });
     });
   const delPromo = (id: string) =>
     guard(async () => {
@@ -126,22 +129,36 @@ export default function DealsPage() {
       await loadCommon();
     }, 'Coupon created.');
   };
-  const delCoupon = (id: string) => guard(async () => { await deleteCoupon(id); await loadCommon(); });
+  const delCoupon = (id: string) =>
+    guard(async () => {
+      await deleteCoupon(id);
+      await loadCommon();
+    });
 
   const addPartner = (e: React.FormEvent) => {
     e.preventDefault();
     if (!partnerForm.name.trim() || !partnerForm.code.trim()) return;
     return guard(async () => {
-      await createReferralPartner({ ...partnerForm, name: partnerForm.name.trim(), code: partnerForm.code.trim() });
+      await createReferralPartner({
+        ...partnerForm,
+        name: partnerForm.name.trim(),
+        code: partnerForm.code.trim(),
+      });
       setPartnerForm({ name: '', code: '', commissionPct: 5 });
       await loadCommon();
     }, 'Referral partner created.');
   };
-  const delPartner = (id: string) => guard(async () => { await deleteReferralPartner(id); await loadCommon(); });
+  const delPartner = (id: string) =>
+    guard(async () => {
+      await deleteReferralPartner(id);
+      await loadCommon();
+    });
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">Commercial</div>
+      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
+        Commercial
+      </div>
       <h1 className="text-3xl font-bold tracking-tight text-ink">Deals &amp; codes</h1>
       <p className="mt-2 max-w-2xl text-base text-ink-2">
         Promotions push a discount onto the rate calendar; coupons are guest codes redeemed at
@@ -164,7 +181,11 @@ export default function DealsPage() {
       <section className="mt-6">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-bold tracking-tight text-ink">Promotions</h2>
-          <select className={selectClass} value={propertyId} onChange={(e) => selectProperty(e.target.value)}>
+          <select
+            className={selectClass}
+            value={propertyId}
+            onChange={(e) => selectProperty(e.target.value)}
+          >
             {properties.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -189,7 +210,9 @@ export default function DealsPage() {
                 min={0}
                 max={90}
                 value={promoForm.discountPct}
-                onChange={(e) => setPromoForm((f) => ({ ...f, discountPct: Number(e.target.value) || 0 }))}
+                onChange={(e) =>
+                  setPromoForm((f) => ({ ...f, discountPct: Number(e.target.value) || 0 }))
+                }
               />
             </div>
             <div className="w-40">
@@ -214,7 +237,9 @@ export default function DealsPage() {
                 type="number"
                 min={1}
                 value={promoForm.minNights}
-                onChange={(e) => setPromoForm((f) => ({ ...f, minNights: Number(e.target.value) || 1 }))}
+                onChange={(e) =>
+                  setPromoForm((f) => ({ ...f, minNights: Number(e.target.value) || 1 }))
+                }
               />
             </div>
             <Button type="submit" disabled={busy}>
@@ -225,17 +250,29 @@ export default function DealsPage() {
           <div className="mt-4 flex flex-col gap-2">
             {promotions.length === 0 && <p className="text-sm text-ink-3">No promotions yet.</p>}
             {promotions.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3">
+              <div
+                key={p.id}
+                className="flex items-center gap-3 rounded-lg border border-line px-4 py-3"
+              >
                 <span className="font-semibold text-ink">{p.name}</span>
                 <Pill tone="low">−{Number(p.discountPct)}%</Pill>
                 <span className="font-mono text-xs text-ink-3">
                   {p.startDate} → {p.endDate} · min {p.minNights}n
                 </span>
                 <div className="flex-1" />
-                <Button className="!px-3 !py-1.5 text-xs" disabled={busy} onClick={() => applyPromo(p.id, p.name)}>
+                <Button
+                  className="!px-3 !py-1.5 text-xs"
+                  disabled={busy}
+                  onClick={() => applyPromo(p.id, p.name)}
+                >
                   Apply to calendar
                 </Button>
-                <Button variant="ghost" className="!px-3 !py-1.5 text-xs" disabled={busy} onClick={() => delPromo(p.id)}>
+                <Button
+                  variant="ghost"
+                  className="!px-3 !py-1.5 text-xs"
+                  disabled={busy}
+                  onClick={() => delPromo(p.id)}
+                >
                   Delete
                 </Button>
               </div>
@@ -253,7 +290,9 @@ export default function DealsPage() {
               <Field
                 label="Code"
                 value={couponForm.code}
-                onChange={(e) => setCouponForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                onChange={(e) =>
+                  setCouponForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))
+                }
                 placeholder="SUMMER10"
               />
             </div>
@@ -262,7 +301,9 @@ export default function DealsPage() {
               <select
                 className={selectClass}
                 value={couponForm.type}
-                onChange={(e) => setCouponForm((f) => ({ ...f, type: e.target.value as 'percentage' | 'fixed' }))}
+                onChange={(e) =>
+                  setCouponForm((f) => ({ ...f, type: e.target.value as 'percentage' | 'fixed' }))
+                }
               >
                 <option value="percentage">Percentage</option>
                 <option value="fixed">Fixed (Rs)</option>
@@ -274,7 +315,9 @@ export default function DealsPage() {
                 type="number"
                 min={1}
                 value={couponForm.value}
-                onChange={(e) => setCouponForm((f) => ({ ...f, value: Number(e.target.value) || 0 }))}
+                onChange={(e) =>
+                  setCouponForm((f) => ({ ...f, value: Number(e.target.value) || 0 }))
+                }
               />
             </div>
             <div className="w-40">
@@ -299,7 +342,9 @@ export default function DealsPage() {
                 type="number"
                 min={0}
                 value={couponForm.maxUses}
-                onChange={(e) => setCouponForm((f) => ({ ...f, maxUses: Number(e.target.value) || 0 }))}
+                onChange={(e) =>
+                  setCouponForm((f) => ({ ...f, maxUses: Number(e.target.value) || 0 }))
+                }
               />
             </div>
             <Button type="submit" disabled={busy}>
@@ -310,7 +355,10 @@ export default function DealsPage() {
           <div className="mt-4 flex flex-col gap-2">
             {coupons.length === 0 && <p className="text-sm text-ink-3">No coupons yet.</p>}
             {coupons.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3">
+              <div
+                key={c.id}
+                className="flex items-center gap-3 rounded-lg border border-line px-4 py-3"
+              >
                 <Pill tone="brand">{c.code}</Pill>
                 <span className="font-semibold text-ink">
                   {c.type === 'percentage' ? `${Number(c.value)}% off` : `${money(c.value)} off`}
@@ -320,7 +368,12 @@ export default function DealsPage() {
                   {c.maxUses > 0 ? `/${c.maxUses}` : ''}
                 </span>
                 <div className="flex-1" />
-                <Button variant="ghost" className="!px-3 !py-1.5 text-xs" disabled={busy} onClick={() => delCoupon(c.id)}>
+                <Button
+                  variant="ghost"
+                  className="!px-3 !py-1.5 text-xs"
+                  disabled={busy}
+                  onClick={() => delCoupon(c.id)}
+                >
                   Delete
                 </Button>
               </div>
@@ -347,7 +400,9 @@ export default function DealsPage() {
                 <Field
                   label="Code"
                   value={partnerForm.code}
-                  onChange={(e) => setPartnerForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                  onChange={(e) =>
+                    setPartnerForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))
+                  }
                   placeholder="LANKA"
                 />
               </div>
@@ -358,7 +413,9 @@ export default function DealsPage() {
                   min={0}
                   max={90}
                   value={partnerForm.commissionPct}
-                  onChange={(e) => setPartnerForm((f) => ({ ...f, commissionPct: Number(e.target.value) || 0 }))}
+                  onChange={(e) =>
+                    setPartnerForm((f) => ({ ...f, commissionPct: Number(e.target.value) || 0 }))
+                  }
                 />
               </div>
               <Button type="submit" disabled={busy}>
@@ -366,14 +423,26 @@ export default function DealsPage() {
               </Button>
             </form>
             <div className="mt-4 flex flex-col gap-2">
-              {partners.length === 0 && <p className="text-sm text-ink-3">No referral partners yet.</p>}
+              {partners.length === 0 && (
+                <p className="text-sm text-ink-3">No referral partners yet.</p>
+              )}
               {partners.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 rounded-lg border border-line px-4 py-3">
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 rounded-lg border border-line px-4 py-3"
+                >
                   <Pill tone="brand">{p.code}</Pill>
                   <span className="font-semibold text-ink">{p.name}</span>
-                  <span className="font-mono text-xs text-ink-3">{Number(p.commissionPct)}% commission</span>
+                  <span className="font-mono text-xs text-ink-3">
+                    {Number(p.commissionPct)}% commission
+                  </span>
                   <div className="flex-1" />
-                  <Button variant="ghost" className="!px-3 !py-1.5 text-xs" disabled={busy} onClick={() => delPartner(p.id)}>
+                  <Button
+                    variant="ghost"
+                    className="!px-3 !py-1.5 text-xs"
+                    disabled={busy}
+                    onClick={() => delPartner(p.id)}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -382,9 +451,13 @@ export default function DealsPage() {
           </Card>
 
           <Card className="p-5">
-            <div className="font-mono text-[0.62rem] uppercase tracking-widest text-ink-3">Earned commissions</div>
+            <div className="font-mono text-[0.62rem] uppercase tracking-widest text-ink-3">
+              Earned commissions
+            </div>
             <div className="mt-3 flex flex-col gap-2">
-              {commissions.length === 0 && <p className="text-sm text-ink-3">No commissions recorded yet.</p>}
+              {commissions.length === 0 && (
+                <p className="text-sm text-ink-3">No commissions recorded yet.</p>
+              )}
               {commissions.map((c) => (
                 <div key={c.id} className="flex items-center gap-3 text-sm">
                   <span className="font-semibold text-ink">{c.partnerName}</span>

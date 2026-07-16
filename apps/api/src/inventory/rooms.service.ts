@@ -10,7 +10,13 @@ import {
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { dateRangeInclusive } from '../common/dates';
-import type { CreateRoomDto, OpenAvailabilityDto, RestrictionsDto, RoomtypeDto, UpdateRoomDto } from './dto';
+import type {
+  CreateRoomDto,
+  OpenAvailabilityDto,
+  RestrictionsDto,
+  RoomtypeDto,
+  UpdateRoomDto,
+} from './dto';
 
 @Injectable()
 export class RoomsService {
@@ -83,7 +89,12 @@ export class RoomsService {
   }
 
   /** Open (or update) a room's availability for an inclusive date range. */
-  openAvailability(tenantId: string, roomId: string, dto: OpenAvailabilityDto, actorEmail?: string) {
+  openAvailability(
+    tenantId: string,
+    roomId: string,
+    dto: OpenAvailabilityDto,
+    actorEmail?: string,
+  ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [room] = await tx.select().from(rooms).where(eq(rooms.id, roomId));
       if (!room) throw new NotFoundException('Room not found');
@@ -167,7 +178,13 @@ export class RoomsService {
         detail: { minStay: dto.minStay, maxStay: dto.maxStay },
         actorEmail: actorEmail ?? null,
       });
-      return { updated: updated.length, from: dto.from, to: dto.to, minStay: dto.minStay, maxStay: dto.maxStay };
+      return {
+        updated: updated.length,
+        from: dto.from,
+        to: dto.to,
+        minStay: dto.minStay,
+        maxStay: dto.maxStay,
+      };
     });
   }
 

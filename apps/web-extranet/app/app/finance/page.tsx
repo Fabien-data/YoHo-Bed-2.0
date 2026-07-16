@@ -47,7 +47,11 @@ export default function FinancePage() {
   const reconciles =
     payout &&
     Math.abs(
-      payout.propertyBase + payout.yohoCommission + payout.otaCommission + payout.taxes - payout.grossSelling,
+      payout.propertyBase +
+        payout.yohoCommission +
+        payout.otaCommission +
+        payout.taxes -
+        payout.grossSelling,
     ) < 0.02;
 
   return (
@@ -57,7 +61,11 @@ export default function FinancePage() {
         <h1 className="text-2xl font-bold tracking-tight text-ink">Finance</h1>
         <span className="font-mono text-sm text-ink-3">Aug 2026</span>
         <div className="flex-1" />
-        <select className={selectClass} value={propertyId} onChange={(e) => selectProperty(e.target.value)}>
+        <select
+          className={selectClass}
+          value={propertyId}
+          onChange={(e) => selectProperty(e.target.value)}
+        >
           {properties.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -77,7 +85,10 @@ export default function FinancePage() {
           <div className="mt-4 flex flex-wrap gap-2">
             {revenue &&
               Object.entries(revenue.byStatus).map(([st, v]) => (
-                <Pill key={st} tone={st === 'Approved' ? 'avail' : st === 'Pending' ? 'low' : 'muted'}>
+                <Pill
+                  key={st}
+                  tone={st === 'Approved' ? 'avail' : st === 'Pending' ? 'low' : 'muted'}
+                >
                   {st} · {v.count}
                 </Pill>
               ))}
@@ -114,13 +125,19 @@ export default function FinancePage() {
                 style={{ color: reconciles ? 'var(--avail-ink)' : 'var(--closed-ink)' }}
               >
                 {reconciles ? '✓' : '⚠'} base + yoho + ota + taxes ={' '}
-                {money(payout.propertyBase + payout.yohoCommission + payout.otaCommission + payout.taxes)}{' '}
+                {money(
+                  payout.propertyBase + payout.yohoCommission + payout.otaCommission + payout.taxes,
+                )}{' '}
                 {reconciles ? 'reconciles to gross' : 'does not reconcile'}
               </div>
-              <p className="mt-2 text-xs text-ink-3">Across {payout.bookingCount} approved bookings.</p>
+              <p className="mt-2 text-xs text-ink-3">
+                Across {payout.bookingCount} approved bookings.
+              </p>
             </>
           ) : (
-            <p className="mt-2 text-sm text-ink-3">No approved bookings for this property in the period.</p>
+            <p className="mt-2 text-sm text-ink-3">
+              No approved bookings for this property in the period.
+            </p>
           )}
         </Card>
       </div>

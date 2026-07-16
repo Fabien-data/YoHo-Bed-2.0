@@ -40,8 +40,10 @@ function mondayIndex(d: string): number {
 
 function availTone(a: AvailabilityDay | undefined): { ink: string; soft: string; label: string } {
   if (!a) return { ink: 'var(--ink-3)', soft: 'transparent', label: '' };
-  if (a.status === 'Close') return { ink: 'var(--closed-ink)', soft: 'var(--closed-soft)', label: 'Closed' };
-  if (a.roomsToSell === 0) return { ink: 'var(--closed-ink)', soft: 'var(--closed-soft)', label: 'Sold out' };
+  if (a.status === 'Close')
+    return { ink: 'var(--closed-ink)', soft: 'var(--closed-soft)', label: 'Closed' };
+  if (a.roomsToSell === 0)
+    return { ink: 'var(--closed-ink)', soft: 'var(--closed-soft)', label: 'Sold out' };
   if (a.roomsToSell <= 2) return { ink: 'var(--low-ink)', soft: 'var(--low-soft)', label: 'Low' };
   return { ink: 'var(--avail-ink)', soft: 'var(--avail-soft)', label: 'Open' };
 }
@@ -76,7 +78,10 @@ export default function CalendarPage() {
   const dates = useMemo(() => monthDays(month), [month]);
   const monthFrom = dates[0]!;
   const monthTo = dates[dates.length - 1]!;
-  const propertyRooms = useMemo(() => rooms.filter((r) => r.propertyId === propertyId), [rooms, propertyId]);
+  const propertyRooms = useMemo(
+    () => rooms.filter((r) => r.propertyId === propertyId),
+    [rooms, propertyId],
+  );
   const selectedRoom = useMemo(() => rooms.find((r) => r.id === roomId) ?? null, [rooms, roomId]);
   const occRates = rates[occId] ?? {};
 
@@ -204,7 +209,9 @@ export default function CalendarPage() {
     const n = Number(draft);
     setEditing(null);
     await guard(() =>
-      openAvailability(selectedRoom.id, date, date, Number.isNaN(n) ? 0 : n, status).then(() => undefined),
+      openAvailability(selectedRoom.id, date, date, Number.isNaN(n) ? 0 : n, status).then(
+        () => undefined,
+      ),
     );
   }
 
@@ -213,12 +220,18 @@ export default function CalendarPage() {
     occId &&
     guard(async () => {
       const res = await setPrice(occId, monthFrom, monthTo, bulkBase);
-      setMsg({ tone: 'avail', text: `Base ${money(bulkBase)} → selling ${money(res.selling)} across ${dates.length} nights.` });
+      setMsg({
+        tone: 'avail',
+        text: `Base ${money(bulkBase)} → selling ${money(res.selling)} across ${dates.length} nights.`,
+      });
     });
   const applyBulkAvail = (status: 'Open' | 'Close') =>
     selectedRoom &&
     guard(
-      () => openAvailability(selectedRoom.id, monthFrom, monthTo, bulkRooms, status).then(() => undefined),
+      () =>
+        openAvailability(selectedRoom.id, monthFrom, monthTo, bulkRooms, status).then(
+          () => undefined,
+        ),
       `${status === 'Open' ? 'Opened' : 'Closed'} ${dates.length} nights (${bulkRooms} rooms/night).`,
     );
   const applyBulkDrop = () =>
@@ -250,7 +263,8 @@ export default function CalendarPage() {
 
   function historyLine(h: AriHistoryEntry): string {
     const d = h.detail as Record<string, unknown>;
-    if (h.kind === 'price') return `base ${money(Number(d.base))} → selling ${money(Number(d.selling))}`;
+    if (h.kind === 'price')
+      return `base ${money(Number(d.base))} → selling ${money(Number(d.selling))}`;
     if (h.kind === 'drop') return `last-minute drop ${d.dropPct}%`;
     if (h.kind === 'restriction')
       return `min stay ${d.minStay} / max stay ${Number(d.maxStay) === 0 ? 'unlimited' : d.maxStay}`;
@@ -262,15 +276,27 @@ export default function CalendarPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">Rates &amp; Availability</div>
+      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
+        Rates &amp; Availability
+      </div>
       <div className="flex flex-wrap items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight text-ink">Calendar</h1>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => shiftMonth(-1)} className="!px-4 !py-2.5 text-base">
+          <Button
+            variant="secondary"
+            onClick={() => shiftMonth(-1)}
+            className="!px-4 !py-2.5 text-base"
+          >
             ◀
           </Button>
-          <span className="min-w-[170px] text-center text-xl font-bold text-ink">{monthYear(month)}</span>
-          <Button variant="secondary" onClick={() => shiftMonth(1)} className="!px-4 !py-2.5 text-base">
+          <span className="min-w-[170px] text-center text-xl font-bold text-ink">
+            {monthYear(month)}
+          </span>
+          <Button
+            variant="secondary"
+            onClick={() => shiftMonth(1)}
+            className="!px-4 !py-2.5 text-base"
+          >
             ▶
           </Button>
           <input
@@ -284,14 +310,23 @@ export default function CalendarPage() {
 
       {/* selectors */}
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <select className={selectClass} value={propertyId ?? ''} onChange={(e) => selectProperty(e.target.value)}>
+        <select
+          className={selectClass}
+          value={propertyId ?? ''}
+          onChange={(e) => selectProperty(e.target.value)}
+        >
           {properties.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
           ))}
         </select>
-        <select className={selectClass} value={roomId ?? ''} onChange={(e) => selectRoom(e.target.value)} disabled={noRooms}>
+        <select
+          className={selectClass}
+          value={roomId ?? ''}
+          onChange={(e) => selectRoom(e.target.value)}
+          disabled={noRooms}
+        >
           {noRooms && <option>No rooms yet</option>}
           {propertyRooms.map((r) => (
             <option key={r.id} value={r.id}>
@@ -299,7 +334,12 @@ export default function CalendarPage() {
             </option>
           ))}
         </select>
-        <select className={selectClass} value={occId} onChange={(e) => setOccId(e.target.value)} disabled={occs.length === 0}>
+        <select
+          className={selectClass}
+          value={occId}
+          onChange={(e) => setOccId(e.target.value)}
+          disabled={occs.length === 0}
+        >
           {occs.length === 0 && <option>No occupancies</option>}
           {occs.map((o) => (
             <option key={o.id} value={o.id}>
@@ -314,7 +354,9 @@ export default function CalendarPage() {
         <Card className="mt-5 flex flex-wrap items-end gap-x-6 gap-y-4 p-5">
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Base / night</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Base / night
+              </span>
               <input
                 type="number"
                 min={1}
@@ -329,7 +371,9 @@ export default function CalendarPage() {
           </div>
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Drop %</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Drop %
+              </span>
               <input
                 type="number"
                 min={0}
@@ -339,13 +383,20 @@ export default function CalendarPage() {
                 onChange={(e) => setBulkDrop(Number(e.target.value) || 0)}
               />
             </label>
-            <Button variant="ghost" onClick={applyBulkDrop} disabled={busy || !occId} className="!py-2.5">
+            <Button
+              variant="ghost"
+              onClick={applyBulkDrop}
+              disabled={busy || !occId}
+              className="!py-2.5"
+            >
               Last-minute drop
             </Button>
           </div>
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Rooms to sell</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Rooms to sell
+              </span>
               <input
                 type="number"
                 min={0}
@@ -354,16 +405,28 @@ export default function CalendarPage() {
                 onChange={(e) => setBulkRooms(Number(e.target.value) || 0)}
               />
             </label>
-            <Button variant="secondary" onClick={() => applyBulkAvail('Open')} disabled={busy} className="!py-2.5">
+            <Button
+              variant="secondary"
+              onClick={() => applyBulkAvail('Open')}
+              disabled={busy}
+              className="!py-2.5"
+            >
               Open
             </Button>
-            <Button variant="secondary" onClick={() => applyBulkAvail('Close')} disabled={busy} className="!py-2.5">
+            <Button
+              variant="secondary"
+              onClick={() => applyBulkAvail('Close')}
+              disabled={busy}
+              className="!py-2.5"
+            >
               Close
             </Button>
           </div>
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Min stay</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Min stay
+              </span>
               <input
                 type="number"
                 min={1}
@@ -374,7 +437,9 @@ export default function CalendarPage() {
               />
             </label>
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Max (0 = ∞)</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Max (0 = ∞)
+              </span>
               <input
                 type="number"
                 min={0}
@@ -384,7 +449,12 @@ export default function CalendarPage() {
                 onChange={(e) => setBulkMax(Number(e.target.value) || 0)}
               />
             </label>
-            <Button variant="ghost" onClick={applyBulkRestrictions} disabled={busy || !selectedRoom} className="!py-2.5">
+            <Button
+              variant="ghost"
+              onClick={applyBulkRestrictions}
+              disabled={busy || !selectedRoom}
+              className="!py-2.5"
+            >
               Restrictions
             </Button>
           </div>
@@ -414,8 +484,8 @@ export default function CalendarPage() {
           </p>
         ) : noPlans ? (
           <p className="p-16 text-center text-base text-ink-3">
-            No rate plans for <b className="text-ink">{selectedRoom?.name}</b>. Create a rate plan and
-            occupancy in <b className="text-ink">Setup</b>, then set prices here.
+            No rate plans for <b className="text-ink">{selectedRoom?.name}</b>. Create a rate plan
+            and occupancy in <b className="text-ink">Setup</b>, then set prices here.
           </p>
         ) : (
           <>
@@ -507,7 +577,10 @@ export default function CalendarPage() {
                                   </span>
                                   <span
                                     className="rounded px-1 text-[0.6rem] font-bold"
-                                    style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
+                                    style={{
+                                      color: 'var(--closed-ink)',
+                                      background: 'var(--closed-soft)',
+                                    }}
                                   >
                                     −{Math.round(drop)}%
                                   </span>
@@ -579,9 +652,9 @@ export default function CalendarPage() {
 
       <p className="mt-4 text-sm text-ink-3">
         {monthYear(month)} · {selectedRoom?.name}
-        {occs.find((o) => o.id === occId) ? ` · ${occs.find((o) => o.id === occId)!.label}` : ''}. Click a
-        price to type a new base (Enter to save, Esc to cancel); click rooms-to-sell to edit inventory
-        or open/close. Selling prices come from the parity-tested engine.
+        {occs.find((o) => o.id === occId) ? ` · ${occs.find((o) => o.id === occId)!.label}` : ''}.
+        Click a price to type a new base (Enter to save, Esc to cancel); click rooms-to-sell to edit
+        inventory or open/close. Selling prices come from the parity-tested engine.
       </p>
 
       {/* ARI change history (Compartment I) */}
@@ -601,7 +674,10 @@ export default function CalendarPage() {
             ) : (
               <div className="flex flex-col">
                 {history.map((h) => (
-                  <div key={h.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5 text-sm last:border-0">
+                  <div
+                    key={h.id}
+                    className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5 text-sm last:border-0"
+                  >
                     <Pill
                       tone={
                         h.kind === 'price'
@@ -622,7 +698,9 @@ export default function CalendarPage() {
                     <span className="font-mono text-xs text-ink">{historyLine(h)}</span>
                     <span className="ml-auto font-mono text-[0.65rem] text-ink-3">
                       {h.actorEmail ?? 'system'} ·{' '}
-                      {new Date(h.createdAt).toLocaleString('en-GB', { hour12: false }).replace(',', '')}
+                      {new Date(h.createdAt)
+                        .toLocaleString('en-GB', { hour12: false })
+                        .replace(',', '')}
                     </span>
                   </div>
                 ))}

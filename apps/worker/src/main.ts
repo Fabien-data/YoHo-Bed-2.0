@@ -57,7 +57,9 @@ const worker = new Worker<OutboxRow>(
 );
 
 worker.on('completed', (job) => {
-  console.log(`[cm-push] ✓ sent outbox=${job.data.id} (${job.data.aggregate}:${job.data.aggregateId})`);
+  console.log(
+    `[cm-push] ✓ sent outbox=${job.data.id} (${job.data.aggregate}:${job.data.aggregateId})`,
+  );
 });
 
 worker.on('failed', async (job, err) => {
@@ -72,7 +74,9 @@ worker.on('failed', async (job, err) => {
         `${job.data.aggregate}:${job.data.aggregateId} — ${err.message}`,
     );
   } else {
-    console.warn(`[cm-push] attempt ${attempts}/${max} failed (outbox=${job.data.id}): ${err.message} — retrying`);
+    console.warn(
+      `[cm-push] attempt ${attempts}/${max} failed (outbox=${job.data.id}): ${err.message} — retrying`,
+    );
   }
 });
 
@@ -99,7 +103,9 @@ async function relay(): Promise<void> {
 const relayTimer = setInterval(relay, 1500);
 void relay();
 
-console.log(`[worker] YoHoBed CM worker started — queue=${QUEUE} redis=${REDIS_URL} provider=${adapter.provider}`);
+console.log(
+  `[worker] YoHoBed CM worker started — queue=${QUEUE} redis=${REDIS_URL} provider=${adapter.provider}`,
+);
 
 async function shutdown(): Promise<void> {
   clearInterval(relayTimer);

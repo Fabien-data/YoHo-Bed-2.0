@@ -19,12 +19,23 @@ export class InventoryService {
       tx
         .select()
         .from(availabilityCalendar)
-        .where(and(eq(availabilityCalendar.roomId, roomId), between(availabilityCalendar.date, from, to)))
+        .where(
+          and(
+            eq(availabilityCalendar.roomId, roomId),
+            between(availabilityCalendar.date, from, to),
+          ),
+        )
         .orderBy(availabilityCalendar.date),
     );
   }
 
-  async reserve(tenantId: string, roomId: string, checkin: string, checkout: string, rooms: number) {
+  async reserve(
+    tenantId: string,
+    roomId: string,
+    checkin: string,
+    checkout: string,
+    rooms: number,
+  ) {
     const nights = eachNight(checkin, checkout);
     try {
       await this.dbs.withTenant(tenantId, async (tx) => {
@@ -50,7 +61,13 @@ export class InventoryService {
     }
   }
 
-  async release(tenantId: string, roomId: string, checkin: string, checkout: string, rooms: number) {
+  async release(
+    tenantId: string,
+    roomId: string,
+    checkin: string,
+    checkout: string,
+    rooms: number,
+  ) {
     const nights = eachNight(checkin, checkout);
     await this.dbs.withTenant(tenantId, async (tx) => {
       await releaseStay(tx, roomId, nights, rooms);

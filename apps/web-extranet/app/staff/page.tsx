@@ -140,7 +140,10 @@ export default function StaffPage() {
                 key={t.id}
                 className={`cursor-pointer p-3 transition ${tenantId === t.id ? 'border-brand' : ''}`}
               >
-                <div onClick={() => selectTenant(t.id)} className="flex items-center justify-between gap-2">
+                <div
+                  onClick={() => selectTenant(t.id)}
+                  className="flex items-center justify-between gap-2"
+                >
                   <div>
                     <div className="font-semibold text-ink">{t.name}</div>
                     <div className="font-mono text-xs text-ink-3">{t.email}</div>
@@ -200,7 +203,9 @@ export default function StaffPage() {
                   <tbody>
                     {bookings.map((b) => (
                       <tr key={b.id} className="border-b border-line last:border-0">
-                        <td className="px-4 py-2 font-mono font-semibold text-brand-ink">{b.reference}</td>
+                        <td className="px-4 py-2 font-mono font-semibold text-brand-ink">
+                          {b.reference}
+                        </td>
                         <td className="px-4 py-2">{b.customerName}</td>
                         <td className="px-4 py-2 font-mono text-xs text-ink-2">
                           {b.checkin} → {b.checkout}
@@ -208,7 +213,9 @@ export default function StaffPage() {
                         <td className="px-4 py-2">
                           <Pill tone={bookingTone(b.status)}>{b.status}</Pill>
                         </td>
-                        <td className="px-4 py-2 text-right font-mono font-semibold">{money(b.amount)}</td>
+                        <td className="px-4 py-2 text-right font-mono font-semibold">
+                          {money(b.amount)}
+                        </td>
                         <td className="px-4 py-2 text-right">
                           {b.status === 'Pending' && (
                             <div className="flex justify-end gap-1">

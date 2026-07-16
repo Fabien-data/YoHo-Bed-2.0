@@ -39,7 +39,9 @@ export default function LoginPage() {
         </div>
         <Card className="p-7">
           <h1 className="text-xl font-bold tracking-tight text-ink">Sign in</h1>
-          <p className="mb-6 mt-1 text-sm text-ink-2">Manage your property&rsquo;s rates &amp; availability.</p>
+          <p className="mb-6 mt-1 text-sm text-ink-2">
+            Manage your property&rsquo;s rates &amp; availability.
+          </p>
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
             <Field
               label="Email"

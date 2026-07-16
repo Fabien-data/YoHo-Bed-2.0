@@ -24,7 +24,15 @@ import { PhotoManager } from '@/components/photo-manager';
 const selectClass =
   'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
 
-function Section({ step, title, children }: { step: number; title: string; children: React.ReactNode }) {
+function Section({
+  step,
+  title,
+  children,
+}: {
+  step: number;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <Card className="flex flex-col p-4">
       <div className="mb-3 flex items-center gap-2">
@@ -55,7 +63,9 @@ export default function SetupPage() {
   const [propName, setPropName] = useState('');
   const [roomForm, setRoomForm] = useState({ name: '', quantity: 5 });
   const [newCode, setNewCode] = useState('');
-  const [occForm, setOccForm] = useState<Record<string, { label: string; accommodates: number }>>({});
+  const [occForm, setOccForm] = useState<Record<string, { label: string; accommodates: number }>>(
+    {},
+  );
 
   const loadPlans = useCallback(async (rid: string) => {
     const ps = await listRatePlans(rid).catch(() => []);
@@ -84,7 +94,10 @@ export default function SetupPage() {
     })().catch(() => {});
   }, [loadPlans]);
 
-  const propertyRooms = useMemo(() => rooms.filter((r) => r.propertyId === propertyId), [rooms, propertyId]);
+  const propertyRooms = useMemo(
+    () => rooms.filter((r) => r.propertyId === propertyId),
+    [rooms, propertyId],
+  );
 
   async function selectProperty(pid: string) {
     setPropertyId(pid);
@@ -160,8 +173,8 @@ export default function SetupPage() {
       <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">Onboarding</div>
       <h1 className="text-2xl font-bold tracking-tight text-ink">Property setup</h1>
       <p className="mt-1 text-sm text-ink-2">
-        Build the structure the calendar prices against: property → rooms → rate plans (meal plans) →
-        occupancies (guest configurations).
+        Build the structure the calendar prices against: property → rooms → rate plans (meal plans)
+        → occupancies (guest configurations).
       </p>
 
       {msg && (
@@ -185,7 +198,9 @@ export default function SetupPage() {
                 key={p.id}
                 onClick={() => selectProperty(p.id)}
                 className={`rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
-                  propertyId === p.id ? 'border-brand text-brand-ink' : 'border-line text-ink-2 hover:border-ink-3'
+                  propertyId === p.id
+                    ? 'border-brand text-brand-ink'
+                    : 'border-line text-ink-2 hover:border-ink-3'
                 }`}
                 style={propertyId === p.id ? { background: 'var(--brand-soft)' } : undefined}
               >
@@ -227,7 +242,9 @@ export default function SetupPage() {
                     key={r.id}
                     onClick={() => selectRoom(r.id)}
                     className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
-                      roomId === r.id ? 'border-brand text-brand-ink' : 'border-line text-ink-2 hover:border-ink-3'
+                      roomId === r.id
+                        ? 'border-brand text-brand-ink'
+                        : 'border-line text-ink-2 hover:border-ink-3'
                     }`}
                     style={roomId === r.id ? { background: 'var(--brand-soft)' } : undefined}
                   >
@@ -252,7 +269,9 @@ export default function SetupPage() {
                     type="number"
                     min={0}
                     value={roomForm.quantity}
-                    onChange={(e) => setRoomForm((f) => ({ ...f, quantity: Number(e.target.value) || 0 }))}
+                    onChange={(e) =>
+                      setRoomForm((f) => ({ ...f, quantity: Number(e.target.value) || 0 }))
+                    }
                   />
                 </div>
                 <Button type="submit" disabled={busy}>
@@ -301,7 +320,10 @@ export default function SetupPage() {
                         onChange={(e) =>
                           setOccForm((prev) => ({
                             ...prev,
-                            [p.id]: { label: e.target.value, accommodates: prev[p.id]?.accommodates ?? 2 },
+                            [p.id]: {
+                              label: e.target.value,
+                              accommodates: prev[p.id]?.accommodates ?? 2,
+                            },
                           }))
                         }
                       />
@@ -313,11 +335,19 @@ export default function SetupPage() {
                         onChange={(e) =>
                           setOccForm((prev) => ({
                             ...prev,
-                            [p.id]: { label: prev[p.id]?.label ?? '', accommodates: Number(e.target.value) || 1 },
+                            [p.id]: {
+                              label: prev[p.id]?.label ?? '',
+                              accommodates: Number(e.target.value) || 1,
+                            },
                           }))
                         }
                       />
-                      <Button variant="secondary" className="!px-3" disabled={busy} onClick={() => addOcc(p.id)}>
+                      <Button
+                        variant="secondary"
+                        className="!px-3"
+                        disabled={busy}
+                        onClick={() => addOcc(p.id)}
+                      >
                         +
                       </Button>
                     </div>
@@ -328,7 +358,11 @@ export default function SetupPage() {
               <form onSubmit={addPlan} className="mt-3 flex items-end gap-2">
                 <label className="flex flex-1 flex-col gap-1.5">
                   <span className="text-sm font-medium text-ink-2">Add meal plan</span>
-                  <select className={selectClass} value={newCode} onChange={(e) => setNewCode(e.target.value)}>
+                  <select
+                    className={selectClass}
+                    value={newCode}
+                    onChange={(e) => setNewCode(e.target.value)}
+                  >
                     {rateCodes.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.code} · {c.name}

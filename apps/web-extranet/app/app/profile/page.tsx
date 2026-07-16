@@ -115,7 +115,9 @@ export default function ProfilePage() {
               </p>
               <Button
                 disabled={busy}
-                onClick={() => run(async () => void (await acceptAgreement()), 'Agreement accepted.')}
+                onClick={() =>
+                  run(async () => void (await acceptAgreement()), 'Agreement accepted.')
+                }
               >
                 Accept agreement
               </Button>
@@ -159,7 +161,9 @@ export default function ProfilePage() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-ink">Payout account</h2>
+          <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-ink">
+            Payout account
+          </h2>
           <p className="mb-4 text-sm text-ink-2">
             Where your settlement (net payable) is sent. Payout statements use these details.
           </p>

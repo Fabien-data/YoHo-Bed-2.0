@@ -17,13 +17,19 @@ export function moneyShort(v?: string | number | null): string {
 }
 
 export function dow(d: string): string {
-  return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+  return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', {
+    weekday: 'short',
+    timeZone: 'UTC',
+  });
 }
 export function dom(d: string): number {
   return new Date(`${d}T00:00:00Z`).getUTCDate();
 }
 export function monthLabel(d: string): string {
-  return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+  return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
 }
 export function longDate(d: string): string {
   return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', {

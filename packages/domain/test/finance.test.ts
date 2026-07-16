@@ -17,7 +17,12 @@ describe('computeSettlement', () => {
 
   it('handles a zero-commission booking (property keeps everything)', () => {
     const s = computeSettlement(100, 100, 0);
-    expect(s).toMatchObject({ propertyBase: 100, yohoCommission: 0, otaCommission: 0, platformMargin: 0 });
+    expect(s).toMatchObject({
+      propertyBase: 100,
+      yohoCommission: 0,
+      otaCommission: 0,
+      platformMargin: 0,
+    });
   });
 });
 

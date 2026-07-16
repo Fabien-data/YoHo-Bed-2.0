@@ -40,7 +40,9 @@ export const templates = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => ({ keyLangUnique: unique('templates_tenant_key_lang_uq').on(t.tenantId, t.key, t.language) }),
+  (t) => ({
+    keyLangUnique: unique('templates_tenant_key_lang_uq').on(t.tenantId, t.key, t.language),
+  }),
 );
 
 export const notifications = pgTable('notifications', {

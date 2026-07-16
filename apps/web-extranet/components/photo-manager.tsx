@@ -14,7 +14,15 @@ import {
 import { Button } from '@/components/ui';
 
 /** Upload + gallery for one property's or one room's photos (Compartment H). */
-export function PhotoManager({ target, id, label }: { target: 'property' | 'room'; id: string; label: string }) {
+export function PhotoManager({
+  target,
+  id,
+  label,
+}: {
+  target: 'property' | 'room';
+  id: string;
+  label: string;
+}) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -65,7 +73,13 @@ export function PhotoManager({ target, id, label }: { target: 'property' | 'room
         </span>
         <span className="text-xs text-ink-3">{photos.length}</span>
         <div className="flex-1" />
-        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPick} />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={onPick}
+        />
         <Button
           variant="secondary"
           className="!px-2 !py-1 text-xs"

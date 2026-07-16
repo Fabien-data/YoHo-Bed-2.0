@@ -41,7 +41,10 @@ export class OtaService {
       .where(eq(cmRoomMappings.code, p.roomCode));
     if (!mapping) {
       // Non-2xx so the channel manager retries/alerts instead of assuming delivery.
-      throw new UnprocessableEntityException({ reason: 'unmapped_room_code', roomCode: p.roomCode });
+      throw new UnprocessableEntityException({
+        reason: 'unmapped_room_code',
+        roomCode: p.roomCode,
+      });
     }
 
     if (p.action === 'cancel') return this.cancelByRef(mapping.tenantId, p);
@@ -87,7 +90,9 @@ export class OtaService {
     );
     if (!row) throw new NotFoundException('Reservation not found');
     if (row.status !== 'failed') {
-      throw new BadRequestException(`Only failed reservations can be retried (status: ${row.status})`);
+      throw new BadRequestException(
+        `Only failed reservations can be retried (status: ${row.status})`,
+      );
     }
     return this.import(row);
   }
@@ -146,7 +151,9 @@ export class OtaService {
       tx
         .select()
         .from(otaReservations)
-        .where(and(eq(otaReservations.channel, channel), eq(otaReservations.externalRef, externalRef))),
+        .where(
+          and(eq(otaReservations.channel, channel), eq(otaReservations.externalRef, externalRef)),
+        ),
     );
     return row;
   }
@@ -165,7 +172,8 @@ export class OtaService {
           .where(eq(ratePlans.roomId, roomId))
           .orderBy(occupancies.createdAt)
           .limit(1);
-        if (!occ) throw new BadRequestException('No rate plan/occupancy configured for the mapped room');
+        if (!occ)
+          throw new BadRequestException('No rate plan/occupancy configured for the mapped room');
         const b = await this.bookings.create(
           tx,
           row.tenantId,
@@ -188,7 +196,12 @@ export class OtaService {
         return b!;
       });
       this.mailer.deliverQueuedSafe(row.tenantId); // after commit: send the queued confirmation
-      return { id: row.id, status: 'imported' as const, bookingId: booking.id, reference: booking.reference };
+      return {
+        id: row.id,
+        status: 'imported' as const,
+        bookingId: booking.id,
+        reference: booking.reference,
+      };
     } catch (e) {
       const error =
         e instanceof HttpException

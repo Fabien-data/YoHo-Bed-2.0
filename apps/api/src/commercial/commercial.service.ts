@@ -14,11 +14,7 @@ import {
   enqueueOutbox,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
-import type {
-  CreatePromotionDto,
-  CreateCouponDto,
-  CreateReferralPartnerDto,
-} from './dto';
+import type { CreatePromotionDto, CreateCouponDto, CreateReferralPartnerDto } from './dto';
 
 /**
  * Commercial management (Compartment D): promotions, coupons, and referral partners. Redemption
@@ -32,13 +28,20 @@ export class CommercialService {
   // --- Promotions ------------------------------------------------------------
   listPromotions(tenantId: string, propertyId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(promotions).where(eq(promotions.propertyId, propertyId)).orderBy(desc(promotions.createdAt)),
+      tx
+        .select()
+        .from(promotions)
+        .where(eq(promotions.propertyId, propertyId))
+        .orderBy(desc(promotions.createdAt)),
     );
   }
 
   createPromotion(tenantId: string, propertyId: string, dto: CreatePromotionDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
-      const [prop] = await tx.select({ id: properties.id }).from(properties).where(eq(properties.id, propertyId));
+      const [prop] = await tx
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, propertyId));
       if (!prop) throw new NotFoundException('Property not found');
       const [p] = await tx
         .insert(promotions)
@@ -58,7 +61,10 @@ export class CommercialService {
 
   deletePromotion(tenantId: string, id: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
-      const res = await tx.delete(promotions).where(eq(promotions.id, id)).returning({ id: promotions.id });
+      const res = await tx
+        .delete(promotions)
+        .where(eq(promotions.id, id))
+        .returning({ id: promotions.id });
       if (!res.length) throw new NotFoundException('Promotion not found');
       return { deleted: true };
     });
@@ -120,13 +126,18 @@ export class CommercialService {
 
   // --- Coupons ---------------------------------------------------------------
   listCoupons(tenantId: string) {
-    return this.dbs.withTenant(tenantId, (tx) => tx.select().from(coupons).orderBy(desc(coupons.createdAt)));
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx.select().from(coupons).orderBy(desc(coupons.createdAt)),
+    );
   }
 
   createCoupon(tenantId: string, dto: CreateCouponDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const code = dto.code.trim().toUpperCase();
-      const [dupe] = await tx.select({ id: coupons.id }).from(coupons).where(eq(coupons.code, code));
+      const [dupe] = await tx
+        .select({ id: coupons.id })
+        .from(coupons)
+        .where(eq(coupons.code, code));
       if (dupe) throw new BadRequestException('A coupon with that code already exists');
       const [c] = await tx
         .insert(coupons)

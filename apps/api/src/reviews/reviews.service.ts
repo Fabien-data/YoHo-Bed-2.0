@@ -51,7 +51,9 @@ export class ReviewsService {
         tenantId: invite.tenantId,
         type: 'review_received',
         title: `New ${dto.rating}★ review for ${invite.propertyName}`,
-        body: dto.comment ? dto.comment.slice(0, 200) : `${invite.guestName} rated their stay ${dto.rating}/5.`,
+        body: dto.comment
+          ? dto.comment.slice(0, 200)
+          : `${invite.guestName} rated their stay ${dto.rating}/5.`,
         entity: 'booking',
         entityId: invite.bookingId,
       });
@@ -84,7 +86,10 @@ export class ReviewsService {
         .orderBy(desc(reviews.createdAt))
         .limit(200),
     );
-    const byProperty = new Map<string, { propertyId: string; propertyName: string; count: number; sum: number }>();
+    const byProperty = new Map<
+      string,
+      { propertyId: string; propertyName: string; count: number; sum: number }
+    >();
     for (const r of rows) {
       const s = byProperty.get(r.propertyId) ?? {
         propertyId: r.propertyId,

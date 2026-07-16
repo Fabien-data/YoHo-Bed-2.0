@@ -90,7 +90,14 @@ export class RatesController {
     @Param('id') occupancyId: string,
     @Body(new ZodValidationPipe(lastMinuteDropSchema)) dto: LastMinuteDropDto,
   ) {
-    return this.rates.setLastMinuteDrop(tenantId, occupancyId, dto.from, dto.to, dto.dropPct, user.email);
+    return this.rates.setLastMinuteDrop(
+      tenantId,
+      occupancyId,
+      dto.from,
+      dto.to,
+      dto.dropPct,
+      user.email,
+    );
   }
 
   @Get('properties/:id/seasons')

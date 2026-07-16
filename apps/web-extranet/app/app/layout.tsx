@@ -64,7 +64,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 key={t.href}
                 href={t.href}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                  active ? 'text-brand-ink' : 'text-ink-2 hover:bg-[var(--surface-2)] hover:text-ink'
+                  active
+                    ? 'text-brand-ink'
+                    : 'text-ink-2 hover:bg-[var(--surface-2)] hover:text-ink'
                 }`}
                 style={active ? { background: 'var(--brand-soft)' } : undefined}
               >

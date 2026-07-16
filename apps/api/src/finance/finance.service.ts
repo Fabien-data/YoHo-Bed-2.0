@@ -1,14 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { decomposeBooking } from '@yohobed/domain';
-import {
-  bookings,
-  bookingDays,
-  invoices,
-  invoiceLines,
-  payments,
-  payouts,
-} from '@yohobed/db';
+import { bookings, bookingDays, invoices, invoiceLines, payments, payouts } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import type { RecordPaymentDto } from './dto';
 
@@ -25,7 +18,10 @@ export class FinanceService {
 
       const [existing] = await tx.select().from(invoices).where(eq(invoices.bookingId, bookingId));
       if (existing) {
-        const lines = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, existing.id));
+        const lines = await tx
+          .select()
+          .from(invoiceLines)
+          .where(eq(invoiceLines.invoiceId, existing.id));
         return { ...existing, lines };
       }
 
@@ -104,7 +100,10 @@ export class FinanceService {
           .where(and(eq(payments.bookingId, bookingId), eq(payments.direction, 'received')));
         const [inv] = await tx.select().from(invoices).where(eq(invoices.bookingId, bookingId));
         if (inv && inv.status !== 'paid' && Number(agg!.total) >= Number(inv.amount)) {
-          await tx.update(invoices).set({ status: 'paid', updatedAt: new Date() }).where(eq(invoices.id, inv.id));
+          await tx
+            .update(invoices)
+            .set({ status: 'paid', updatedAt: new Date() })
+            .where(eq(invoices.id, inv.id));
         }
       }
       return pay;
@@ -113,7 +112,11 @@ export class FinanceService {
 
   listPayments(tenantId: string, bookingId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(payments).where(eq(payments.bookingId, bookingId)).orderBy(desc(payments.createdAt)),
+      tx
+        .select()
+        .from(payments)
+        .where(eq(payments.bookingId, bookingId))
+        .orderBy(desc(payments.createdAt)),
     );
   }
 
@@ -143,7 +146,9 @@ export class FinanceService {
         .where(where);
 
       const [yohoAgg] = await tx
-        .select({ yoho: sql<string>`coalesce(sum(${bookingDays.commission} * ${bookings.rooms}), 0)` })
+        .select({
+          yoho: sql<string>`coalesce(sum(${bookingDays.commission} * ${bookings.rooms}), 0)`,
+        })
         .from(bookingDays)
         .innerJoin(bookings, eq(bookings.id, bookingDays.bookingId))
         .where(where);
@@ -155,7 +160,14 @@ export class FinanceService {
         Number(totals!.base),
         Number(yohoAgg!.yoho),
       );
-      return { propertyId, from, to, bookingCount: totals!.count, ...s, netPayable: s.propertyBase };
+      return {
+        propertyId,
+        from,
+        to,
+        bookingCount: totals!.count,
+        ...s,
+        netPayable: s.propertyBase,
+      };
     });
   }
 

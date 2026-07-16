@@ -1,4 +1,14 @@
-import { pgTable, pgEnum, uuid, text, integer, date, timestamp, unique, check } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  integer,
+  date,
+  timestamp,
+  unique,
+  check,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { tenants, properties } from './identity';
 

@@ -32,8 +32,5 @@ export function commissionableTotal(selling: number, taxes: number): number {
  * With all rates zero this returns the commissionable unchanged — untaxed properties are untouched.
  */
 export function sellingFromCommissionable(commissionable: number, rates: TaxRates): number {
-  return round2(
-    commissionable * (1 + rates.serviceCharge) * (1 + rates.nbt) * (1 + rates.vat),
-    2,
-  );
+  return round2(commissionable * (1 + rates.serviceCharge) * (1 + rates.nbt) * (1 + rates.vat), 2);
 }

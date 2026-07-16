@@ -80,7 +80,9 @@ export default function CommsPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">Communications</div>
+      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
+        Communications
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-bold tracking-tight text-ink">Messages &amp; templates</h1>
         <div className="flex gap-1.5">
@@ -118,7 +120,9 @@ export default function CommsPage() {
                 key={t.id}
                 onClick={() => select(t.id)}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
-                  selId === t.id ? 'border-brand text-brand-ink' : 'border-line text-ink-2 hover:border-ink-3'
+                  selId === t.id
+                    ? 'border-brand text-brand-ink'
+                    : 'border-line text-ink-2 hover:border-ink-3'
                 }`}
                 style={selId === t.id ? { background: 'var(--brand-soft)' } : undefined}
               >
@@ -146,7 +150,9 @@ export default function CommsPage() {
                   />
                 </label>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Placeholders:</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                    Placeholders:
+                  </span>
                   {PLACEHOLDERS.map((p) => (
                     <button
                       key={p}
@@ -184,11 +190,17 @@ export default function CommsPage() {
                     onClick={() => setOpenMsg((o) => (o === m.id ? null : m.id))}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-2)]"
                   >
-                    <Pill tone={m.status === 'sent' ? 'avail' : m.status === 'failed' ? 'closed' : 'low'}>
+                    <Pill
+                      tone={
+                        m.status === 'sent' ? 'avail' : m.status === 'failed' ? 'closed' : 'low'
+                      }
+                    >
                       {m.status}
                     </Pill>
                     <span className="text-sm font-semibold text-ink">{m.subject}</span>
-                    <span className="font-mono text-xs text-ink-3">{m.toAddress || 'no address'}</span>
+                    <span className="font-mono text-xs text-ink-3">
+                      {m.toAddress || 'no address'}
+                    </span>
                     <div className="flex-1" />
                     <span className="font-mono text-[0.65rem] uppercase text-ink-3">
                       {m.channel} · {m.language}

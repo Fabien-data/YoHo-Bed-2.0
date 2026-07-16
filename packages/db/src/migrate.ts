@@ -6,8 +6,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const url =
-  process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5433/yohobed';
+const url = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5433/yohobed';
 
 const client = postgres(url, { max: 1 });
 const db = drizzle(client);

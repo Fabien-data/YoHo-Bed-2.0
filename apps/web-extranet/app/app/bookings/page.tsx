@@ -218,7 +218,9 @@ export default function BookingsPage() {
 
   return (
     <div>
-      <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">Reservations</div>
+      <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
+        Reservations
+      </div>
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-ink">Bookings</h1>
         <span className="font-mono text-sm text-ink-3">{bookings.length}</span>
@@ -233,7 +235,11 @@ export default function BookingsPage() {
           <form onSubmit={create} className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium uppercase tracking-wide text-ink-3">Room</span>
-              <select className={selectClass} value={roomId} onChange={(e) => selectRoom(e.target.value)}>
+              <select
+                className={selectClass}
+                value={roomId}
+                onChange={(e) => selectRoom(e.target.value)}
+              >
                 {rooms.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
@@ -245,7 +251,11 @@ export default function BookingsPage() {
               <span className="text-xs font-medium uppercase tracking-wide text-ink-3">
                 Occupancy / rate plan
               </span>
-              <select className={selectClass} value={occId} onChange={(e) => setOccId(e.target.value)}>
+              <select
+                className={selectClass}
+                value={occId}
+                onChange={(e) => setOccId(e.target.value)}
+              >
                 {occs.length === 0 && <option>No occupancies — set up in Setup</option>}
                 {occs.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -282,7 +292,9 @@ export default function BookingsPage() {
               <Field
                 label="Coupon (optional)"
                 value={form.couponCode}
-                onChange={(e) => setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))
+                }
                 placeholder="SUMMER10"
               />
             </div>
@@ -290,7 +302,9 @@ export default function BookingsPage() {
               <Field
                 label="Referral (optional)"
                 value={form.referralCode}
-                onChange={(e) => setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))
+                }
                 placeholder="LANKA"
               />
             </div>
@@ -356,7 +370,9 @@ export default function BookingsPage() {
                     type="number"
                     min={1}
                     value={String(edit.rooms)}
-                    onChange={(e) => setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })}
+                    onChange={(e) =>
+                      setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })
+                    }
                   />
                 </div>
               </>
@@ -384,12 +400,16 @@ export default function BookingsPage() {
             key={s}
             onClick={() => setFilter(s)}
             className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
-              filter === s ? 'border-brand text-brand-ink' : 'border-line-strong text-ink-2 hover:border-ink-3'
+              filter === s
+                ? 'border-brand text-brand-ink'
+                : 'border-line-strong text-ink-2 hover:border-ink-3'
             }`}
             style={filter === s ? { background: 'var(--brand-soft)' } : undefined}
           >
             {s}
-            {s !== 'All' && counts[s] ? <span className="ml-1.5 text-ink-3">{counts[s]}</span> : null}
+            {s !== 'All' && counts[s] ? (
+              <span className="ml-1.5 text-ink-3">{counts[s]}</span>
+            ) : null}
           </button>
         ))}
         <div className="flex-1" />
@@ -432,7 +452,9 @@ export default function BookingsPage() {
             <tbody>
               {filtered.map((b) => (
                 <tr key={b.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-2 font-mono font-semibold text-brand-ink">{b.reference}</td>
+                  <td className="px-4 py-2 font-mono font-semibold text-brand-ink">
+                    {b.reference}
+                  </td>
                   <td className="px-4 py-2">{b.customerName}</td>
                   <td className="px-4 py-2 font-mono text-xs text-ink-2">
                     {b.checkin} → {b.checkout} · {b.nights}n
@@ -441,12 +463,18 @@ export default function BookingsPage() {
                   <td className="px-4 py-2">
                     <Pill tone={tone(b.status)}>{b.status}</Pill>
                   </td>
-                  <td className="px-4 py-2 text-right font-mono font-semibold">{money(b.amount)}</td>
+                  <td className="px-4 py-2 text-right font-mono font-semibold">
+                    {money(b.amount)}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-1">
                       {b.status === 'Pending' && (
                         <>
-                          <Button className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => act(b.id, 'approve')}>
+                          <Button
+                            className="!px-2 !py-1 text-xs"
+                            disabled={busy}
+                            onClick={() => act(b.id, 'approve')}
+                          >
                             Approve
                           </Button>
                           <Button
@@ -461,7 +489,11 @@ export default function BookingsPage() {
                       )}
                       {b.status === 'Approved' && (
                         <>
-                          <Button className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => act(b.id, 'check-in')}>
+                          <Button
+                            className="!px-2 !py-1 text-xs"
+                            disabled={busy}
+                            onClick={() => act(b.id, 'check-in')}
+                          >
                             Check in
                           </Button>
                           <Button
@@ -483,7 +515,11 @@ export default function BookingsPage() {
                         </>
                       )}
                       {b.status === 'CheckedIn' && (
-                        <Button className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => act(b.id, 'check-out')}>
+                        <Button
+                          className="!px-2 !py-1 text-xs"
+                          disabled={busy}
+                          onClick={() => act(b.id, 'check-out')}
+                        >
                           Check out
                         </Button>
                       )}

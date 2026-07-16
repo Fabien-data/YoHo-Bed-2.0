@@ -1,0 +1,13 @@
+# Generated or vendored — never hand-formatted.
+node_modules/
+dist/
+.next/
+.turbo/
+coverage/
+pnpm-lock.yaml
+uploads/
+uploads-test/
+
+# Drizzle owns these: SQL migrations and journal/snapshot metadata are generated artifacts,
+# and reformatting them would churn the migration hashes.
+packages/db/drizzle/

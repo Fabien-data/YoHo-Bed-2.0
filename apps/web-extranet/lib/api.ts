@@ -73,8 +73,7 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    const message =
-      (data && (data.message || data.reason)) || res.statusText || 'Request failed';
+    const message = (data && (data.message || data.reason)) || res.statusText || 'Request failed';
     throw new ApiError(res.status, Array.isArray(message) ? message.join(', ') : message, data);
   }
   return data as T;
@@ -240,10 +239,12 @@ export function openAvailability(
   });
 }
 
-export function getAvailability(roomId: string, from: string, to: string): Promise<AvailabilityDay[]> {
-  return apiFetch<AvailabilityDay[]>(
-    `/rooms/${roomId}/availability?from=${from}&to=${to}`,
-  );
+export function getAvailability(
+  roomId: string,
+  from: string,
+  to: string,
+): Promise<AvailabilityDay[]> {
+  return apiFetch<AvailabilityDay[]>(`/rooms/${roomId}/availability?from=${from}&to=${to}`);
 }
 
 export interface RateDay {
@@ -388,13 +389,7 @@ export function release(roomId: string, checkin: string, checkout: string, rooms
 }
 
 export type BookingStatus =
-  | 'Pending'
-  | 'Approved'
-  | 'CheckedIn'
-  | 'CheckedOut'
-  | 'Rejected'
-  | 'Cancelled'
-  | 'NoShow';
+  'Pending' | 'Approved' | 'CheckedIn' | 'CheckedOut' | 'Rejected' | 'Cancelled' | 'NoShow';
 
 export interface Booking {
   id: string;
@@ -628,7 +623,10 @@ export function createPromotion(
   propertyId: string,
   body: { name: string; discountPct: number; from: string; to: string; minNights: number },
 ): Promise<Promotion> {
-  return apiFetch(`/properties/${propertyId}/promotions`, { method: 'POST', body: JSON.stringify(body) });
+  return apiFetch(`/properties/${propertyId}/promotions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 export function applyPromotion(id: string): Promise<{ promotion: string; ratesUpdated: number }> {
   return apiFetch(`/promotions/${id}/apply`, { method: 'POST' });

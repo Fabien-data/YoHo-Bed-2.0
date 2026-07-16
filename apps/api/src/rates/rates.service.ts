@@ -235,7 +235,11 @@ export class RatesService {
   /** Named seasonal ranges for a property (an authoring overlay for the calendar). */
   listSeasons(tenantId: string, propertyId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(seasons).where(eq(seasons.propertyId, propertyId)).orderBy(seasons.startDate),
+      tx
+        .select()
+        .from(seasons)
+        .where(eq(seasons.propertyId, propertyId))
+        .orderBy(seasons.startDate),
     );
   }
 

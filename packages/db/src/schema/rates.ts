@@ -1,4 +1,14 @@
-import { pgTable, pgEnum, uuid, text, integer, numeric, date, timestamp, unique } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  integer,
+  numeric,
+  date,
+  timestamp,
+  unique,
+} from 'drizzle-orm/pg-core';
 import { tenants, properties } from './identity';
 import { rooms } from './inventory';
 
@@ -67,7 +77,9 @@ export const rateCalendar = pgTable(
     commission: numeric('commission', { precision: 12, scale: 2 }).notNull(),
     sellingPrice: numeric('selling_price', { precision: 12, scale: 2 }).notNull(),
     /** Owner-set last-minute discount % on the selling price for near-term stays (0 = none). */
-    lastMinuteDropPct: numeric('last_minute_drop_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    lastMinuteDropPct: numeric('last_minute_drop_pct', { precision: 5, scale: 2 })
+      .notNull()
+      .default('0'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

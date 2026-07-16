@@ -7,7 +7,11 @@ import { Card, Pill } from '@/components/ui';
 
 function Stars({ rating }: { rating: number }) {
   return (
-    <span className="font-mono text-sm tracking-tight" style={{ color: 'var(--amber-ink, #b45309)' }} aria-label={`${rating} out of 5`}>
+    <span
+      className="font-mono text-sm tracking-tight"
+      style={{ color: 'var(--amber-ink, #b45309)' }}
+      aria-label={`${rating} out of 5`}
+    >
       {'★'.repeat(rating)}
       <span className="text-ink-3">{'★'.repeat(5 - rating)}</span>
     </span>
@@ -29,7 +33,9 @@ export default function ReviewsPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">Reputation</div>
+      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
+        Reputation
+      </div>
       <h1 className="text-3xl font-bold tracking-tight text-ink">Guest reviews</h1>
       <p className="mt-2 max-w-2xl text-base text-ink-2">
         Guests are invited to review their stay when you check them out. Reviews are collected
@@ -43,7 +49,9 @@ export default function ReviewsPage() {
             <Card key={s.propertyId} className="min-w-[220px] p-5">
               <div className="text-sm font-semibold text-ink-2">{s.propertyName}</div>
               <div className="mt-1 flex items-baseline gap-2">
-                <span className="text-3xl font-bold tabular-nums text-ink">{s.average.toFixed(1)}</span>
+                <span className="text-3xl font-bold tabular-nums text-ink">
+                  {s.average.toFixed(1)}
+                </span>
                 <Stars rating={Math.round(s.average)} />
               </div>
               <div className="mt-1 text-xs text-ink-3">
@@ -68,9 +76,13 @@ export default function ReviewsPage() {
                   <span className="font-semibold text-ink">{r.guestName}</span>
                   <Pill tone="muted">{r.propertyName}</Pill>
                   <span className="font-mono text-xs text-ink-3">{r.bookingReference}</span>
-                  <span className="ml-auto font-mono text-xs text-ink-3">{longDate(r.createdAt.slice(0, 10))}</span>
+                  <span className="ml-auto font-mono text-xs text-ink-3">
+                    {longDate(r.createdAt.slice(0, 10))}
+                  </span>
                 </div>
-                {r.comment && <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-2">{r.comment}</p>}
+                {r.comment && (
+                  <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-2">{r.comment}</p>
+                )}
               </div>
             ))}
           </div>

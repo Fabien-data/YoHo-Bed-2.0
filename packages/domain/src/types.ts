@@ -9,8 +9,7 @@
 
 /** Yoho commission model attached to a property (legacy `commissionstructures.type`). */
 export type CommissionStructure =
-  | { type: 'slab'; slabs: CommissionSlab[] }
-  | { type: 'percentage'; percentage: number };
+  { type: 'slab'; slabs: CommissionSlab[] } | { type: 'percentage'; percentage: number };
 
 /** A single commission slab (legacy `commissionslabs`). Bounds are inclusive on both ends. */
 export interface CommissionSlab {

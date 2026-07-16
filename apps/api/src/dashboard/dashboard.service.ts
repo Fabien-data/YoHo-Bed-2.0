@@ -41,10 +41,14 @@ export class DashboardService {
 
       // Today's movements. Arrivals due show as Approved; already-arrived show as CheckedIn.
       const arrivals = await fromBookings().where(
-        inProperty(and(eq(bookings.checkin, date), inArray(bookings.status, ['Approved', 'CheckedIn']))),
+        inProperty(
+          and(eq(bookings.checkin, date), inArray(bookings.status, ['Approved', 'CheckedIn'])),
+        ),
       );
       const departures = await fromBookings().where(
-        inProperty(and(eq(bookings.checkout, date), inArray(bookings.status, ['CheckedIn', 'CheckedOut']))),
+        inProperty(
+          and(eq(bookings.checkout, date), inArray(bookings.status, ['CheckedIn', 'CheckedOut'])),
+        ),
       );
 
       const [inHouse] = await tx

@@ -25,7 +25,10 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   return (
     <Card className="flex-1 p-4">
       <div className="font-mono text-[0.6rem] uppercase tracking-widest text-ink-3">{label}</div>
-      <div className="mt-1 text-2xl font-bold tracking-tight text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <div
+        className="mt-1 text-2xl font-bold tracking-tight text-ink"
+        style={{ fontVariantNumeric: 'tabular-nums' }}
+      >
         {value}
       </div>
       {hint && <div className="mt-0.5 text-xs text-ink-3">{hint}</div>}
@@ -60,7 +63,10 @@ function MovementList({
       ) : (
         <ul>
           {items.map((b) => (
-            <li key={b.id} className="flex items-center gap-3 border-b border-line px-4 py-2.5 last:border-0">
+            <li
+              key={b.id}
+              className="flex items-center gap-3 border-b border-line px-4 py-2.5 last:border-0"
+            >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold text-ink">{b.customerName}</div>
                 <div className="truncate font-mono text-xs text-ink-3">
@@ -135,7 +141,11 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-ink">Dashboard</h1>
         <div className="flex-1" />
-        <select className={selectClass} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+        <select
+          className={selectClass}
+          value={propertyId}
+          onChange={(e) => setPropertyId(e.target.value)}
+        >
           <option value="">All properties</option>
           {properties.map((p) => (
             <option key={p.id} value={p.id}>
@@ -143,7 +153,12 @@ export default function DashboardPage() {
             </option>
           ))}
         </select>
-        <input className={selectClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input
+          className={selectClass}
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
       </div>
 
       {err && (
@@ -188,7 +203,8 @@ export default function DashboardPage() {
               className="mt-4 block rounded-lg px-3 py-2 text-sm font-semibold"
               style={{ color: 'var(--low-ink)', background: 'var(--low-soft)' }}
             >
-              {data.pendingApprovals} booking{data.pendingApprovals === 1 ? '' : 's'} waiting for approval →
+              {data.pendingApprovals} booking{data.pendingApprovals === 1 ? '' : 's'} waiting for
+              approval →
             </Link>
           )}
 
@@ -224,7 +240,9 @@ export default function DashboardPage() {
                 <tbody>
                   {data.recent.map((b) => (
                     <tr key={b.id} className="border-b border-line last:border-0">
-                      <td className="px-4 py-2 font-mono font-semibold text-brand-ink">{b.reference}</td>
+                      <td className="px-4 py-2 font-mono font-semibold text-brand-ink">
+                        {b.reference}
+                      </td>
                       <td className="px-4 py-2">{b.customerName}</td>
                       <td className="px-4 py-2 font-mono text-xs text-ink-2">
                         {b.checkin} → {b.checkout}
@@ -233,7 +251,9 @@ export default function DashboardPage() {
                       <td className="px-4 py-2">
                         <Pill
                           tone={
-                            b.status === 'Approved' || b.status === 'CheckedIn' || b.status === 'CheckedOut'
+                            b.status === 'Approved' ||
+                            b.status === 'CheckedIn' ||
+                            b.status === 'CheckedOut'
                               ? 'avail'
                               : b.status === 'Pending'
                                 ? 'low'
@@ -245,7 +265,9 @@ export default function DashboardPage() {
                           {b.status}
                         </Pill>
                       </td>
-                      <td className="px-4 py-2 text-right font-mono font-semibold">{money(b.amount)}</td>
+                      <td className="px-4 py-2 text-right font-mono font-semibold">
+                        {money(b.amount)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
