@@ -2,13 +2,24 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { and, between, eq } from 'drizzle-orm';
 import {
   availabilityCalendar,
+  rooms as roomsTable,
   reserveStay,
   releaseStay,
   enqueueOutbox,
   InsufficientAvailabilityError,
+  type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { eachNight } from '../common/dates';
+
+/** The channel manager keys ARI on the property, so every outbox payload must carry it. */
+async function propertyIdOf(tx: Tx, roomId: string): Promise<string | undefined> {
+  const [room] = await tx
+    .select({ propertyId: roomsTable.propertyId })
+    .from(roomsTable)
+    .where(eq(roomsTable.id, roomId));
+  return room?.propertyId;
+}
 
 @Injectable()
 export class InventoryService {
@@ -45,7 +56,13 @@ export class InventoryService {
           aggregate: 'availability',
           aggregateId: roomId,
           eventType: 'ari.availability',
-          payload: { roomId, nights, rooms, action: 'reserve' },
+          payload: {
+            propertyId: await propertyIdOf(tx, roomId),
+            roomId,
+            nights,
+            rooms,
+            action: 'reserve',
+          },
         });
       });
       return { reserved: true, roomId, checkin, checkout, rooms, nights };
@@ -76,7 +93,13 @@ export class InventoryService {
         aggregate: 'availability',
         aggregateId: roomId,
         eventType: 'ari.availability',
-        payload: { roomId, nights, rooms, action: 'release' },
+        payload: {
+          propertyId: await propertyIdOf(tx, roomId),
+          roomId,
+          nights,
+          rooms,
+          action: 'release',
+        },
       });
     });
     return { released: true, roomId, checkin, checkout, rooms, nights };

@@ -128,7 +128,13 @@ export class RoomsService {
         aggregate: 'availability',
         aggregateId: roomId,
         eventType: 'ari.availability',
-        payload: { roomId, from: dto.from, to: dto.to, action: 'open' },
+        payload: {
+          propertyId: room.propertyId,
+          roomId,
+          from: dto.from,
+          to: dto.to,
+          action: 'open',
+        },
       });
       await tx.insert(ariHistory).values({
         tenantId,
@@ -166,7 +172,14 @@ export class RoomsService {
         aggregate: 'availability',
         aggregateId: roomId,
         eventType: 'ari.restriction',
-        payload: { roomId, from: dto.from, to: dto.to, minStay: dto.minStay, maxStay: dto.maxStay },
+        payload: {
+          propertyId: room.propertyId,
+          roomId,
+          from: dto.from,
+          to: dto.to,
+          minStay: dto.minStay,
+          maxStay: dto.maxStay,
+        },
       });
       await tx.insert(ariHistory).values({
         tenantId,

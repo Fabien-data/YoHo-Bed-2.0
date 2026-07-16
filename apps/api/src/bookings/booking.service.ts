@@ -225,6 +225,7 @@ export class BookingService {
       aggregateId: dto.roomId,
       eventType: 'ari.availability',
       payload: {
+        propertyId: occ.propertyId,
         roomId: dto.roomId,
         nights,
         rooms: dto.rooms,
@@ -451,6 +452,7 @@ export class BookingService {
           aggregateId: b.roomId,
           eventType: 'ari.availability',
           payload: {
+            propertyId: b.propertyId,
             roomId: b.roomId,
             nights,
             rooms: b.rooms,
@@ -610,9 +612,13 @@ export class BookingService {
           aggregateId: b.roomId,
           eventType: 'ari.availability',
           payload: {
+            propertyId: b.propertyId,
             roomId: b.roomId,
             action: 'amend',
             origin: 'booking',
+            // Every date the amend touched (old ∪ new) — an amend moves inventory on both the
+            // freed and the newly-taken nights, and the channel must re-sync all of them.
+            nights: [...new Set([...oldNights, ...newNights])].sort(),
             released: { nights: oldNights, rooms: b.rooms },
             reserved: { nights: newNights, rooms: newRooms },
           },

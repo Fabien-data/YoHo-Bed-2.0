@@ -144,7 +144,9 @@ export class RatesService {
         aggregate: 'rate',
         aggregateId: occupancyId,
         eventType: 'ari.rate',
-        payload: { occupancyId, from, to, base },
+        // propertyId/roomId are what the channel manager keys on — carry them so the adapter
+        // can map the event without a database round-trip.
+        payload: { propertyId: ctx.propertyId, roomId: ctx.roomId, occupancyId, from, to, base },
       });
       await tx.insert(ariHistory).values({
         tenantId,
@@ -294,19 +296,26 @@ export class RatesService {
         .set({ lastMinuteDropPct: dropPct.toFixed(2), updatedAt: sql`now()` })
         .where(and(eq(rateCalendar.occupancyId, occupancyId), between(rateCalendar.date, from, to)))
         .returning({ id: rateCalendar.id });
-      await enqueueOutbox(tx, {
-        tenantId,
-        aggregate: 'rate',
-        aggregateId: occupancyId,
-        eventType: 'ari.rate',
-        payload: { occupancyId, from, to, lastMinuteDropPct: dropPct },
-      });
       const [ctx] = await tx
         .select({ propertyId: rooms.propertyId, roomId: rooms.id })
         .from(occupancies)
         .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
         .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
         .where(eq(occupancies.id, occupancyId));
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'rate',
+        aggregateId: occupancyId,
+        eventType: 'ari.rate',
+        payload: {
+          propertyId: ctx?.propertyId,
+          roomId: ctx?.roomId,
+          occupancyId,
+          from,
+          to,
+          lastMinuteDropPct: dropPct,
+        },
+      });
       if (ctx) {
         await tx.insert(ariHistory).values({
           tenantId,

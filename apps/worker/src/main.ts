@@ -24,7 +24,39 @@ const connection = {
   maxRetriesPerRequest: null,
 };
 const { db, close } = createDb(DATABASE_URL);
-const adapter = resolveAdapter(process.env.CM_PROVIDER ?? 'fake', { latencyMs: 40 });
+
+/**
+ * Which channel manager we actually talk to. `fake` (the default) is dev/demo only.
+ * Set CM_PROVIDER=axisrooms + CM_URL_AXISROOMS to go live; the endpoint paths mirror the legacy
+ * CM_AXISROOMS_*_ENDPOINT env vars. resolveAdapter throws rather than silently degrading to the
+ * fake if axisrooms is selected without a URL — pretending to sync is worse than refusing to boot.
+ */
+const adapter = resolveAdapter(process.env.CM_PROVIDER ?? 'fake', {
+  latencyMs: 40,
+  axisrooms: {
+    baseUrl: process.env.CM_URL_AXISROOMS ?? '',
+    channelId: process.env.AXISROOMS_CHANNEL_ID,
+    apiKey: process.env.CM_AXISROOMS_API_KEY,
+    timeoutMs: Number(process.env.CM_TIMEOUT_MS ?? 15000),
+    endpoints: {
+      ...(process.env.CM_AXISROOMS_INVENTORY_ENDPOINT
+        ? { inventory: process.env.CM_AXISROOMS_INVENTORY_ENDPOINT }
+        : {}),
+      ...(process.env.CM_AXISROOMS_RATE_ENDPOINT
+        ? { rate: process.env.CM_AXISROOMS_RATE_ENDPOINT }
+        : {}),
+      ...(process.env.CM_AXISROOMS_NO_SHOW_ENDPOINT
+        ? { noShow: process.env.CM_AXISROOMS_NO_SHOW_ENDPOINT }
+        : {}),
+      ...(process.env.CM_AXISROOMS_INVENTORY_BLOCK_ENDPOINT
+        ? { inventoryBlock: process.env.CM_AXISROOMS_INVENTORY_BLOCK_ENDPOINT }
+        : {}),
+      ...(process.env.CM_AXISROOMS_INVENTORY_UNBLOCK_ENDPOINT
+        ? { inventoryUnblock: process.env.CM_AXISROOMS_INVENTORY_UNBLOCK_ENDPOINT }
+        : {}),
+    },
+  },
+});
 
 const queue = new Queue(QUEUE, { connection });
 

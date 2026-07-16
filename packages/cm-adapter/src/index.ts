@@ -1,39 +1,8 @@
-/**
- * @yohobed/cm-adapter — the seam between the PMS and the channel managers.
- *
- * The real OTA XML push/pull lives in external services (AxisRooms, RateGain). We black-box them
- * behind this interface so the PMS depends only on the contract, and a future in-house
- * reimplementation swaps the impl without touching the platform. `push` THROWS on failure so the
- * worker can retry and, ultimately, dead-letter — the opposite of the legacy fire-and-forget.
- */
+import { CmPushError, type CmAdapter, type CmPushInput, type CmPushResult } from './types';
+import { AxisRoomsAdapter, type AxisRoomsConfig } from './axisrooms';
 
-export interface CmPushInput {
-  aggregate: string;
-  aggregateId: string;
-  eventType: string;
-  payload: unknown;
-}
-
-export interface CmPushResult {
-  ok: true;
-  provider: string;
-  detail: string;
-}
-
-export class CmPushError extends Error {
-  constructor(
-    public readonly provider: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'CmPushError';
-  }
-}
-
-export interface CmAdapter {
-  readonly provider: string;
-  push(input: CmPushInput): Promise<CmPushResult>;
-}
+export * from './types';
+export * from './axisrooms';
 
 export interface FakeCmOptions {
   latencyMs?: number;
@@ -72,10 +41,27 @@ export class NotImplementedCmAdapter implements CmAdapter {
   }
 }
 
-/** Selects an adapter by provider name. Dev/default = fake. */
-export function resolveAdapter(provider = 'fake', opts: FakeCmOptions = {}): CmAdapter {
+export interface ResolveAdapterOptions extends FakeCmOptions {
+  axisrooms?: AxisRoomsConfig;
+}
+
+/**
+ * Selects an adapter by provider name. Dev/default = fake.
+ *
+ * `axisrooms` needs a baseUrl (the core service). If CM_PROVIDER=axisrooms is set without one,
+ * fail loudly at startup rather than silently degrading to the fake and pretending to sync.
+ */
+export function resolveAdapter(provider = 'fake', opts: ResolveAdapterOptions = {}): CmAdapter {
   switch (provider) {
-    case 'axisrooms':
+    case 'axisrooms': {
+      if (!opts.axisrooms?.baseUrl) {
+        throw new CmPushError(
+          'axisrooms',
+          'CM_PROVIDER=axisrooms requires CM_URL_AXISROOMS — refusing to fall back to the fake adapter',
+        );
+      }
+      return new AxisRoomsAdapter(opts.axisrooms);
+    }
     case 'rategain':
       return new NotImplementedCmAdapter(provider);
     default:

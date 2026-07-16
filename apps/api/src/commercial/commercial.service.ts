@@ -77,7 +77,7 @@ export class CommercialService {
       if (!promo) throw new NotFoundException('Promotion not found');
 
       const occRows = await tx
-        .select({ id: occupancies.id })
+        .select({ id: occupancies.id, roomId: rooms.id })
         .from(occupancies)
         .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
         .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
@@ -97,14 +97,16 @@ export class CommercialService {
           )
           .returning({ id: rateCalendar.id });
         updated = res.length;
-        for (const occId of occIds) {
+        for (const occ of occRows) {
           await enqueueOutbox(tx, {
             tenantId,
             aggregate: 'rate',
-            aggregateId: occId,
+            aggregateId: occ.id,
             eventType: 'ari.rate',
             payload: {
-              occupancyId: occId,
+              propertyId: promo.propertyId,
+              roomId: occ.roomId,
+              occupancyId: occ.id,
               from: promo.startDate,
               to: promo.endDate,
               promotion: promo.name,
