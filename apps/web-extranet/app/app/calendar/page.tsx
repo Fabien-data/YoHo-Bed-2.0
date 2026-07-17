@@ -22,9 +22,19 @@ import {
   type AriHistoryEntry,
 } from '@/lib/api';
 import { Button, Card, Pill } from '@/components/ui';
-import { money, moneyShort, dom, monthDays, addMonths, monthYear, longDate } from '@/lib/format';
+import {
+  money,
+  moneyShort,
+  dom,
+  monthDays,
+  addMonths,
+  monthYear,
+  longDate,
+  todayISO,
+  firstOfMonth,
+} from '@/lib/format';
 
-const INITIAL_MONTH = '2026-08-01';
+const INITIAL_MONTH = firstOfMonth(todayISO());
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 type OccRow = Occupancy & { code: string };

@@ -19,14 +19,8 @@ import {
   type StaffTenant,
 } from '@/lib/api';
 import { Button, Card, Logo, Pill } from '@/components/ui';
+import { money } from '@/lib/format';
 
-function money(v?: string | number | null) {
-  if (v === undefined || v === null || v === '') return '—';
-  const n = typeof v === 'string' ? Number(v) : v;
-  return Number.isNaN(n)
-    ? '—'
-    : 'Rs ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 function tenantTone(status: StaffTenant['status']): 'avail' | 'low' | 'closed' {
   return status === 'active' ? 'avail' : status === 'pending' ? 'low' : 'closed';
 }

@@ -13,7 +13,7 @@ import {
   type CmMapping,
   type Room,
 } from '@/lib/api';
-import { money, longDate } from '@/lib/format';
+import { money, longDate, todayISO, addDays } from '@/lib/format';
 import { Button, Card, Field, Pill } from '@/components/ui';
 
 const STATUS_TONE: Record<
@@ -38,8 +38,8 @@ export default function InboxPage() {
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [sim, setSim] = useState({
     guestName: 'Amara Perera',
-    checkin: '2026-08-05',
-    checkout: '2026-08-07',
+    checkin: addDays(todayISO(), 7),
+    checkout: addDays(todayISO(), 9),
   });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'avail' | 'closed'; text: string } | null>(null);

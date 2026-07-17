@@ -1,16 +1,45 @@
 # YoHoBed 2.0 — Consolidated Gap Analysis & Next-Move Board
 
-**Date:** 2026-07-13 · **Sources:** full code inventory of `extranet/` (Laravel 5.4 owner extranet), `backend-portal/` (CI3 staff/admin portal + the gitignored core.yohobed.com microservices described in its context.md), `_extranet_docs_build/` (YB-Suit architecture docs), and `yohobed2/` (the new monorepo, Phases 0–8 + MVP compartments A–F complete).
+**Date:** 2026-07-13, **status snapshot updated 2026-07-17** · **Sources:** full code inventory of `extranet/` (Laravel 5.4 owner extranet), `backend-portal/` (CI3 staff/admin portal + the gitignored core.yohobed.com microservices described in its context.md), `_extranet_docs_build/` (YB-Suit architecture docs), and `yohobed2/` (the new monorepo).
 
 **Purpose:** one place that answers _"what's left?"_ across four categories: ① legacy parity gaps, ② new must-adds, ③ AI/MCP revamp features, ④ other platform components. Ends with sequencing options for the next-move discussion.
 
 ---
 
-## 0. Where we stand (snapshot)
+## 0. Where we stand (snapshot — updated 2026-07-17)
 
-**YoHoBed 2.0 today** is a working single-property-owner PMS: auth + JWT + tenant RLS, property/room/roomtype setup, rate plans + occupancies + seasons + last-minute drops, month rate/availability calendar with inline editing, walk-in bookings with full lifecycle (approve/reject/cancel/no-show), tax + slab-commission parity engine (42 domain tests), invoices/payments/payout settlement that reconciles to the cent, promotions/coupons/referrals, notifications + multilingual templates, OTA reservation inbox (webhook + retry), transactional outbox → BullMQ worker → CM adapter seam, and a minimal cross-tenant staff console. **All 4 legacy bugs are fixed and proven.**
+> ⚠️ The matrices in §1 are the original 2026-07-13 inventory, kept as a dated artifact. Rows
+> marked ❌ there for **dashboard, check-in/out, booking edit, guest-email save, ARI history,
+> min/max stay, photos, reviews, customer screen, profile/bank/agreement, self-registration and
+> real email** are now ✅ — Compartments G–K (below) closed them. This section is the current
+> truth. For what the platform _is_, see [ARCHITECTURE.md](ARCHITECTURE.md); for how to use it,
+> [USER-GUIDE.md](USER-GUIDE.md).
 
-**What it is not yet:** connected to a real channel manager, loaded with real data, able to send a real email/SMS, hosted anywhere, or carrying any AI. And a real hotel can't fully run on it yet — no dashboard, no check-in/check-out, no photos, no reviews, no bank-details/onboarding flow.
+**YoHoBed 2.0 today** is a complete, legacy-parity, multi-tenant PMS: self-serve owner
+registration with staff approval; property/room/rate-plan/occupancy setup with photos; month
+calendar with inline + bulk editing, last-minute drops and min/max-stay restrictions with an
+owner-facing ARI change history; full booking lifecycle including **check-in/check-out and
+amend**; a front-desk **dashboard**; OTA reservation inbox (webhook, idempotent auto-import,
+retry) over a transactional outbox → BullMQ worker → **real AxisRooms adapter** (contract-tested,
+awaiting credentials); tax + slab-commission parity engine; invoices/payments/**payout settlement
+that reconciles to the cent** with owner bank details; promotions/coupons/referrals; guest
+emails through a real provider seam (console|Resend) with per-tenant multilingual templates;
+post-checkout **guest reviews**; a **customer/CRM directory**; a staff console (tenant approval,
+booking oversight, suspend/activate, audit); **105 automated tests** (domain parity, RLS
+isolation, API e2e, adapter contract) and **CI**. All 4 legacy bugs fixed and regression-guarded.
+
+**Compartments completed since the 07-13 matrix:** **G** front desk (dashboard, check-in/out,
+amend) · **H** onboarding + profile/bank + email seam + photos · **I** min/max stay, ARI
+history, reviews, customers · **J** API e2e suite + CI (+ registration-templates bugfix) ·
+**K** real AxisRooms adapter.
+
+**What it is not yet:** migrated (no ETL from legacy MySQL), hosted (no deploy target), live on
+a real channel (adapter built; needs AxisRooms credentials + endpoint config), or carrying any
+AI. Remaining owner-UI niceties: Seasons UI (API exists), owner-visible "my channels" screen,
+Excel bulk upload (decision pending), si/ta UI localization, invoice PDF, multi-currency.
+
+**Open decisions still pending:** AxisRooms credentials & test property · Excel bulk upload
+keep/replace · B2B/DMC timing · multi-currency.
 
 Legend: ✅ built · 🟡 partial · ❌ missing · 🚫 deliberately dropped/replaced · 🆕 net-new (no legacy equivalent)
 

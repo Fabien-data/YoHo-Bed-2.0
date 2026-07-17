@@ -22,7 +22,7 @@ import {
   type ReferralCommission,
 } from '@/lib/api';
 import { Button, Card, Field, Pill } from '@/components/ui';
-import { money } from '@/lib/format';
+import { money, todayISO, addDays } from '@/lib/format';
 
 const selectClass =
   'rounded-xl border border-line-strong bg-surface-2 px-4 py-2.5 text-sm font-semibold text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
@@ -40,16 +40,16 @@ export default function DealsPage() {
   const [promoForm, setPromoForm] = useState({
     name: '',
     discountPct: 15,
-    from: '2026-08-01',
-    to: '2026-08-31',
+    from: todayISO(),
+    to: addDays(todayISO(), 30),
     minNights: 1,
   });
   const [couponForm, setCouponForm] = useState({
     code: '',
     type: 'percentage' as 'percentage' | 'fixed',
     value: 10,
-    from: '2026-08-01',
-    to: '2026-12-31',
+    from: todayISO(),
+    to: addDays(todayISO(), 90),
     maxUses: 0,
   });
   const [partnerForm, setPartnerForm] = useState({ name: '', code: '', commissionPct: 5 });

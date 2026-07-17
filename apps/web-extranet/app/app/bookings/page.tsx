@@ -15,7 +15,7 @@ import {
   type Occupancy,
 } from '@/lib/api';
 import { Button, Card, Field, Pill } from '@/components/ui';
-import { money } from '@/lib/format';
+import { money, todayISO, addDays } from '@/lib/format';
 
 const STATUSES = [
   'All',
@@ -61,8 +61,8 @@ export default function BookingsPage() {
   const [occId, setOccId] = useState('');
   const [form, setForm] = useState({
     name: '',
-    checkin: '2026-08-04',
-    checkout: '2026-08-06',
+    checkin: todayISO(),
+    checkout: addDays(todayISO(), 2),
     couponCode: '',
     referralCode: '',
   });

@@ -16,6 +16,11 @@ export function moneyShort(v?: string | number | null): string {
   return 'Rs ' + Math.round(n).toLocaleString('en-US');
 }
 
+/** Today as 'YYYY-MM-DD' in the user's LOCAL timezone (toISOString would lag before 05:30 LKT). */
+export function todayISO(): string {
+  return new Date().toLocaleDateString('en-CA');
+}
+
 export function dow(d: string): string {
   return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', {
     weekday: 'short',

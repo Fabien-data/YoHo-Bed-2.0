@@ -1,0 +1,265 @@
+# YoHoBed 2.0 — API Reference
+
+> Every HTTP endpoint of `apps/api` (NestJS, default `http://localhost:3001`), grouped by module,
+> with auth requirements and the business rules that matter. Validation is per-route zod
+> (invalid input → `400` with field details). No global route prefix.
+>
+> Companion docs: [ARCHITECTURE.md](ARCHITECTURE.md) (security model) ·
+> [DATA-MODEL.md](DATA-MODEL.md) · [PRICING.md](PRICING.md) (the formulas behind the numbers)
+
+**Auth legend**
+
+| Tag        | Meaning                                                                                                                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| public     | No authentication                                                                                                                                                                        |
+| JWT        | `Authorization: Bearer <token>` (from `POST /auth/login`)                                                                                                                                |
+| JWT+Tenant | JWT **plus** tenant resolution: the `x-tenant-id` header (or the user's single membership) must be one of the caller's memberships. Suspended/inactive tenants are rejected per-request. |
+| Roles      | JWT + membership role `YOHO_STAFF` or `YOHO_ADMIN`                                                                                                                                       |
+| CM-secret  | `x-cm-secret` header matching `CM_WEBHOOK_SECRET`                                                                                                                                        |
+| token      | Authorization by unguessable token in the URL                                                                                                                                            |
+
+**Common error codes**
+
+- `400` — validation failure or an illegal state transition (message says which).
+- `401` — missing/invalid credentials (login, JWT, CM secret).
+- `403` — authenticated but not allowed (foreign `x-tenant-id`, owner on staff routes, suspended tenant).
+- `404` — not found _or not yours_: RLS makes other tenants' rows invisible, so cross-tenant reads 404.
+- `409` — conflict: `insufficient_availability` (with the failing `date`), duplicate coupon/partner/CM code, duplicate registration email.
+- `422` — `unmapped_room_code` on the CM webhook (so the channel manager retries).
+
+---
+
+## Health
+
+| Method & path | Auth   | Purpose                                  |
+| ------------- | ------ | ---------------------------------------- |
+| `GET /health` | public | Liveness: `{status:'ok', service, time}` |
+
+## Auth (`/auth`)
+
+| Method & path                | Auth   | Purpose                                                                                                                                                                                                                                 |
+| ---------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`           | public | Email + password → `{accessToken, user{memberships[+tenantStatus]}}`. Identical error for unknown email vs wrong password. Refused only if **all** the user's tenants are suspended/inactive (`pending` may sign in; staff always may). |
+| `POST /auth/register`        | public | Self-serve signup: creates a **pending** tenant + OWNER user + membership + starter message templates (one transaction), sends a "registration received" email. `409` on duplicate email.                                               |
+| `POST /auth/forgot-password` | public | Always answers success (no account enumeration); emails a reset link valid 60 minutes.                                                                                                                                                  |
+| `POST /auth/reset-password`  | public | `{token, password}` → sets the password, invalidates all outstanding reset tokens for that email.                                                                                                                                       |
+| `POST /auth/change-password` | JWT    | Requires the correct current password. Min length 8.                                                                                                                                                                                    |
+| `GET /auth/me`               | JWT    | The authenticated principal `{id, email, memberships}`.                                                                                                                                                                                 |
+
+## Properties
+
+| Method & path           | Auth       | Purpose                                                                             |
+| ----------------------- | ---------- | ----------------------------------------------------------------------------------- |
+| `GET /properties`       | JWT+Tenant | List the tenant's properties.                                                       |
+| `GET /properties/:id`   | JWT+Tenant | One property (404 if not yours).                                                    |
+| `POST /properties`      | JWT+Tenant | Create (name). Commission model (percentage/slab) is staff-configured, default 10%. |
+| `PATCH /properties/:id` | JWT+Tenant | Rename.                                                                             |
+
+## Rooms, room types, availability (inventory)
+
+| Method & path                                                 | Auth       | Purpose                                                                                                                                                                          |
+| ------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /properties/:propertyId/rooms`                           | JWT+Tenant | Rooms of a property.                                                                                                                                                             |
+| `POST /properties/:propertyId/rooms`                          | JWT+Tenant | Create room (name, physical `quantity`, optional roomtype).                                                                                                                      |
+| `GET /rooms`                                                  | JWT+Tenant | All the tenant's rooms.                                                                                                                                                          |
+| `PATCH /rooms/:id`                                            | JWT+Tenant | Update name/quantity/roomtype.                                                                                                                                                   |
+| `GET /roomtypes` · `POST /roomtypes` · `PATCH /roomtypes/:id` | JWT+Tenant | Room-category lookup management.                                                                                                                                                 |
+| `GET /rooms/:id/availability?from&to`                         | JWT+Tenant | Calendar rows (physical qty, rooms-to-sell, Open/Close, min/max stay).                                                                                                           |
+| `POST /rooms/:id/availability`                                | JWT+Tenant | Open/close a date range and set rooms-to-sell (capped at the room's physical quantity). Queues a CM push + writes ARI history.                                                   |
+| `POST /rooms/:id/restrictions`                                | JWT+Tenant | Set arrival-based `minStay` (1 = none) / `maxStay` (0 = unlimited) over a range. `maxStay` must be 0 or ≥ `minStay`. Queues CM push + history.                                   |
+| `GET /rooms/:id/ari-history`                                  | JWT+Tenant | Last 100 ARI changes (kind availability/price/drop/restriction, date range, detail, actor email).                                                                                |
+| `POST /rooms/:id/reserve` · `POST /rooms/:id/release`         | JWT+Tenant | Raw inventory adjust (the booking flow uses these internally). Reserve is atomic — `409 insufficient_availability` if any night can't supply. Release caps at physical quantity. |
+
+## Rates & pricing
+
+| Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /rate-codes`                                                      | JWT+Tenant | Global meal-plan lookup (RO/BB/HB/FB/AI).                                                                                                                                                                        |
+| `GET /rooms/:id/rate-plans` · `POST /rooms/:id/rate-plans`             | JWT+Tenant | Rate plans (room × meal plan); duplicate meal plan rejected.                                                                                                                                                     |
+| `GET /rate-plans/:id/occupancies` · `POST /rate-plans/:id/occupancies` | JWT+Tenant | Guest configurations (label + accommodates 1–20).                                                                                                                                                                |
+| `GET /rooms/:id/rates?from&to`                                         | JWT+Tenant | Per-date prices incl. `effectiveSelling` after any last-minute drop.                                                                                                                                             |
+| `POST /occupancies/:id/price`                                          | JWT+Tenant | Set the **base** price over a range. The selling price is always derived: base → Yoho commission (slab or %) → OTA gross-up (÷0.82) → per-day tax gross-up ([PRICING.md](PRICING.md)). Queues CM push + history. |
+| `POST /occupancies/:id/last-minute-drop`                               | JWT+Tenant | Set a 0–90% discount over a range (charged price = selling × (1 − drop%)). Queues CM push + history.                                                                                                             |
+| `GET /properties/:id/seasons` · `POST /properties/:id/seasons`         | JWT+Tenant | Named date ranges (authoring aid; **no UI yet**).                                                                                                                                                                |
+| `POST /seasons/:id/apply`                                              | JWT+Tenant | Paint base prices across the season for given occupancies.                                                                                                                                                       |
+
+## Bookings (`/bookings`)
+
+| Method & path                  | Auth       | Purpose                                                                                                                                                                                                                   |
+| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /bookings`                | JWT+Tenant | All bookings with guest details.                                                                                                                                                                                          |
+| `GET /bookings/:id`            | JWT+Tenant | One booking + per-night price snapshot (`days`) + lifecycle audit `trail`.                                                                                                                                                |
+| `POST /bookings`               | JWT+Tenant | Create a walk-in. See rules below.                                                                                                                                                                                        |
+| `PATCH /bookings/:id`          | JWT+Tenant | Amend: guest details in any live status; dates/rooms only while Pending/Approved — re-prices on the same occupancy and swaps inventory atomically (`409` if the new dates don't fit). Keeps the original coupon discount. |
+| `POST /bookings/:id/approve`   | JWT+Tenant | Pending → Approved.                                                                                                                                                                                                       |
+| `POST /bookings/:id/reject`    | JWT+Tenant | Pending → Rejected. **Releases inventory.**                                                                                                                                                                               |
+| `POST /bookings/:id/cancel`    | JWT+Tenant | Pending/Approved → Cancelled. **Releases inventory.**                                                                                                                                                                     |
+| `POST /bookings/:id/no-show`   | JWT+Tenant | Approved → NoShow (inventory stays consumed, matching legacy revenue treatment).                                                                                                                                          |
+| `POST /bookings/:id/check-in`  | JWT+Tenant | Approved → CheckedIn (stamps `checkedInAt`).                                                                                                                                                                              |
+| `POST /bookings/:id/check-out` | JWT+Tenant | CheckedIn → CheckedOut (stamps `checkedOutAt`); mints a single-use review invite and queues the review email.                                                                                                             |
+
+**Create rules (`POST /bookings`)** — the request carries `roomId` + `occupancyId` (the pricing
+key) + guest + dates + rooms + optional `couponCode`/`referralCode`:
+
+1. The occupancy must belong to the room (fixes legacy BUG #2) — else 404/400.
+2. Arrival-date min/max-stay restrictions are enforced — else 400 with the rule.
+3. Every night must have a price in the rate calendar — else 400.
+4. The charge is the **effective** selling price (after any last-minute drop); per-night tax is
+   decomposed out for settlement.
+5. Coupon: must be active, in its date window, under its usage cap, and property-compatible.
+6. Inventory is reserved atomically (fixes BUG #1) — else `409 insufficient_availability`.
+7. The reference comes from an atomic per-day counter (fixes BUG #4), format `yymmdd####`.
+8. A CM outbox row is queued in the same transaction (fixes BUG #3).
+9. The guest is reused by email or created; the owner gets a notification; a confirmation email
+   is queued from the tenant's template.
+
+**Status machine**
+
+```mermaid
+stateDiagram-v2
+  [*] --> Pending: create (walk-in)
+  [*] --> Approved: create (OTA import — guest already paid)
+  Pending --> Approved: approve
+  Pending --> Rejected: reject (releases inventory)
+  Pending --> Cancelled: cancel (releases inventory)
+  Approved --> Cancelled: cancel (releases inventory)
+  Approved --> NoShow: no-show
+  Approved --> CheckedIn: check-in
+  CheckedIn --> CheckedOut: check-out (sends review invite)
+  Rejected --> [*]
+  Cancelled --> [*]
+  NoShow --> [*]
+  CheckedOut --> [*]
+```
+
+## Dashboard
+
+| Method & path                    | Auth       | Purpose                                                                                                                                                                                                                                                                        |
+| -------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /dashboard?date&propertyId` | JWT+Tenant | Front-desk aggregate for a date (default today): arrivals, departures, in-house count, pending approvals, occupancy % (confirmed room-nights ÷ physical rooms), month-to-view gross (from per-night snapshots, so multi-month stays land in the right month), recent bookings. |
+
+## Commercial (deals, coupons, referrals)
+
+| Method & path                                            | Auth       | Purpose                                                                                                                                                              |
+| -------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /properties/:id/promotions` · `POST …`              | JWT+Tenant | List/create a promotion (name, discount %, window, min nights).                                                                                                      |
+| `POST /promotions/:id/apply`                             | JWT+Tenant | Push the discount onto the rate calendar (as a last-minute drop) for all the property's occupancies in the window; queues CM pushes.                                 |
+| `DELETE /promotions/:id`                                 | JWT+Tenant | Remove the promotion record (already-applied calendar discounts stay until re-priced).                                                                               |
+| `GET /coupons` · `POST /coupons` · `DELETE /coupons/:id` | JWT+Tenant | Guest discount codes (percentage or fixed Rs; optional property scope, window, max uses). Codes are upper-cased; duplicates 409. Redemption happens at booking time. |
+| `GET /referral-partners` · `POST …` · `DELETE …/:id`     | JWT+Tenant | Partners with a code + commission %.                                                                                                                                 |
+| `GET /referral-commissions`                              | JWT+Tenant | Commissions earned per booking (pending/paid).                                                                                                                       |
+
+## Finance
+
+| Method & path                                                | Auth       | Purpose                                                                                                                                                                                                   |
+| ------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /bookings/:id/invoice`                                 | JWT+Tenant | Create the booking's invoice `INV-<reference>` (idempotent — returns the existing one), lines from the per-night snapshot.                                                                                |
+| `GET /invoices` · `GET /invoices/:id`                        | JWT+Tenant | List / one with lines.                                                                                                                                                                                    |
+| `POST /bookings/:id/payments` · `GET /bookings/:id/payments` | JWT+Tenant | Record/list payments (direction received/sent). When received payments cover the invoice, it flips to `paid`.                                                                                             |
+| `GET /finance/payout-statement?propertyId&from&to`           | JWT+Tenant | Settlement over confirmed bookings (Approved/CheckedIn/CheckedOut): `gross = propertyBase + yohoCommission + otaCommission + taxes`, `netPayable = propertyBase`. Reconciles to the cent by construction. |
+| `POST /finance/payouts` · `GET /finance/payouts`             | JWT+Tenant | Snapshot a statement as a payout record / list them.                                                                                                                                                      |
+| `GET /finance/revenue?from&to`                               | JWT+Tenant | Booking counts + gross grouped by status; `approvedGross` = confirmed statuses only.                                                                                                                      |
+
+## OTA distribution
+
+| Method & path                             | Auth          | Purpose                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /cm/reservations`                   | **CM-secret** | The channel-manager webhook. Resolves the tenant **from** the room code (`422 unmapped_room_code` if unknown — the CM should retry). Idempotent on `(channel, externalRef)`. `action:'book'` records the reservation first, then imports it as an auto-approved OTA booking; a failed import keeps the row + error. `action:'cancel'` cancels the imported booking and releases inventory. |
+| `GET /ota/reservations`                   | JWT+Tenant    | The owner's inbox (last 100, newest first).                                                                                                                                                                                                                                                                                                                                                |
+| `POST /ota/reservations/:id/retry`        | JWT+Tenant    | Re-attempt a **failed** import (e.g. after opening availability / setting prices).                                                                                                                                                                                                                                                                                                         |
+| `GET /ota/mappings` · `PUT /ota/mappings` | JWT+Tenant    | Room ↔ channel-manager code mappings. `409` if the code is taken by another room.                                                                                                                                                                                                                                                                                                          |
+| `POST /ota/simulate`                      | JWT+Tenant    | Dev/demo helper: fabricates an inbound reservation for one of the tenant's mapped rooms.                                                                                                                                                                                                                                                                                                   |
+
+## Communications
+
+| Method & path                                                   | Auth       | Purpose                                                                |
+| --------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------- |
+| `GET /notifications` · `GET /notifications/unread-count`        | JWT+Tenant | In-app notifications (bell).                                           |
+| `POST /notifications/:id/read` · `POST /notifications/read-all` | JWT+Tenant | Mark read.                                                             |
+| `GET /messages`                                                 | JWT+Tenant | Outbound email log (queued/sent/failed + error).                       |
+| `GET /templates` · `PATCH /templates/:id`                       | JWT+Tenant | Per-tenant, per-language message templates (`{{placeholder}}` syntax). |
+| `GET /languages`                                                | JWT+Tenant | Global language lookup (en/si/ta).                                     |
+
+## Reviews
+
+| Method & path                | Auth       | Purpose                                                                                                    |
+| ---------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET /reviews/invite/:token` | **token**  | What the public review form shows (guest, property, stay, used?).                                          |
+| `POST /reviews`              | **token**  | Single-use submission `{token, rating 1–5, comment?}`. Burns the invite; notifies the owner. Replay → 400. |
+| `GET /reviews`               | JWT+Tenant | All reviews + per-property averages.                                                                       |
+
+## Customers
+
+| Method & path        | Auth       | Purpose                                                                                |
+| -------------------- | ---------- | -------------------------------------------------------------------------------------- |
+| `GET /customers`     | JWT+Tenant | Guest directory: bookings count, non-cancelled nights, confirmed spend, last check-in. |
+| `GET /customers/:id` | JWT+Tenant | One guest + full booking history.                                                      |
+
+## Profile & media
+
+| Method & path                                                                 | Auth                     | Purpose                                                    |
+| ----------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| `GET /profile`                                                                | JWT+Tenant               | User + tenant standing (incl. `pending`) + payout account. |
+| `PUT /profile/payout-account`                                                 | JWT+Tenant               | Upsert the settlement bank account (one per tenant).       |
+| `POST /profile/agreement/accept`                                              | JWT+Tenant               | Stamp platform-agreement acceptance (idempotent).          |
+| `POST /properties/:id/photos` · `POST /rooms/:id/photos`                      | JWT+Tenant               | Multipart upload (`file`); JPEG/PNG/WebP ≤ 5 MB.           |
+| `GET /properties/:id/photos` · `GET /rooms/:id/photos` · `DELETE /photos/:id` | JWT+Tenant               | List / delete.                                             |
+| `GET /media/:key`                                                             | public (unguessable key) | Serve photo bytes with immutable cache headers.            |
+
+## Staff console (`/staff`)
+
+All routes: **Roles** (`YOHO_STAFF` / `YOHO_ADMIN`). Every action is written to the audit log.
+
+| Method & path                                                | Purpose                                                                                                                                    |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /staff/tenants`                                         | Every tenant + status + pending-booking count.                                                                                             |
+| `GET /staff/tenants/:id/bookings`                            | A tenant's bookings (cross-tenant, still under RLS via scoped context).                                                                    |
+| `POST /staff/tenants/:id/bookings/:bid/approve` · `…/reject` | Approve/reject on the owner's behalf.                                                                                                      |
+| `POST /staff/tenants/:id/status`                             | Set `active` / `inactive` / `suspended`. `pending → active` sends the welcome email. Suspension blocks login and every subsequent request. |
+| `GET /staff/audit`                                           | Recent audit entries (actor, action, entity, detail).                                                                                      |
+
+## Distribution health (dev/ops)
+
+| Method & path                     | Auth       | Purpose                                                                                |
+| --------------------------------- | ---------- | -------------------------------------------------------------------------------------- |
+| `GET /distribution/health`        | JWT+Tenant | Outbox status counts + recent rows for the tenant.                                     |
+| `POST /distribution/test-failure` | JWT+Tenant | Enqueue a `{__fail:true}` event to exercise the retry/dead-letter path (fake adapter). |
+
+---
+
+## Environment variables
+
+### apps/api (validated at boot — `src/config/env.ts`; boot fails fast on violations)
+
+| Variable            | Default                           | Purpose                                                            |
+| ------------------- | --------------------------------- | ------------------------------------------------------------------ |
+| `APP_DATABASE_URL`  | — (required)                      | Postgres URL for the **restricted `yoho_app` role** (RLS applies). |
+| `PORT`              | `3001`                            | HTTP port.                                                         |
+| `JWT_SECRET`        | — (required, min 16 chars)        | JWT signing secret.                                                |
+| `JWT_EXPIRES_IN`    | `1d`                              | Token lifetime.                                                    |
+| `CM_WEBHOOK_SECRET` | dev default (min 16)              | Shared secret the channel manager sends in `x-cm-secret`.          |
+| `EMAIL_PROVIDER`    | `console`                         | `console` (log only) or `resend`.                                  |
+| `RESEND_API_KEY`    | —                                 | Required when provider is `resend`.                                |
+| `EMAIL_FROM`        | `YoHoBed <onboarding@resend.dev>` | From address.                                                      |
+| `WEB_URL`           | `http://localhost:3000`           | Base for links in emails (reset, review).                          |
+| `MEDIA_DIR`         | `./uploads`                       | Photo storage directory.                                           |
+| `CORS_ORIGINS`      | `http://localhost:3000`           | Comma-separated allowed origins (read in `main.ts`).               |
+
+### apps/worker
+
+| Variable                                                                           | Default                     | Purpose                                                                                     |
+| ---------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------- |
+| `APP_DATABASE_URL`                                                                 | dev default                 | Same restricted role as the API.                                                            |
+| `REDIS_URL`                                                                        | `redis://localhost:6380`    | BullMQ backing.                                                                             |
+| `CM_PROVIDER`                                                                      | `fake`                      | `fake` \| `axisrooms` (`rategain` reserved). `axisrooms` **refuses to boot** without a URL. |
+| `CM_URL_AXISROOMS`                                                                 | —                           | Base URL of the core service that owns the AxisRooms conversation.                          |
+| `AXISROOMS_CHANNEL_ID`                                                             | —                           | Legacy channel id (164 in production); retained for future endpoints.                       |
+| `CM_AXISROOMS_API_KEY`                                                             | —                           | Optional bearer for the core service.                                                       |
+| `CM_TIMEOUT_MS`                                                                    | `15000`                     | Per-push timeout.                                                                           |
+| `CM_AXISROOMS_{INVENTORY,RATE,NO_SHOW,INVENTORY_BLOCK,INVENTORY_UNBLOCK}_ENDPOINT` | `/api/axisrooms/…` defaults | Endpoint path overrides (mirror the legacy env vars).                                       |
+
+### apps/web-extranet
+
+| Variable              | Default                 | Purpose                            |
+| --------------------- | ----------------------- | ---------------------------------- |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | Where the browser reaches the API. |
