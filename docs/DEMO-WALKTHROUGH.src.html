@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YoHoBed 2.0 — Client Demo Walkthrough</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: #1a1a2e; margin: 0; font-size: 10.2pt; line-height: 1.5;
+  }
+  h1, h2, h3, h4 { font-weight: 700; color: #16123f; line-height: 1.25; }
+  h1 { font-size: 23pt; margin: 0 0 4pt; }
+  h2 { font-size: 15pt; margin: 0 0 8pt; padding-bottom: 5pt; border-bottom: 2.5pt solid #4B45C6; }
+  h2 .no { color: #4B45C6; margin-right: 6pt; }
+  h3 { font-size: 11.5pt; margin: 13pt 0 4pt; color: #4B45C6; text-transform: uppercase; letter-spacing: .06em; }
+  p { margin: 5pt 0; }
+  .section { page-break-before: always; }
+  .cover { page-break-before: auto; }
+  .brand { color: #4B45C6; }
+  .muted { color: #5b5b74; }
+  .small { font-size: 9pt; }
+  .tag {
+    display: inline-block; background: #4B45C6; color: #fff; border-radius: 3pt;
+    font-size: 8pt; font-weight: 600; padding: 1pt 6pt; letter-spacing: .08em; text-transform: uppercase;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0; font-size: 9.3pt; }
+  th { background: #eceafd; color: #16123f; text-align: left; padding: 4pt 7pt; border: .6pt solid #c9c5ee; }
+  td { padding: 4pt 7pt; border: .6pt solid #d8d6ef; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7f6fd; }
+  code, .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 9pt; background: #f1f0fa; padding: 0 3pt; border-radius: 2pt; }
+  ol.steps { margin: 6pt 0 6pt 0; padding-left: 18pt; }
+  ol.steps li { margin: 4pt 0; padding-left: 3pt; }
+  ol.steps li::marker { color: #4B45C6; font-weight: 700; }
+  ul { margin: 5pt 0; padding-left: 16pt; }
+  ul li { margin: 3pt 0; }
+  .box {
+    border: 1pt solid #c9c5ee; border-left: 4pt solid #4B45C6; background: #f7f6fd;
+    border-radius: 3pt; padding: 7pt 10pt; margin: 8pt 0;
+  }
+  .box.wow { border-left-color: #0C6E66; background: #f0faf8; border-color: #bfe5df; }
+  .box.warn { border-left-color: #b45309; background: #fdf7ef; border-color: #ecd9b8; }
+  .box .t { font-weight: 700; font-size: 9pt; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2pt; }
+  .box.wow .t { color: #0C6E66; }
+  .box.warn .t { color: #b45309; }
+  .box .t.logic { color: #4B45C6; }
+  .cols { display: flex; gap: 10pt; }
+  .cols > div { flex: 1; }
+  .kv td:first-child { font-weight: 600; white-space: nowrap; background: #eceafd; width: 34%; }
+  .pill { display: inline-block; border-radius: 8pt; padding: 0 7pt; font-size: 8.3pt; font-weight: 600; border: .8pt solid; }
+  .pill.green { color: #067647; border-color: #067647; background: #ecfdf3; }
+  .pill.amber { color: #b45309; border-color: #b45309; background: #fffaeb; }
+  .pill.red { color: #b42318; border-color: #b42318; background: #fef3f2; }
+  .pill.blue { color: #175cd3; border-color: #175cd3; background: #eff8ff; }
+  .pill.slate { color: #475467; border-color: #475467; background: #f2f4f7; }
+  .formula {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 9pt; background: #16123f; color: #e8e6ff;
+    padding: 7pt 10pt; border-radius: 4pt; margin: 6pt 0; white-space: pre-wrap;
+  }
+  .keep { page-break-inside: avoid; }
+  .coverhead { background: #16123f; color: #fff; border-radius: 6pt; padding: 22pt 22pt 18pt; margin-bottom: 14pt; }
+  .coverhead h1 { color: #fff; }
+  .coverhead .sub { color: #b9b4ee; font-size: 11pt; margin-top: 2pt; }
+  .coverhead .meta { color: #8f88d8; font-size: 9pt; margin-top: 10pt; }
+  .toc td { border: none; padding: 2.5pt 6pt; }
+  .toc tr td { background: transparent !important; }
+  .toc .n { color: #4B45C6; font-weight: 700; width: 22pt; }
+  footer { position: fixed; bottom: -12mm; left: 0; right: 0; text-align: center; font-size: 8pt; color: #8b8ba5; }
+</style>
+</head>
+<body>
+
+<!-- ======================= COVER ======================= -->
+<div class="cover">
+  <div class="coverhead">
+    <div class="tag" style="background:#4B45C6">Confidential — internal demo script</div>
+    <h1 style="margin-top:8pt">YoHoBed 2.0</h1>
+    <div class="sub">Property Management System — Client Demo Walkthrough &amp; Feature Guide</div>
+    <div class="meta">Prepared 23 July 2026 · MVP build (compartments A–K complete) · 105 automated tests green · All data below is live in the local demo environment</div>
+  </div>
+
+  <h3>The one-paragraph pitch</h3>
+  <p><strong>YoHoBed 2.0</strong> is a complete rebuild of the property-owner Extranet as a modern, multi-tenant Property Management System: one place where a Sri Lankan hotel owner runs their entire operation — rates &amp; availability, bookings and the front desk, OTA channel distribution, finance &amp; settlement, guest communications, reviews and promotions — with YoHo staff operating a separate cross-tenant console. It preserves the legacy platform's pricing logic to the cent while fixing its four known production bugs, and every screen below is running on the new stack right now.</p>
+
+  <h3>Demo environment (already running)</h3>
+  <table class="kv">
+    <tr><td>Owner app (main demo)</td><td><code>http://localhost:3000</code> — sign in as <code>owner@demo.yohobed.test</code> / <code>password123</code></td></tr>
+    <tr><td>Staff console</td><td>Same URL, sign in as <code>staff@yohobed.test</code> / <code>password123</code> (use a second browser window / incognito)</td></tr>
+    <tr><td>API</td><td><code>http://localhost:3001</code> (NestJS) — the web app talks to this; you never open it directly</td></tr>
+    <tr><td>Demo tenant</td><td><strong>Cinnamon Lakeside Group</strong> — 2 properties: <em>Cinnamon Lakeside</em> (Deluxe Room ×5, simple 10% commission, no taxes) and <em>Ceylon Tax Villa</em> (Ocean Suite ×3, slab commission + 10% service charge + 15% VAT)</td></tr>
+    <tr><td>Data window</td><td>Rooms open &amp; priced <strong>15 Jul → 31 Aug 2026</strong> · Rs 18,000 base weekdays / Rs 25,000 weekends</td></tr>
+  </table>
+
+  <h3>What's loaded for you to show</h3>
+  <table>
+    <tr><th>Area</th><th>Ready-made demo data</th></tr>
+    <tr><td>Front desk (today)</td><td>1 arrival to check in live (Kasun), 1 departure to check out live (Sofia), 2 guests in-house, 2 bookings awaiting approval</td></tr>
+    <tr><td>Bookings</td><td>13 bookings covering <em>every</em> status: Pending, Approved, Checked-in, Checked-out, Cancelled, No-show — plus a coupon booking and a referral booking</td></tr>
+    <tr><td>OTA Inbox</td><td>2 imported OTA reservations (booking.com + agoda, auto-approved) and 1 <em>failed</em> import (expedia) for the live "Retry" moment</td></tr>
+    <tr><td>Finance</td><td>1 invoice paid in full, 1 invoice 50% advance-paid, July payout statement that reconciles to the cent, saved payout snapshot, settlement bank account on file</td></tr>
+    <tr><td>Deals</td><td>"August Getaway −15%" promotion painted on the calendar, coupons SUMMER10 &amp; FAMILY5000, referral partner Island Travels (5%)</td></tr>
+    <tr><td>Reviews / Comms</td><td>Two real guest reviews (5★ and 4★) submitted through the public review link; ~29 unread notifications; a full outbound email log</td></tr>
+    <tr><td>Staff console</td><td>A brand-new signup "Villa Serendib" waiting for staff approval, plus a pending booking to approve on the owner's behalf</td></tr>
+  </table>
+
+  <h3>Suggested 20-minute storyline</h3>
+  <table class="toc">
+    <tr><td class="n">1</td><td>Sign in, product shell, dark/light theme</td><td class="muted small">1 min</td></tr>
+    <tr><td class="n">2</td><td>Dashboard — run the front desk: check-in &amp; check-out live</td><td class="muted small">3 min</td></tr>
+    <tr><td class="n">3</td><td>Calendar — prices, availability, bulk edits, promotions overlay, change history</td><td class="muted small">3 min</td></tr>
+    <tr><td class="n">4</td><td>Bookings — approve a pending booking, open the per-night price snapshot, amend</td><td class="muted small">3 min</td></tr>
+    <tr><td class="n">5</td><td>OTA Inbox — imported reservations + the failed-import Retry story</td><td class="muted small">2 min</td></tr>
+    <tr><td class="n">6</td><td>Finance — revenue, reconciling payout statement, invoices &amp; payments</td><td class="muted small">3 min</td></tr>
+    <tr><td class="n">7</td><td>Deals · Comms · Reviews · Customers — quick lap</td><td class="muted small">3 min</td></tr>
+    <tr><td class="n">8</td><td>Staff console — approve the new hotel signup, cross-tenant powers, audit trail</td><td class="muted small">2 min</td></tr>
+  </table>
+  <p class="small muted">Sections 9–12 (Setup, Profile, staff console, engineering story) are your back-pocket material for Q&amp;A. Sections 13–17 are the <strong>delivery plan</strong>: what's left to build, what we need from your side, timeline, hosting &amp; infrastructure, scalability and the budget reality.</p>
+</div>
+
+<!-- ======================= 1. SIGN IN ======================= -->
+<div class="section">
+  <h2><span class="no">1.</span>Sign in &amp; the product shell</h2>
+  <p><strong>What it is:</strong> secure email/password sign-in with self-serve registration, forgotten-password recovery, and a role-aware landing: owners land on their PMS, YoHo staff land on the staff console.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Open <code>http://localhost:3000</code>. You land on the sign-in screen (note the clean dark theme — this is the product default).</li>
+    <li>Point out the links: <em>Register</em> (self-serve hotel signup — you'll return to this in the staff section) and <em>Forgot password</em> (emails a reset link valid for 60 minutes).</li>
+    <li>Sign in as <code>owner@demo.yohobed.test</code> / <code>password123</code>.</li>
+    <li>You arrive on the <strong>Dashboard</strong>. Walk the left sidebar top-to-bottom — this is the whole product: <em>Dashboard, Calendar, Bookings, Inbox, Customers, Deals, Finance, Reviews, Comms, Setup, Profile</em>.</li>
+    <li>Click the <strong>sun/moon toggle</strong> in the sidebar footer to flip to light mode and back — every screen supports both.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    Passwords are bcrypt-hashed; a successful login issues a signed JWT that carries the user's memberships (which hotels they belong to, and their role). Every subsequent request is checked twice: the JWT proves <em>who</em> you are, and a tenant guard proves the hotel you're acting on is <em>yours</em>. Login errors are deliberately identical for "unknown email" and "wrong password" so attackers can't discover which emails exist. A suspended hotel is blocked at sign-in <em>and</em> on every request — suspension takes effect immediately, not at next login.
+  </div>
+  <div class="box wow"><div class="t">Wow moment</div>
+    "One login, two products": after the owner tour, sign in as <code>staff@yohobed.test</code> in a second window — same login screen, completely different application (the staff console). The system routes by role.
+  </div>
+</div>
+
+<!-- ======================= 2. DASHBOARD ======================= -->
+<div class="section">
+  <h2><span class="no">2.</span>Dashboard — the front desk</h2>
+  <p><strong>What it is:</strong> the receptionist's home screen. One glance answers: who arrives today, who leaves, who's in the building, what needs my approval, how full are we, and how much money is this month bringing in.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Read the stat tiles across the top: <strong>Arrivals 1 · Departures 1 · In-house 2 · Occupancy % · Month gross</strong>. All computed live for today (23 Jul).</li>
+    <li>The <span class="pill amber">Pending</span> banner shows <strong>2 bookings awaiting approval</strong> — you'll approve one in the Bookings section.</li>
+    <li>In <strong>Arrivals today</strong>: <em>Kasun Jayawardena</em> (ref <code>2607230005</code>, 3 nights, Deluxe Room). Tap <strong>Check in</strong> — one tap, status flips to <span class="pill green">Checked-in</span>, and In-house becomes 3.</li>
+    <li>In <strong>Departures today</strong>: <em>Sofia Marchetti</em> (ref <code>2607230004</code>). Tap <strong>Check out</strong> — status flips to <span class="pill slate">Checked-out</span>… and the system has just emailed Sofia a review invitation automatically (you'll show the proof in Comms, §8).</li>
+    <li>Scroll the <strong>Recent bookings</strong> list — the newest activity, each with its status pill.</li>
+    <li>Use the property filter to flip between <em>Cinnamon Lakeside</em> and <em>Ceylon Tax Villa</em> — every number recomputes per property.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li><strong>Occupancy %</strong> = confirmed room-nights ÷ physical rooms for the day. Only "real" statuses count (Approved / Checked-in / Checked-out) — pending and cancelled bookings never inflate the number.</li>
+      <li><strong>Month gross</strong> is summed from each booking's <em>per-night price snapshot</em>, so a stay that straddles two months lands in the right month, night by night.</li>
+      <li><strong>Check-in / check-out are guarded state transitions</strong> (only an Approved booking can check in; only a Checked-in one can check out) with timestamps stamped for the audit trail. Check-out is also the trigger that mints the guest-review invitation — no staff action needed.</li>
+    </ul>
+  </div>
+  <div class="box wow"><div class="t">Wow moment</div>
+    The whole morning routine of a receptionist — arrivals, departures, approvals — is a series of single taps from one screen. In the legacy system there was no dashboard at all.
+  </div>
+</div>
+
+<!-- ======================= 3. CALENDAR ======================= -->
+<div class="section">
+  <h2><span class="no">3.</span>Calendar — rates, availability &amp; restrictions</h2>
+  <p><strong>What it is:</strong> the revenue-manager's cockpit. A full-month wall calendar where every cell shows the <em>selling price</em> the guest will actually pay, the rooms left to sell, and open/closed status — with inline editing and bulk tools.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Open <strong>Calendar</strong>. Select <em>Cinnamon Lakeside → Deluxe Room</em>. July is on screen; every priced day shows ~<strong>Rs 24,390.25</strong> weekdays and ~<strong>Rs 33,875.35</strong> weekends.</li>
+    <li>Click any future cell and <strong>edit inline</strong> — change the base price and watch the selling price recompute instantly from the pricing engine (not a manual field!).</li>
+    <li>Step to <strong>August</strong>. Point out <strong>15–20 Aug</strong>: cells carry a <em>−15% drop overlay</em> — that's the "August Getaway" promotion you'll show in Deals (§7), already painted onto the calendar.</li>
+    <li>Point at <strong>10 Aug</strong>: only <strong>1 room left</strong> — your segue to the overbooking story ("the old system could sell this room twice; this one cannot" — §14).</li>
+    <li>Use the <strong>bulk toolbar</strong>: pick a From/To range (or "Whole month") and set price, open/close days, apply a last-minute drop, or set <strong>min/max stay</strong> in one action. (14–16 Aug already carries a min-stay of 2 nights — try to book a 1-night stay there later and the system politely refuses.)</li>
+    <li>Expand <strong>Change history</strong> at the bottom: every price, availability, drop and restriction change — what changed, for which dates, and <em>who did it</em>.</li>
+    <li>Switch to <em>Ceylon Tax Villa → Ocean Suite</em>: weekday cells read <strong>Rs 31,625</strong> — same Rs 18,000 base, but this property has slab commission and taxes baked into its selling price. 1–3 Aug additionally shows a 15% last-minute drop.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath — the pricing engine</div>
+    <p style="margin-top:0">The owner only ever types the <strong>base price</strong> (what the hotel wants to keep). The system derives what the guest pays — in this exact order, matching the legacy platform to the cent:</p>
+    <div class="formula">1  YoHo commission   percentage: base ÷ (1 − pct/100) − base      e.g. 18,000 ÷ 0.9 − 18,000 = 2,000
+                    or slab:  fixed fee by base-price band       e.g. Rs 0–20,000 → 2,500
+2  OTA gross-up      (base + commission) ÷ (1 − 18/100)          20,000 ÷ 0.82 = 24,390.25   ← Deluxe selling
+3  Taxes (if any)    × (1+SC%) × (1+NBT%) × (1+VAT%) in priority order
+                     25,000 × 1.10 × 1.15 = 31,625               ← Ocean Suite selling
+4  Last-minute drop  charged = selling × (1 − drop%)             31,625 × 0.85 = 26,881.25</div>
+    <ul>
+      <li>All rounding is <strong>round-up to 2 decimals</strong> (ceiling) — the legacy behaviour, reproduced deliberately so migrated hotels see identical prices.</li>
+      <li>Ceylon Tax Villa's weekday cell proves the whole chain: <span class="mono">18,000 base + 2,500 yoho + 4,500 ota + 6,625 taxes = 31,625</span>. Nothing is invented; the split reconciles by construction — the same split Finance uses for settlement (§6).</li>
+      <li>Every calendar edit also (a) writes an <strong>ARI history</strong> row with the actor's email, and (b) queues a <strong>channel-manager sync event</strong> in the same database transaction — so OTAs are told about every change, guaranteed (§14, bug #3).</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ======================= 4. BOOKINGS ======================= -->
+<div class="section">
+  <h2><span class="no">4.</span>Bookings — the reservation book</h2>
+  <p><strong>What it is:</strong> every reservation in one table — walk-ins created here and OTA bookings imported automatically — with the full lifecycle: approve, reject, cancel, no-show, check-in, check-out, and amend.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Open <strong>Bookings</strong>. Sweep the status pills — the book already contains every state:
+      <span class="pill amber">Pending</span> Dinesh Fernando &amp; Priya Sharma ·
+      <span class="pill green">Approved</span> Chen Wei, Aisha Rahman, Nadeesha Silva… ·
+      <span class="pill blue">Checked-in</span> Emma Whitfield ·
+      <span class="pill slate">Checked-out</span> Ruwan Perera ·
+      <span class="pill red">Cancelled</span> Liam O'Connor · <span class="pill red">No-show</span> Harsha Wickramasinghe.</li>
+    <li><strong>Approve live:</strong> find <em>Dinesh Fernando</em> (ref <code>2607230009</code>, 3–6 Aug) and tap <strong>Approve</strong> — Pending → Approved. (Leave <em>Priya Sharma</em> pending — the staff console will approve that one, §10.)</li>
+    <li><strong>Open a booking</strong> — use <em>Aisha Rahman</em> (ref <code>2607230011</code>): a proper detail card with the guest, the stay, the <strong>per-night price breakdown</strong> (7 Aug Rs 24,390.25 · 8–9 Aug Rs 33,875.35 each = Rs 92,140.95) and her <strong>SUMMER10 coupon discount of Rs 9,214.09</strong> recorded on the booking — plus the lifecycle <strong>trail</strong> (created → approved, timestamped).</li>
+    <li><strong>Create a walk-in:</strong> tap <em>＋ Book a stay</em>. A full modal: guest name/email/phone, dates, number of rooms, live nights×rooms summary, and a coupon field. Book any August stay — it prices itself from the calendar and lands as Pending, and the guest gets a confirmation email instantly (§8 shows the email log).</li>
+    <li><strong>Amend:</strong> open any Pending/Approved booking → <em>Edit</em>. Change the dates — the system re-prices the new nights and swaps the inventory atomically; if the new dates don't fit, it refuses with a clear conflict message rather than overbooking.</li>
+    <li>Show <strong>Cancel</strong> on a pending booking: the room instantly returns to the calendar's sellable count.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li><strong>One transaction does everything.</strong> Creating a booking: verifies the room/occupancy pairing, checks min/max-stay rules for the arrival date, snapshots tonight's prices night-by-night, atomically reserves inventory (impossible to oversell — the database refuses if any night lacks rooms), applies coupon/referral, generates the reference from an atomic daily counter (format <span class="mono">yymmdd####</span> — today's are <span class="mono">260723xxxx</span>), queues the OTA sync event, notifies the owner, and emails the guest. If any step fails, <em>everything</em> rolls back.</li>
+      <li><strong>Prices are snapshotted, not referenced.</strong> The per-night breakdown you showed is frozen at booking time — repricing the calendar tomorrow never rewrites yesterday's contracts. Finance settles from these snapshots.</li>
+      <li><strong>The status machine is strict.</strong> Cancel/reject release inventory; no-show keeps it consumed (the room was held all night — that's revenue, matching legacy policy); only Approved can check in. Every transition is recorded in the trail.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ======================= 5. OTA INBOX ======================= -->
+<div class="section">
+  <h2><span class="no">5.</span>Inbox — OTA reservations</h2>
+  <p><strong>What it is:</strong> where bookings made on booking.com, Agoda, Expedia etc. arrive via the channel manager. The core promise: <strong>an OTA reservation can never be silently lost</strong> — every push is recorded first, then imported; failures stay visible with a Retry button.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Open <strong>Inbox</strong>. Two clean imports: <em>Hannah Lee</em> (booking.com, 12–14 Aug, Rs 48,780.50, ref <code>2607230014</code>) and <em>Marco Rossi</em> (agoda, 20–22 Aug, Rs 63,250, ref <code>2607230015</code>). Both were imported as <span class="pill green">Approved</span> bookings automatically — flip to Bookings and they're in the book, inventory already decremented.</li>
+    <li>Point at the <span class="pill red">failed</span> row: <em>Yuki Tanaka</em> (expedia, 2–4 <strong>Sep</strong>). The error is displayed: those September nights have no prices yet. The reservation was <em>not lost</em> — it's sitting here waiting.</li>
+    <li><strong>Live fix (the money moment):</strong> go to Calendar → Deluxe Room → September → set a price for 1–7 Sep and open the days. Return to Inbox → tap <strong>Retry</strong> → the reservation imports and appears in Bookings. A failed OTA booking, recovered in 20 seconds by the owner, no support ticket.</li>
+    <li>Show the <strong>room-code mappings</strong> panel: <code>CM-DLX-001</code> → Deluxe Room, <code>CM-OCN-101</code> → Ocean Suite — how the channel manager's room codes route to real rooms.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li>The channel manager calls a secured webhook (shared-secret header; wrong secret → rejected). The room code alone identifies the hotel — and the payload is <strong>recorded before import is attempted</strong>, so a crash mid-import still leaves the reservation on file.</li>
+      <li>Imports are <strong>idempotent</strong> per channel + external reference — if booking.com retries the same push five times, you get one booking, not five.</li>
+      <li>OTA bookings import as <strong>auto-approved</strong> (the guest already paid the OTA — there is nothing for the owner to approve) and consume inventory through the exact same atomic path as walk-ins. An OTA cancellation releases the rooms automatically.</li>
+      <li>An unmapped room code answers with a specific "retry later" signal to the channel manager instead of swallowing the booking.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ======================= 6. FINANCE ======================= -->
+<div class="section">
+  <h2><span class="no">6.</span>Finance — revenue, invoices &amp; settlement</h2>
+  <p><strong>What it is:</strong> the money screen. Monthly revenue by status, guest invoices and payments, and the <strong>payout statement</strong> — the settlement document that splits every rupee of gross revenue between the hotel, YoHo, the OTA channel, and the taxman, and proves the split adds back up.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Open <strong>Finance</strong>. The month picker defaults to <strong>July 2026</strong>. Revenue summary: confirmed gross ~<strong>Rs 606,242</strong> across the tenant, with a by-status breakdown (point out that Cancelled contributes zero).</li>
+    <li>Select property <em>Cinnamon Lakeside</em> and show the <strong>Payout statement</strong> for July:
+      <table class="keep">
+        <tr><th>Gross selling</th><th>= Hotel base (net payable)</th><th>+ YoHo commission</th><th>+ OTA commission</th><th>+ Taxes</th></tr>
+        <tr><td><strong>Rs 345,528.55</strong></td><td>Rs 255,000.00</td><td>Rs 28,333.34</td><td>Rs 62,195.21</td><td>Rs 0.00</td></tr>
+      </table>
+      …and the "<strong>✓ reconciles</strong>" line: the four parts sum to the gross <em>to the cent</em>. The hotel's payout is the base — exactly what the owner typed on the calendar. Flip to <em>Ceylon Tax Villa</em> to show a statement where the taxes column is non-zero.</li>
+    <li><strong>Invoices:</strong> open <code>INV-2607230001</code> (Ruwan Perera, 3 nights) — line items from the per-night snapshot, status <span class="pill green">paid</span>, with its card payment (VISA-4212) recorded in full. Then <code>INV-2607230007</code> (Tharindu Fernando) — a <strong>50% advance</strong> received by bank transfer, invoice still open. Record the balance live if you like: the invoice flips to paid automatically the moment received payments cover it.</li>
+    <li>Show the saved <strong>July payout snapshot</strong> — statements can be frozen as payout records for the payment run.</li>
+    <li>Point to <strong>Profile → bank details</strong> (§9): Commercial Bank of Ceylon, Kollupitiya — the settlement knows <em>where</em> to send the money.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li>The settlement split is not an approximation — it reuses the <em>same decomposition</em> the pricing engine used when each night was priced (§3): base + yoho + ota + taxes = gross, per night, snapshotted on the booking. Because settlement reads those snapshots, the statement reconciles <strong>by construction</strong> — there is no "rounding difference" bucket.</li>
+      <li>Revenue counts <strong>Approved, Checked-in and Checked-out</strong> bookings (checked-in/out are earned revenue); Pending, Cancelled and Rejected never touch the money. </li>
+      <li>Invoices are numbered <span class="mono">INV-&lt;booking reference&gt;</span> and are idempotent — asking twice returns the same invoice, never a duplicate.</li>
+    </ul>
+  </div>
+  <div class="box wow"><div class="t">Wow moment</div>
+    "Every rupee is accounted for": gross → hotel + YoHo + OTA + tax, reconciling to the cent, live, per property and period. This is the trust argument against the legacy system's spreadsheet reconciliation.
+  </div>
+</div>
+
+<!-- ======================= 7. DEALS ======================= -->
+<div class="section">
+  <h2><span class="no">7.</span>Deals — promotions, coupons &amp; referral partners</h2>
+  <p><strong>What it is:</strong> the commercial toolkit: date-window promotions that discount the calendar, coupon codes guests redeem at booking, and referral partners who earn a commission on the bookings they bring.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Open <strong>Deals</strong>. Show the promotion <strong>"August Getaway" −15% (15–20 Aug, Cinnamon Lakeside)</strong> — then remind the client you already <em>saw</em> it as the drop overlay on the August calendar (§3). Creating a promotion and tapping <em>Apply</em> paints the discount across every rate of the property for the window, and notifies the OTA channels.</li>
+    <li>Show the coupons: <strong>SUMMER10</strong> (10%, valid 1 Jul–31 Aug, unlimited) and <strong>FAMILY5000</strong> (Rs 5,000 fixed, capped at 20 uses, Cinnamon Lakeside only). Tie it back to Aisha Rahman's booking (§4): SUMMER10 recorded a <strong>Rs 9,214.09</strong> discount on her Rs 92,140.95 stay.</li>
+    <li>Show referral partner <strong>Island Travels (Pvt) Ltd</strong>, code <code>ISLAND</code>, 5% — and the commission ledger: <em>Chen Wei's</em> 3-night Ocean Suite booking (ref <code>2607230008</code>) earned Island Travels a pending commission automatically.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li><strong>Promotions</strong> are implemented as last-minute drops on the rate calendar — one mechanism, no special cases: the charged price is always <span class="mono">selling × (1 − drop%)</span>, and removing a promotion later doesn't retroactively rewrite prices already painted (you re-price to undo).</li>
+      <li><strong>Coupons</strong> validate at booking time: active, inside its date window, under its usage cap, and compatible with the property. The discount is stored on the booking itself, so amendments keep the original deal.</li>
+      <li><strong>Referral commissions</strong> compute on the commissionable amount (not on taxes) and accrue per booking as pending → paid — an auditable ledger per partner.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ======================= 8. COMMS ======================= -->
+<div class="section">
+  <h2><span class="no">8.</span>Comms — notifications, emails &amp; templates</h2>
+  <p><strong>What it is:</strong> the communication centre: the in-app notification bell, the full outbound email log (every mail the system sent, with its rendered content), and editable per-language message templates.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>Point at the <strong>bell</strong> — ~29 unread notifications built up during the data load: <em>booking created</em>, <em>OTA booking imported</em>, <em>review received</em>… Open the panel, mark one read, then <em>mark all read</em> — the badge clears.</li>
+    <li>Open <strong>Comms → Messages</strong>: the outbound email log. Show Sofia Marchetti's <strong>review invitation</strong> — sent automatically the moment you checked her out on the Dashboard (§2), containing her one-time review link. Show a booking confirmation (e.g. Hannah Lee's OTA import) with the amount rendered.</li>
+    <li>Open <strong>Templates</strong>: booking confirmation, review invite, etc., in <strong>English and Sinhala</strong>, with <code>{{placeholder}}</code> variables. Edit a word, save — the next email uses it immediately.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li>Emails are <strong>queued inside the same transaction</strong> as the event that caused them, then delivered after commit — a failed booking never sends a confirmation, and a sent confirmation always has a booking behind it. Failures are recorded on the message with the error, visible in this log.</li>
+      <li>Templates are <strong>per hotel and per language</strong> (en/si/ta seeded). Every new hotel gets the full starter set automatically at registration.</li>
+      <li>The email provider sits behind a seam: the demo logs to the console; production flips one environment variable to send through Resend. Nothing else changes.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ======================= 9. REVIEWS / CUSTOMERS / SETUP / PROFILE ======================= -->
+<div class="section">
+  <h2><span class="no">9.</span>Reviews · Customers · Setup · Profile</h2>
+
+  <h3>Reviews — verified guest feedback</h3>
+  <ol class="steps">
+    <li>Open <strong>Reviews</strong>: <em>Ruwan Perera</em> ★★★★★ "Superb lakeside stay…" and <em>Ayesha Khan</em> ★★★★ "Beautiful ocean views…", with per-property averages.</li>
+    <li>Full-circle demo: from Comms, copy Sofia's review link (<code>/review/&lt;token&gt;</code>), open it in a private tab — the public star form knows her stay. Submit — the review appears here instantly and the bell rings.</li>
+  </ol>
+  <div class="box"><div class="t logic">Logic</div>
+    Invites are minted only by a real check-out, are single-use (a second submit is refused), and need no guest account — the unguessable token in the link <em>is</em> the authorisation. Reviews are therefore verified-stay by construction; nobody can review a hotel they didn't sleep in.
+  </div>
+
+  <h3>Customers — the guest directory</h3>
+  <ol class="steps">
+    <li>Open <strong>Customers</strong>: every guest with bookings count, nights, confirmed spend, last check-in. Expand <em>Ruwan Perera</em> for his full history. Repeat guests are recognised by email and accumulate — the base for loyalty marketing.</li>
+  </ol>
+
+  <h3>Setup — properties, rooms &amp; rates</h3>
+  <ol class="steps">
+    <li>Open <strong>Setup</strong>: the two properties with their rooms (Deluxe Room ×5, Ocean Suite ×3), room types, rate plans (meal plans RO/BB/HB/FB/AI) and occupancies, property &amp; room <strong>photos</strong> (upload live if you like), and the CM room-code mappings.</li>
+  </ol>
+  <div class="box"><div class="t logic">Logic</div>
+    The hierarchy is <span class="mono">property → room → rate plan (meal plan) → occupancy</span>; the calendar prices at occupancy level. Commission model (10% vs slabs) and the property's tax profile are configured per property — that's the entire difference between the two demo properties' prices.
+  </div>
+
+  <h3>Profile — account &amp; settlement details</h3>
+  <ol class="steps">
+    <li>Open <strong>Profile</strong>: the settlement bank account (<em>Commercial Bank of Ceylon, Kollupitiya, a/c 8001234567, SWIFT CCEYLKLX</em>) — where payouts (§6) get paid; platform-agreement acceptance; change-password.</li>
+  </ol>
+</div>
+
+<!-- ======================= 10. STAFF CONSOLE ======================= -->
+<div class="section">
+  <h2><span class="no">10.</span>Staff console — YoHo operations</h2>
+  <p><strong>What it is:</strong> the separate cross-tenant application for YoHo's own team: onboard new hotels, act on any tenant's bookings, suspend/reactivate accounts — with every action written to an immutable audit trail.</p>
+
+  <h3>Guided steps</h3>
+  <ol class="steps">
+    <li>In a <strong>second browser window (incognito)</strong>, sign in as <code>staff@yohobed.test</code> / <code>password123</code> → you land on the <strong>Staff console</strong>, not the owner PMS.</li>
+    <li>The tenant list shows <strong>Cinnamon Lakeside Group</strong> <span class="pill green">active</span> (with its pending-booking count) and <strong>Villa Serendib</strong> <span class="pill amber">pending</span> — a hotel that self-registered and is waiting for activation.</li>
+    <li><strong>Approve Villa Serendib</strong> — one click: pending → active, and the owner (Shanika De Silva) automatically receives the welcome email (visible in the API console log).</li>
+    <li>Open Cinnamon Lakeside's bookings and <strong>approve Priya Sharma's</strong> pending booking (ref <code>2607230010</code>) <em>on the owner's behalf</em> — cross-tenant support in action. Flip to the owner window: the booking is Approved.</li>
+    <li>Demonstrate <strong>Suspend</strong> on a tenant (and reactivate) — suspension blocks sign-in <em>and</em> kills in-flight sessions on their next request.</li>
+    <li>Open the <strong>Audit trail</strong>: every staff action you just took — actor, action, entity, timestamp.</li>
+  </ol>
+
+  <div class="box"><div class="t logic">The logic underneath</div>
+    <ul>
+      <li>Staff powers come from a <strong>role</strong> (<span class="mono">YOHO_STAFF</span>/<span class="mono">YOHO_ADMIN</span>) on the user's membership — an owner calling a staff route gets a hard 403. There is no "admin email list" backdoor like the legacy system had.</li>
+      <li>Even staff reads run under the same row-level security as owners — the console explicitly scopes into one tenant at a time; there is no "god query" path that could leak one hotel's data into another's screen.</li>
+      <li>Onboarding is <strong>self-serve + staff approval</strong>: hotels register themselves (they can sign in and set up while pending), staff activate — the activation is the trust gate.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ======================= 11. UNDER THE HOOD ======================= -->
+<div class="section">
+  <h2><span class="no">11.</span>Under the hood — the engineering story (Q&amp;A ammunition)</h2>
+
+  <h3>Four legacy production bugs — found, fixed, and proven with tests</h3>
+  <table>
+    <tr><th style="width:26%">Legacy bug</th><th>What went wrong</th><th>The 2.0 fix</th></tr>
+    <tr><td><strong>#1 Overbooking race</strong></td><td>Two simultaneous bookings for the last room could both succeed (read-then-write with no lock).</td><td>Atomic conditional decrement in the database — proven with a test firing 12 parallel bookings at 1 room: exactly one wins, count never goes negative.</td></tr>
+    <tr><td><strong>#2 Wrong price key</strong></td><td>Walk-ins priced by the wrong identifier (room id used as the rate key) — wrong amounts billed.</td><td>Bookings carry the explicit occupancy (pricing) key, verified to belong to the room.</td></tr>
+    <tr><td><strong>#3 Silent channel-manager push</strong></td><td>Price/availability pushes to OTAs were fire-and-forget: a failure was <em>silent</em> → stale OTA prices, overbookings.</td><td>Transactional outbox: the sync event commits <em>with</em> the change, a worker delivers with 5 retries + exponential backoff; final failures alert and stay visible (Inbox/health screens).</td></tr>
+    <tr><td><strong>#4 Duplicate booking references</strong></td><td>References generated by "max + 1" — concurrent bookings could collide.</td><td>Atomic per-day counter with a uniqueness guarantee (20-parallel-bookings test: all unique).</td></tr>
+  </table>
+
+  <h3 class="keep">Architecture in five bullets</h3>
+  <ul class="keep">
+    <li><strong>Stack:</strong> TypeScript end-to-end — NestJS API + Next.js web + background worker (BullMQ/Redis) + PostgreSQL 16, in a Turborepo monorepo. The pricing engine is a framework-free package shared by API, seed and tests.</li>
+    <li><strong>Multi-tenant security is enforced by the database</strong>, not by remembering to add WHERE clauses: PostgreSQL Row-Level Security with a default-deny policy. The app connects as a restricted role; a query without a tenant context returns <em>nothing</em>. Cross-tenant reads 404 by construction.</li>
+    <li><strong>Parity by contract:</strong> the legacy pricing formulas (round-up rounding, commission gross-up, ÷0.82 OTA factor, nested tax decomposition) are reproduced exactly and pinned by unit tests with the legacy's own numbers.</li>
+    <li><strong>105 automated tests</strong>: 42 domain (pricing parity), 8 database-integration (RLS isolation, concurrency races), 36 API end-to-end over real HTTP + real Postgres, 19 channel-manager contract tests — plus CI on every push.</li>
+    <li><strong>Channel manager ready:</strong> the AxisRooms adapter is code-complete against the legacy integration contract (same 5 endpoints, same wire format), running behind the outbox. It needs only production credentials to go live; the demo uses a stub so every sync is visible locally.</li>
+  </ul>
+
+  <h3 class="keep">Honest answers for "what's not in yet"</h3>
+  <ul class="keep">
+    <li><strong>Data migration (ETL)</strong> from the legacy MySQL — designed (with a parity harness as the cutover gate), not yet run; today's system runs on fresh data.</li>
+    <li><strong>Hosting/deploy</strong> — runs locally/CI today; production infrastructure is the next step after sign-off.</li>
+    <li><strong>AxisRooms live connection</strong> — adapter finished, waiting on credentials and a test property.</li>
+    <li><strong>Planned next (post-MVP):</strong> the AI Supplier Copilot — a chat assistant with read-only, tenant-scoped tools over these exact services ("How was my August? Anything I should reprice?"). The service layer was built MCP-ready for it from day one.</li>
+  </ul>
+</div>
+
+<!-- ======================= 12. CHEAT SHEET ======================= -->
+<div class="section">
+  <h2><span class="no">12.</span>Cheat sheet &amp; recovery</h2>
+
+  <h3>Logins &amp; URLs</h3>
+  <table class="kv">
+    <tr><td>Owner PMS</td><td><code>http://localhost:3000</code> · <code>owner@demo.yohobed.test</code> / <code>password123</code></td></tr>
+    <tr><td>Staff console</td><td>same URL · <code>staff@yohobed.test</code> / <code>password123</code> (second window)</td></tr>
+    <tr><td>Pending signup</td><td>Villa Serendib · <code>shanika@villaserendib.lk</code> / <code>password123</code></td></tr>
+  </table>
+
+  <h3>Numbers you can quote with confidence</h3>
+  <table>
+    <tr><th>Claim</th><th>Where to show it</th></tr>
+    <tr><td>Deluxe weekday Rs 24,390.25 = 18,000 base + 2,000 YoHo + 4,390.25 OTA</td><td>Calendar cell / any Deluxe booking detail</td></tr>
+    <tr><td>Ocean weekday Rs 31,625 = 18,000 + 2,500 slab + 4,500 OTA + 6,625 tax</td><td>Ceylon Tax Villa calendar / booking detail</td></tr>
+    <tr><td>July payout: Rs 345,528.55 gross → Rs 255,000 net payable, reconciles to the cent</td><td>Finance → Cinnamon Lakeside → July statement</td></tr>
+    <tr><td>Coupon SUMMER10 took Rs 9,214.09 off Aisha Rahman's Rs 92,140.95 stay</td><td>Bookings → 2607230011 detail</td></tr>
+    <tr><td>Every status in the book; today: 1 arrival, 1 departure, 2 in-house, 2 pending</td><td>Dashboard / Bookings</td></tr>
+    <tr><td>OTA reservation recovered live (failed → priced → Retry → imported)</td><td>Inbox (expedia / Yuki Tanaka row)</td></tr>
+  </table>
+
+  <h3>If something is not running (full cold start, ~2 min)</h3>
+  <div class="formula"># 1. Start Docker Desktop, then in d:\YoHo Application\yohobed2 :
+docker compose up -d
+
+# 2. API  (new terminal, from yohobed2\apps\api)
+$env:APP_DATABASE_URL='postgresql://yoho_app:yoho_app_pw@localhost:5433/yohobed'
+$env:JWT_SECRET='dev-jwt-secret-yohobed-2026'; $env:PORT='3001'
+node dist/main.js
+
+# 3. Web  (new terminal, from yohobed2\apps\web-extranet)
+node node_modules/next/dist/bin/next start -p 3000
+
+# 4. Worker — optional, drains OTA sync events  (new terminal, from yohobed2)
+$env:APP_DATABASE_URL='postgresql://yoho_app:yoho_app_pw@localhost:5433/yohobed'
+$env:REDIS_URL='redis://localhost:6380'
+pnpm --filter @yohobed/worker start</div>
+
+  <h3>Reset the demo data to exactly this guide</h3>
+  <div class="formula"># from d:\YoHo Application\yohobed2  (wipes + rebuilds the demo tenant, ~30 s)
+$env:DATABASE_URL='postgresql://postgres:postgres@localhost:5433/yohobed'
+pnpm --filter @yohobed/db db:seed
+node "&lt;scratchpad&gt;\demo-data.mjs"   # the demo-data builder script</div>
+  <p class="small muted">Re-seeding regenerates ids and booking references (they are date-based: <span class="mono">yymmdd####</span>) — the storyline stays identical, only reference numbers shift to the new date. A copy of the builder script is kept at <span class="mono">yohobed2\scripts\demo-data.mjs</span>.</p>
+</div>
+
+<!-- ======================= 13. WHAT'S LEFT TO BUILD ======================= -->
+<div class="section">
+  <h2><span class="no">13.</span>Delivery plan — what's left to build</h2>
+  <p>Everything you demonstrated in sections 1–10 is <strong>built, tested (105 automated tests) and running</strong>. The remaining work falls into three buckets: taking what exists <em>live</em> (hosting, channel manager, data migration), <em>completing</em> the staff back-office and polish items, and the <em>growth layer</em> (booking engine, analytics, AI suite). Component by component:</p>
+
+  <table>
+    <tr><th style="width:19%">Component</th><th style="width:35%">Where it stands today</th><th>What remains</th></tr>
+    <tr>
+      <td><strong>PMS / Extranet</strong><br><span class="small muted">the owner product</span></td>
+      <td>Complete MVP — dashboard, calendar/ARI, bookings &amp; front desk, OTA inbox, finance &amp; settlement, deals, comms, reviews, customers, photos, onboarding. This is the demo.</td>
+      <td>Polish pack: Seasons management UI (API exists), a "My channels" screen, invoice PDF download, Sinhala/Tamil interface translation (framework is ready — templates already ship in 3 languages), Excel bulk-upload (keep-or-replace decision pending), multi-currency display (USD).</td>
+    </tr>
+    <tr>
+      <td><strong>Backend portal</strong><br><span class="small muted">staff console</span></td>
+      <td>Core built: tenant onboarding/approval, cross-tenant booking management, suspend/activate, full audit trail.</td>
+      <td>Full back-office: reference-data admin (cities, currencies, OTA master list), per-OTA commission configuration, revenue reconciliation screens &amp; finance exports (Excel/PRS), campaign &amp; bulk-notification engine (email/SMS/push), and — optional, later — the DMC/corporate B2B module.</td>
+    </tr>
+    <tr>
+      <td><strong>Channel manager</strong><br><span class="small muted">AxisRooms</span></td>
+      <td>Adapter <strong>code-complete</strong>, ported 1:1 from the legacy integration contract (same 5 endpoints, same wire format), 19 contract tests, retry/dead-letter/alerting proven.</td>
+      <td>Go-live only: production credentials, a joint certification test with AxisRooms, one pilot property synced in parallel with the legacy system, then switch-over. RateGain adapter is stubbed for later.</td>
+    </tr>
+    <tr>
+      <td><strong>OTA distribution</strong></td>
+      <td>Outbound sync (transactional outbox) + inbound reservation inbox both live and idempotent.</td>
+      <td>Per-OTA commission rates in settlement, a channel-health dashboard for owners, and (new capability) a rate-parity monitor.</td>
+    </tr>
+    <tr>
+      <td><strong>Data migration (ETL)</strong></td>
+      <td>Designed: legacy MySQL → new Postgres with a <em>parity harness</em> as the cutover gate (old and new systems must produce identical numbers before any hotel switches).</td>
+      <td>The largest remaining engineering item: field mapping, migration scripts, dry runs on a legacy copy, per-hotel parallel run, staged cutover in waves. Needs legacy DB access (§14).</td>
+    </tr>
+    <tr>
+      <td><strong>Production platform</strong></td>
+      <td>Runs locally + full CI pipeline on every commit.</td>
+      <td>Hosting, deploy pipeline to staging/production, domains &amp; TLS, verified email sending domain, photo storage on cloud object storage, monitoring/alerting, tested backups. Plan in §16.</td>
+    </tr>
+    <tr>
+      <td><strong>Growth layer</strong><br><span class="small muted">post-launch</span></td>
+      <td>Not started (deliberately — launch first).</td>
+      <td>Direct booking engine + payment gateway (deposits/online payment), analytics module (occupancy, ADR, RevPAR trends) with a small data warehouse, guest messaging, mobile PWA.</td>
+    </tr>
+    <tr>
+      <td><strong>AI suite</strong><br><span class="small muted">the differentiator</span></td>
+      <td>The service layer was built AI-ready from day one (clean, tenant-scoped domain services).</td>
+      <td>Phased: <strong>Supplier Copilot</strong> (chat: "How was my August? What should I reprice?") → <strong>AI Revenue Manager</strong> (needs the analytics module first) → <strong>Distribution Healer</strong> (auto-diagnoses channel issues) → agentic distribution. Cost model in §17.</td>
+    </tr>
+  </table>
+  <div class="box"><div class="t logic">How to say it to the client</div>
+    "The product you just saw is finished software. What's left is <em>plumbing to production</em> — servers, the AxisRooms hookup, moving your data — plus the staff back-office and the growth features we sequence together after launch."
+  </div>
+</div>
+
+<!-- ======================= 14. WHAT WE NEED FROM YOU ======================= -->
+<div class="section">
+  <h2><span class="no">14.</span>What we need from the client's side</h2>
+  <p>Nothing below is engineering — these are access, accounts and decisions. Each item gates a specific phase; the earlier we have them, the earlier that phase lands.</p>
+
+  <table>
+    <tr><th style="width:26%">Item</th><th style="width:42%">Specifically</th><th>Unblocks</th></tr>
+    <tr><td><strong>1 · AxisRooms credentials</strong> <span class="pill red">blocker</span></td><td>Production API credentials + confirmation of channel ID (164) + an AxisRooms contact for a certification test, and one pilot property we may sync.</td><td>Channel manager go-live (§13). Without this the CM runs code-complete but dark.</td></tr>
+    <tr><td><strong>2 · Legacy database access</strong> <span class="pill red">blocker</span></td><td>Read-only access to the production MySQL (a nightly dump or replica is enough) + one person who can answer data questions and sign off the field mapping.</td><td>ETL build, parity testing, and every cutover date.</td></tr>
+    <tr><td><strong>3 · Domain &amp; DNS control</strong></td><td>Access to the <code>yohobed.com</code> DNS (or the registrar) to create app/api subdomains and the email-authentication records (SPF/DKIM/DMARC).</td><td>Hosting with real URLs + genuinely deliverable email.</td></tr>
+    <tr><td><strong>4 · Cloud &amp; service accounts</strong></td><td>A cloud account in the company's name (we set everything up inside it — you own the infrastructure and the bills), plus a Resend account for email. Budget approval per §17.</td><td>Production hosting, backups, email provider switch (one env var — code is ready).</td></tr>
+    <tr><td><strong>5 · Pilot hotels &amp; people</strong></td><td>2–3 friendly properties for the parallel-run pilot; your staff for a training session (staff guide is written); a decision-maker for a weekly 30-minute review.</td><td>Real-world validation before wide cutover; fast decisions.</td></tr>
+    <tr><td><strong>6 · Business decisions</strong></td><td>(a) Excel bulk-upload: keep or replace with the calendar tools? (b) Multi-currency: needed at launch or later? (c) B2B/DMC module timing. (d) SMS: wanted at launch, and via which provider? (e) Sign-off on the platform agreement &amp; privacy text (legal).</td><td>Scope-freeze for the polish pack and back-office phases.</td></tr>
+    <tr><td><strong>7 · Payment gateway</strong> <span class="pill slate">later</span></td><td>Choice of gateway (PayHere / bank IPG / Stripe) + merchant account paperwork — only when we schedule the direct booking engine.</td><td>Booking-engine phase (growth layer).</td></tr>
+  </table>
+
+  <div class="box warn"><div class="t">The two dates that matter</div>
+    Items 1 and 2 are the critical path. Every timeline in §15 assumes AxisRooms credentials and legacy DB access arrive in the first two weeks — each week they slip, go-live slips with them.
+  </div>
+</div>
+
+<!-- ======================= 15. TIMELINE ======================= -->
+<div class="section">
+  <h2><span class="no">15.</span>Time to complete the full product</h2>
+  <p><strong>Working assumptions:</strong> the current delivery setup (one senior engineer pairing with AI tooling — the same setup that built compartments A–K), client-side items from §14 arriving on time, and AxisRooms responding within normal certification timeframes. Estimates are given as ranges; phases marked ∥ run in parallel with others.</p>
+
+  <table>
+    <tr><th style="width:5%">#</th><th style="width:30%">Phase</th><th style="width:14%">Duration</th><th>Delivers</th></tr>
+    <tr><td>A</td><td>Go-live foundations</td><td>2–3 weeks</td><td>Staging + production hosting, deploy pipeline, domains/TLS, monitoring, tested backups, verified email domain. The demo system, on the internet.</td></tr>
+    <tr><td>B ∥</td><td>AxisRooms certification</td><td>2–4 weeks</td><td>Live channel-manager sync on a pilot property (mostly waiting on the external party — runs alongside A and C).</td></tr>
+    <tr><td>C</td><td>ETL &amp; data migration</td><td>3–5 weeks</td><td>All legacy properties, rates, bookings and customers migrated; parity harness proving old = new to the cent; cutover runbook.</td></tr>
+    <tr><td>D</td><td>Staff back-office completion</td><td>4–6 weeks</td><td>Reference-data admin, per-OTA commissions, reconciliation + exports, campaign/notification engine.</td></tr>
+    <tr><td>E</td><td>Polish pack (P2 parity)</td><td>3–4 weeks</td><td>Seasons UI, My-channels screen, invoice PDF, si/ta translation, multi-currency display.</td></tr>
+    <tr><td>F</td><td>Booking engine + payments</td><td>4–6 weeks</td><td>Direct (commission-free) bookings on each hotel's own page, gateway integration, deposits.</td></tr>
+    <tr><td>G</td><td>Analytics + data warehouse</td><td>2–3 weeks</td><td>Occupancy / ADR / RevPAR dashboards; the aggregate layer the AI Revenue Manager needs.</td></tr>
+    <tr><td>H</td><td>AI Supplier Copilot v1</td><td>3–4 weeks</td><td>Chat assistant over the owner's own data (read-only, tenant-fenced tools). RM/Healer phases follow.</td></tr>
+  </table>
+
+  <h3 class="keep">What that adds up to</h3>
+  <table class="kv keep">
+    <tr><td>Production pilot live</td><td>≈ <strong>6–8 weeks</strong> from kick-off (A + B + first ETL dry run; pilot hotels running in parallel with legacy)</td></tr>
+    <tr><td>Legacy fully replaced</td><td>≈ <strong>3–4 months</strong> (all hotels cut over in waves, staff back-office complete — PMS, Extranet, Backend portal, Channel Manager, OTA all live on 2.0)</td></tr>
+    <tr><td>Full product incl. growth layer</td><td>≈ <strong>6–7 months</strong> (adds booking engine + payments, analytics + warehouse, AI Copilot v1)</td></tr>
+  </table>
+
+  <h3 class="keep">Illustrative calendar (kick-off August 2026)</h3>
+  <table class="keep">
+    <tr><th>Month</th><th>Focus</th><th>Milestone</th></tr>
+    <tr><td>Aug 2026</td><td>Hosting + deploy live; AxisRooms certification starts; ETL mapping &amp; dry runs</td><td>System on real URLs; staging demo for staff</td></tr>
+    <tr><td>Sep 2026</td><td>Pilot hotels parallel-run (legacy + 2.0 side by side); staff back-office build</td><td><span class="pill green">Pilot go-live ≈ 1 Oct</span></td></tr>
+    <tr><td>Oct 2026</td><td>Cutover waves; polish pack; back-office completion</td><td>Majority of hotels on 2.0</td></tr>
+    <tr><td>Nov 2026</td><td>Final wave; legacy read-only → retired; booking-engine build starts</td><td><span class="pill green">Legacy switched off</span></td></tr>
+    <tr><td>Dec 26 – Jan 27</td><td>Booking engine + payments; analytics + warehouse; Copilot beta with pilot owners</td><td>Direct bookings taking payment</td></tr>
+    <tr><td>Feb 2027</td><td>AI Copilot v1 general release; RM roadmap begins</td><td><span class="pill green">Full YB suite v1</span></td></tr>
+  </table>
+  <p class="small muted">Ranges, not promises: the two external dependencies (AxisRooms responsiveness, legacy data access) are the main variables — see §14.</p>
+</div>
+
+<!-- ======================= 16. HOSTING & INFRA ======================= -->
+<div class="section">
+  <h2><span class="no">16.</span>Hosting, domain, database &amp; product essentials</h2>
+  <p><strong>Philosophy: start simple, scale by stages.</strong> The application is stateless (all state lives in PostgreSQL/Redis/object storage), so we begin on modest managed infrastructure and grow it with revenue — no re-architecture required at any stage. Indicative list prices, July 2026; Rs figures at ≈ Rs 300/US$.</p>
+
+  <table>
+    <tr><th style="width:18%">Essential</th><th style="width:52%">Plan</th><th>Indicative cost</th></tr>
+    <tr><td><strong>Domain &amp; TLS</strong></td><td>Keep <code>yohobed.com</code>; subdomains <code>app.</code> (owners), <code>staff.</code>, <code>api.</code>. TLS certificates free (Let's Encrypt, auto-renewed). Cloudflare in front for DNS, CDN and basic WAF/rate-limiting.</td><td>~$15/yr if a new domain is wanted; Cloudflare $0–20/mo</td></tr>
+    <tr><td><strong>Application hosting</strong></td><td>Stage 1: one production server (Docker: API + web + worker) in Singapore/Mumbai for Sri Lanka latency, plus a small staging server. DigitalOcean / AWS / Hetzner — the client owns the account.</td><td>$50–100/mo production + ~$20 staging</td></tr>
+    <tr><td><strong>Database</strong></td><td><strong>Managed PostgreSQL 16</strong> (the same engine the app runs on today) with automated daily backups, point-in-time recovery, and a weekly offsite dump to object storage. Start 2 vCPU / 4–8 GB; add a read replica at the growth stage.</td><td>$50–100/mo; replica ~ doubles it later</td></tr>
+    <tr><td><strong>Cache / queue</strong></td><td>Managed Redis (drives the channel-manager sync queue).</td><td>$10–25/mo</td></tr>
+    <tr><td><strong>Photo storage</strong></td><td>Object storage (Cloudflare R2 or S3) behind the existing storage seam — one adapter swap, no app changes.</td><td>~$5/mo at launch</td></tr>
+    <tr><td><strong>Email</strong></td><td>Resend (already integrated — switching from demo mode is one environment variable) on a verified sending domain, e.g. <code>mail.yohobed.com</code>.</td><td>Free to 3k emails/mo; $20/mo for 50k</td></tr>
+    <tr><td><strong>SMS (optional)</strong></td><td>Behind the same messaging seam; local aggregator (e.g. Dialog/Mobitel routes) or Twilio.</td><td>Pay-per-message (≈ Rs 1–15 depending on route)</td></tr>
+    <tr><td><strong>Monitoring &amp; ops</strong></td><td>Sentry error tracking, uptime checks, structured logs, alerting to email/WhatsApp. CI/CD via the GitHub Actions pipeline that already runs on every commit.</td><td>$0–30/mo</td></tr>
+    <tr><td><strong>Data warehouse</strong></td><td>Stage 1: none needed — analytics read from a Postgres replica + nightly aggregate tables (this is also the substrate the AI Revenue Manager uses). Stage 2 (thousands of properties / heavy BI): ClickHouse or BigQuery with Metabase dashboards.</td><td>$0 at launch → $100–300/mo at scale</td></tr>
+    <tr><td><strong>Security</strong></td><td>Already in the product: database-enforced tenant isolation (RLS), RBAC, bcrypt, audit logs. Platform adds: WAF, least-privilege DB roles (already used), secrets management, tested restore drills.</td><td>Included / part of ops</td></tr>
+  </table>
+  <div class="box"><div class="t logic">Why this is safe to start small</div>
+    Web and API are stateless — under load we add servers behind a load balancer, not redesign. Postgres carries this data shape comfortably for years (see §17); when reporting gets heavy we add a read replica before touching anything else. Every stage is an upgrade in place.
+  </div>
+</div>
+
+<!-- ======================= 17. SCALABILITY, FUTURE & BUDGET ======================= -->
+<div class="section">
+  <h2><span class="no">17.</span>Scalability, the future of the YB suite &amp; the budget reality</h2>
+
+  <h3>Scalability — with real numbers</h3>
+  <ul>
+    <li><strong>The data is small by database standards.</strong> 1,000 properties × 30 rooms × 365 priced days ≈ <strong>11 million calendar rows a year</strong> — routine for PostgreSQL with the indexes already in place. 100,000 bookings a year is trivial. The demo's whole dataset is a rounding error of what one Postgres server handles.</li>
+    <li><strong>Multi-tenancy scales in one database.</strong> Row-Level Security fences thousands of hotels in a single Postgres — the same model used by major SaaS platforms — with sharding by tenant available as a far-future option, not a prerequisite.</li>
+    <li><strong>Spikes are absorbed by the queue.</strong> A price change across 60 days × 500 properties doesn't hammer the OTAs — it lands in the outbox and the worker drains it with retries. Add worker processes to drain faster; the API never blocks on the channel manager.</li>
+    <li><strong>Stateless web/API tier</strong> = horizontal scale by adding instances behind a load balancer; sessions are JWTs, uploads are in object storage, nothing lives on the server.</li>
+    <li><strong>Proof culture:</strong> the concurrency-sensitive paths (overbooking, booking references) are guarded by automated race-condition tests, so scale doesn't reintroduce the legacy bugs.</li>
+  </ul>
+
+  <h3 class="keep">The future of the YB suite</h3>
+  <p class="keep">The market context: channel managers and PMSes (SiteMinder, STAAH, Cloudbeds and peers) typically charge hotels on the order of <strong>US$50–150+ per property per month</strong>, none of them are AI-native, and none offer Sri Lankan-market commission-based economics with local support. YoHoBed 2.0's roadmap is built to win on exactly those axes:</p>
+  <table>
+    <tr><th style="width:24%">Wave</th><th>What it adds</th></tr>
+    <tr><td><strong>Now — Operations</strong></td><td>The PMS you demoed: run the hotel, distribute to OTAs, settle transparently.</td></tr>
+    <tr><td><strong>Next — Revenue</strong></td><td>Direct booking engine (commission-free direct sales) + payments; analytics (occupancy/ADR/RevPAR).</td></tr>
+    <tr><td><strong>Then — Intelligence</strong></td><td><strong>AI Supplier Copilot</strong>: every owner gets an analyst in their pocket — "How did August compare to last year? Which weekends should I reprice?" — answered from their own live data, read-only and tenant-fenced. Then the <strong>AI Revenue Manager</strong> (pricing suggestions on the analytics substrate) and the <strong>Distribution Healer</strong> (spots and fixes channel problems before the owner notices).</td></tr>
+    <tr><td><strong>Beyond — Network</strong></td><td>B2B/DMC marketplace (YoHoBed's bedbank roots), two-way guest messaging, mobile PWA, agentic distribution — inventory bookable by AI travel agents, a channel none of the incumbents serve yet.</td></tr>
+  </table>
+  <div class="box wow keep"><div class="t">AI running cost — a worked example</div>
+    A typical Copilot question consumes roughly 10,000 input + 1,000 output tokens. On Claude Haiku 4.5 (US$1 in / $5 out per million tokens) that is ≈ <strong>$0.015 per question</strong>; on Claude Sonnet 5 ($3/$15) for complex analysis ≈ $0.045. An owner asking 100 questions a month costs <strong>≈ $1.50–4.50/property/month</strong> — comfortably packaged inside a premium tier, and a feature competitors don't have at any price.
+  </div>
+
+  <h3 class="keep">Budget reality — infrastructure run-rate by stage</h3>
+  <table class="keep">
+    <tr><th>Stage</th><th>Scale</th><th>Monthly infra + services</th><th>≈ LKR / month</th><th>Per property</th></tr>
+    <tr><td>Pilot / launch</td><td>up to ~100 properties</td><td><strong>$150–250</strong></td><td>Rs 45k–75k</td><td>$1.50–2.50</td></tr>
+    <tr><td>Growth</td><td>100–500 properties</td><td>$400–700 (replica, bigger DB, LB)</td><td>Rs 120k–210k</td><td>~$1.40</td></tr>
+    <tr><td>Scale</td><td>500–2,000 properties</td><td>$900–1,500 (multi-instance, warehouse)</td><td>Rs 270k–450k</td><td>~$0.75</td></tr>
+    <tr><td>Big</td><td>5,000+ properties</td><td>$2,500–4,000</td><td>Rs 0.75m–1.2m</td><td>&lt;$0.80</td></tr>
+  </table>
+  <p><strong>The punchline:</strong> at growth scale the platform costs <strong>≈ US$1.40 per property per month</strong> to run — while the incumbents charge hotels 50–100× that. Infrastructure will never be the constraint on this business; it scales sub-linearly with revenue.</p>
+
+  <table class="kv keep">
+    <tr><td>One-time costs</td><td>Domain ~$15/yr; TLS free; AxisRooms certification is effort, not fees, on our side. No licence fees anywhere in the stack — every component (PostgreSQL, Redis, NestJS, Next.js) is open-source.</td></tr>
+    <tr><td>Year-1 infra example</td><td>Pilot-stage average ≈ $200/mo → <strong>≈ $2,400 (~Rs 720k) for the first year</strong> of hosting, database, email, monitoring and backups — excluding development effort (phased per §15, commercial terms per our engagement) and optional SMS volume.</td></tr>
+    <tr><td>Caveats</td><td>Indicative public list prices as of July 2026; Rs figures at ≈ Rs 300/US$; AI costs billed per actual usage (worked example above); prices re-confirmed at account setup inside the client's own cloud account — you see every bill.</td></tr>
+  </table>
+</div>
+
+</body>
+</html>
