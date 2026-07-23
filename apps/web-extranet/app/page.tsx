@@ -8,8 +8,8 @@ import { ThemeToggle } from '@/components/theme';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('owner@demo.yohobed.test');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -83,9 +83,6 @@ export default function LoginPage() {
           <a href="/forgot" className="font-semibold text-brand-ink">
             Forgot password
           </a>
-        </p>
-        <p className="mt-2 text-center text-xs text-ink-3">
-          Demo: owner@demo.yohobed.test / password123
         </p>
       </div>
     </main>

@@ -379,9 +379,7 @@ export default function CalendarPage() {
         <Card className="mt-5 flex flex-wrap items-end gap-x-6 gap-y-4 p-5">
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
-                From
-              </span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">From</span>
               <input
                 type="date"
                 className={`${selectClass} w-40`}

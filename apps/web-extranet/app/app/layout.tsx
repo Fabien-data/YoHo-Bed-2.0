@@ -4,23 +4,11 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clearSession, getProfile, getToken, getUser, isStaff, type SessionUser } from '@/lib/api';
+import { SECTIONS } from '@/lib/sections';
 import { Logo, Button } from '@/components/ui';
 import { NotificationsBell } from '@/components/notifications-bell';
 import { ThemeToggle } from '@/components/theme';
-
-const TABS = [
-  { href: '/app', label: 'Dashboard' },
-  { href: '/app/calendar', label: 'Calendar' },
-  { href: '/app/bookings', label: 'Bookings' },
-  { href: '/app/inbox', label: 'Inbox' },
-  { href: '/app/customers', label: 'Customers' },
-  { href: '/app/deals', label: 'Deals' },
-  { href: '/app/finance', label: 'Finance' },
-  { href: '/app/reviews', label: 'Reviews' },
-  { href: '/app/comms', label: 'Comms' },
-  { href: '/app/setup', label: 'Setup' },
-  { href: '/app/profile', label: 'Profile' },
-];
+import { FeatureDocsLink } from '@/components/feature-docs-link';
 
 /** The owner PMS shell: auth guard + product navigation. Staff are routed to their own console. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -58,7 +46,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <NotificationsBell placement="sidebar" />
         </div>
         <nav className="flex flex-col gap-1 overflow-y-auto px-3 pb-3">
-          {TABS.map((t) => {
+          {SECTIONS.map((t) => {
             const active = t.href === '/app' ? pathname === '/app' : pathname.startsWith(t.href);
             return (
               <Link
@@ -110,6 +98,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           )}
           {children}
+          <FeatureDocsLink />
         </div>
       </main>
     </div>
