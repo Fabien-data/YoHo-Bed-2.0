@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { clearSession, getProfile, getToken, getUser, isStaff, type SessionUser } from '@/lib/api';
 import { Logo, Button } from '@/components/ui';
 import { NotificationsBell } from '@/components/notifications-bell';
+import { ThemeToggle } from '@/components/theme';
 
 const TABS = [
   { href: '/app', label: 'Dashboard' },
@@ -82,16 +83,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {user.email}
             </p>
           )}
-          <Button
-            variant="secondary"
-            className="w-full"
-            onClick={() => {
-              clearSession();
-              router.replace('/');
-            }}
-          >
-            Sign out
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => {
+                clearSession();
+                router.replace('/');
+              }}
+            >
+              Sign out
+            </Button>
+            <ThemeToggle />
+          </div>
         </div>
       </aside>
       <main className="ml-64 px-8 py-8">

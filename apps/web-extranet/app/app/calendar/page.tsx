@@ -78,6 +78,8 @@ export default function CalendarPage() {
   const [bulkDrop, setBulkDrop] = useState(15);
   const [bulkMin, setBulkMin] = useState(1);
   const [bulkMax, setBulkMax] = useState(0);
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
   const [history, setHistory] = useState<AriHistoryEntry[] | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -88,6 +90,15 @@ export default function CalendarPage() {
   const dates = useMemo(() => monthDays(month), [month]);
   const monthFrom = dates[0]!;
   const monthTo = dates[dates.length - 1]!;
+  // Bulk actions apply to this range; empty pickers fall back to the whole visible month.
+  const bulkFrom = rangeFrom || monthFrom;
+  const bulkTo = rangeTo || monthTo;
+  const bulkNights = Math.round((Date.parse(bulkTo) - Date.parse(bulkFrom)) / 86_400_000) + 1;
+  const bulkRangeValid = Number.isFinite(bulkNights) && bulkNights > 0;
+  const bulkRangeLabel =
+    bulkFrom === monthFrom && bulkTo === monthTo
+      ? `all of ${monthYear(month)}`
+      : `${longDate(bulkFrom)} → ${longDate(bulkTo)}`;
   const propertyRooms = useMemo(
     () => rooms.filter((r) => r.propertyId === propertyId),
     [rooms, propertyId],
@@ -225,42 +236,46 @@ export default function CalendarPage() {
     );
   }
 
-  // --- bulk (whole month, selected occupancy / room) ---
+  // --- bulk (chosen date range, selected occupancy / room) ---
   const applyBulkPrice = () =>
     occId &&
+    bulkRangeValid &&
     guard(async () => {
-      const res = await setPrice(occId, monthFrom, monthTo, bulkBase);
+      const res = await setPrice(occId, bulkFrom, bulkTo, bulkBase);
       setMsg({
         tone: 'avail',
-        text: `Base ${money(bulkBase)} → selling ${money(res.selling)} across ${dates.length} nights.`,
+        text: `Base ${money(bulkBase)} → selling ${money(res.selling)} across ${bulkNights} nights (${bulkRangeLabel}).`,
       });
     });
   const applyBulkAvail = (status: 'Open' | 'Close') =>
     selectedRoom &&
+    bulkRangeValid &&
     guard(
       () =>
-        openAvailability(selectedRoom.id, monthFrom, monthTo, bulkRooms, status).then(
+        openAvailability(selectedRoom.id, bulkFrom, bulkTo, bulkRooms, status).then(
           () => undefined,
         ),
-      `${status === 'Open' ? 'Opened' : 'Closed'} ${dates.length} nights (${bulkRooms} rooms/night).`,
+      `${status === 'Open' ? 'Opened' : 'Closed'} ${bulkNights} nights (${bulkRooms} rooms/night, ${bulkRangeLabel}).`,
     );
   const applyBulkDrop = () =>
     occId &&
+    bulkRangeValid &&
     guard(
-      () => setLastMinuteDrop(occId, monthFrom, monthTo, bulkDrop).then(() => undefined),
-      `Applied a ${bulkDrop}% last-minute drop across ${dates.length} nights.`,
+      () => setLastMinuteDrop(occId, bulkFrom, bulkTo, bulkDrop).then(() => undefined),
+      `Applied a ${bulkDrop}% last-minute drop across ${bulkNights} nights (${bulkRangeLabel}).`,
     );
   const applyBulkRestrictions = () =>
     selectedRoom &&
+    bulkRangeValid &&
     guard(
       () =>
         setRestrictions(selectedRoom.id, {
-          from: monthFrom,
-          to: monthTo,
+          from: bulkFrom,
+          to: bulkTo,
           minStay: bulkMin,
           maxStay: bulkMax,
         }).then(() => undefined),
-      `Min stay ${bulkMin} / max stay ${bulkMax === 0 ? 'unlimited' : bulkMax} set for arrivals in ${monthYear(month)}.`,
+      `Min stay ${bulkMin} / max stay ${bulkMax === 0 ? 'unlimited' : bulkMax} set for arrivals ${bulkRangeLabel}.`,
     );
 
   async function toggleHistory() {
@@ -365,6 +380,39 @@ export default function CalendarPage() {
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+                From
+              </span>
+              <input
+                type="date"
+                className={`${selectClass} w-40`}
+                value={bulkFrom}
+                onChange={(e) => setRangeFrom(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">To</span>
+              <input
+                type="date"
+                className={`${selectClass} w-40`}
+                value={bulkTo}
+                min={bulkFrom}
+                onChange={(e) => setRangeTo(e.target.value)}
+              />
+            </label>
+            <Button
+              variant="ghost"
+              className="!py-2.5"
+              onClick={() => {
+                setRangeFrom('');
+                setRangeTo('');
+              }}
+            >
+              Whole month
+            </Button>
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Base / night
               </span>
               <input
@@ -375,8 +423,12 @@ export default function CalendarPage() {
                 onChange={(e) => setBulkBase(Number(e.target.value) || 0)}
               />
             </label>
-            <Button onClick={applyBulkPrice} disabled={busy || !occId} className="!py-2.5">
-              Set month
+            <Button
+              onClick={applyBulkPrice}
+              disabled={busy || !occId || !bulkRangeValid}
+              className="!py-2.5"
+            >
+              Set price
             </Button>
           </div>
           <div className="flex items-end gap-2">
@@ -396,7 +448,7 @@ export default function CalendarPage() {
             <Button
               variant="ghost"
               onClick={applyBulkDrop}
-              disabled={busy || !occId}
+              disabled={busy || !occId || !bulkRangeValid}
               className="!py-2.5"
             >
               Last-minute drop
@@ -418,7 +470,7 @@ export default function CalendarPage() {
             <Button
               variant="secondary"
               onClick={() => applyBulkAvail('Open')}
-              disabled={busy}
+              disabled={busy || !bulkRangeValid}
               className="!py-2.5"
             >
               Open
@@ -426,7 +478,7 @@ export default function CalendarPage() {
             <Button
               variant="secondary"
               onClick={() => applyBulkAvail('Close')}
-              disabled={busy}
+              disabled={busy || !bulkRangeValid}
               className="!py-2.5"
             >
               Close
@@ -462,13 +514,20 @@ export default function CalendarPage() {
             <Button
               variant="ghost"
               onClick={applyBulkRestrictions}
-              disabled={busy || !selectedRoom}
+              disabled={busy || !selectedRoom || !bulkRangeValid}
               className="!py-2.5"
             >
               Restrictions
             </Button>
           </div>
-          <span className="pb-2 text-xs text-ink-3">applies to all of {monthYear(month)}</span>
+          <span
+            className="pb-2 text-xs font-medium"
+            style={{ color: bulkRangeValid ? 'var(--ink-3)' : 'var(--closed-ink)' }}
+          >
+            {bulkRangeValid
+              ? `applies to ${bulkRangeLabel} · ${bulkNights} night${bulkNights === 1 ? '' : 's'}`
+              : '“To” date must be on or after “From”'}
+          </span>
         </Card>
       )}
 

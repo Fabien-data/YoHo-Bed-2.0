@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { forgotPassword } from '@/lib/api';
 import { Button, Card, Field, Logo } from '@/components/ui';
+import { ThemeToggle } from '@/components/theme';
 
 export default function ForgotPage() {
   const [email, setEmail] = useState('');
@@ -19,6 +20,7 @@ export default function ForgotPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
+      <ThemeToggle floating />
       <div className="w-full max-w-sm">
         <div className="mb-6 flex justify-center">
           <Logo size={30} />

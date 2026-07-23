@@ -14,8 +14,14 @@ import {
   type Room,
   type Occupancy,
 } from '@/lib/api';
-import { Button, Card, Field, Pill } from '@/components/ui';
+import { Button, Card, Field, Modal, Pill } from '@/components/ui';
 import { money, todayISO, addDays } from '@/lib/format';
+
+/** Whole nights between two YYYY-MM-DD dates (0 if invalid or not positive). */
+function nightsBetween(checkin: string, checkout: string): number {
+  const n = Math.round((Date.parse(checkout) - Date.parse(checkin)) / 86_400_000);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 const STATUSES = [
   'All',
@@ -61,8 +67,11 @@ export default function BookingsPage() {
   const [occId, setOccId] = useState('');
   const [form, setForm] = useState({
     name: '',
+    email: '',
+    phone: '',
     checkin: todayISO(),
     checkout: addDays(todayISO(), 2),
+    rooms: 1,
     couponCode: '',
     referralCode: '',
   });
@@ -137,6 +146,7 @@ export default function BookingsPage() {
   } | null>(null);
 
   function startEdit(b: Booking) {
+    setMsg(null);
     setEdit({
       id: b.id,
       reference: b.reference,
@@ -192,13 +202,16 @@ export default function BookingsPage() {
         roomId,
         occupancyId: occId,
         customerName: form.name.trim(),
+        ...(form.email.trim() ? { customerEmail: form.email.trim() } : {}),
+        ...(form.phone.trim() ? { customerPhone: form.phone.trim() } : {}),
         checkin: form.checkin,
         checkout: form.checkout,
+        rooms: form.rooms,
         ...(form.couponCode.trim() ? { couponCode: form.couponCode.trim() } : {}),
         ...(form.referralCode.trim() ? { referralCode: form.referralCode.trim() } : {}),
       });
       setShowNew(false);
-      setForm((f) => ({ ...f, name: '' }));
+      setForm((f) => ({ ...f, name: '', email: '', phone: '', rooms: 1 }));
       await load();
       setMsg({ tone: 'avail', text: `Booked ${b.reference} — ${money(b.amount)}.` });
     } catch (err) {
@@ -225,18 +238,28 @@ export default function BookingsPage() {
         <h1 className="text-2xl font-bold tracking-tight text-ink">Bookings</h1>
         <span className="font-mono text-sm text-ink-3">{bookings.length}</span>
         <div className="flex-1" />
-        <Button onClick={() => setShowNew((v) => !v)} disabled={occs.length === 0}>
+        <Button
+          onClick={() => {
+            setMsg(null);
+            setShowNew((v) => !v);
+          }}
+          disabled={occs.length === 0}
+        >
           + Walk-in booking
         </Button>
       </div>
 
       {showNew && (
-        <Card className="mt-4 p-4">
-          <form onSubmit={create} className="flex flex-wrap items-end gap-3">
+        <Modal
+          title="New walk-in booking"
+          subtitle="The stay is priced from the rate calendar; availability is reserved atomically."
+          onClose={() => setShowNew(false)}
+        >
+          <form onSubmit={create} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium uppercase tracking-wide text-ink-3">Room</span>
+              <span className="text-sm font-medium text-ink-2">Room</span>
               <select
-                className={selectClass}
+                className={`${selectClass} w-full`}
                 value={roomId}
                 onChange={(e) => selectRoom(e.target.value)}
               >
@@ -248,11 +271,9 @@ export default function BookingsPage() {
               </select>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium uppercase tracking-wide text-ink-3">
-                Occupancy / rate plan
-              </span>
+              <span className="text-sm font-medium text-ink-2">Occupancy / rate plan</span>
               <select
-                className={selectClass}
+                className={`${selectClass} w-full`}
                 value={occId}
                 onChange={(e) => setOccId(e.target.value)}
               >
@@ -264,133 +285,181 @@ export default function BookingsPage() {
                 ))}
               </select>
             </label>
-            <div className="w-48">
-              <Field
-                label="Guest name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. A. Fernando"
-              />
+            <Field
+              label="Guest name"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. A. Fernando"
+              required
+            />
+            <Field
+              label="Rooms"
+              type="number"
+              min={1}
+              value={String(form.rooms)}
+              onChange={(e) => setForm((f) => ({ ...f, rooms: Number(e.target.value) || 1 }))}
+            />
+            <Field
+              label="Email (optional)"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              placeholder="guest@example.com"
+            />
+            <Field
+              label="Phone (optional)"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              placeholder="+94 …"
+            />
+            <Field
+              label="Check-in"
+              type="date"
+              value={form.checkin}
+              onChange={(e) => setForm((f) => ({ ...f, checkin: e.target.value }))}
+            />
+            <Field
+              label="Check-out"
+              type="date"
+              min={form.checkin}
+              value={form.checkout}
+              onChange={(e) => setForm((f) => ({ ...f, checkout: e.target.value }))}
+            />
+            <Field
+              label="Coupon (optional)"
+              value={form.couponCode}
+              onChange={(e) => setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))}
+              placeholder="SUMMER10"
+            />
+            <Field
+              label="Referral (optional)"
+              value={form.referralCode}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))
+              }
+              placeholder="LANKA"
+            />
+            {msg?.tone === 'closed' && (
+              <div
+                className="rounded-lg px-3 py-2 text-sm font-medium sm:col-span-2"
+                style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
+              >
+                {msg.text}
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-3 border-t border-line pt-4 sm:col-span-2">
+              <span className="text-sm text-ink-3">
+                {nightsBetween(form.checkin, form.checkout) > 0
+                  ? `${nightsBetween(form.checkin, form.checkout)} night${
+                      nightsBetween(form.checkin, form.checkout) === 1 ? '' : 's'
+                    } · ${form.rooms} room${form.rooms === 1 ? '' : 's'}`
+                  : 'Check-out must be after check-in'}
+              </span>
+              <div className="flex-1" />
+              <Button type="button" variant="ghost" onClick={() => setShowNew(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={busy || !occId || nightsBetween(form.checkin, form.checkout) === 0}
+              >
+                {busy ? 'Booking…' : 'Create booking'}
+              </Button>
             </div>
-            <div className="w-40">
-              <Field
-                label="Check-in"
-                type="date"
-                value={form.checkin}
-                onChange={(e) => setForm((f) => ({ ...f, checkin: e.target.value }))}
-              />
-            </div>
-            <div className="w-40">
-              <Field
-                label="Check-out"
-                type="date"
-                value={form.checkout}
-                onChange={(e) => setForm((f) => ({ ...f, checkout: e.target.value }))}
-              />
-            </div>
-            <div className="w-32">
-              <Field
-                label="Coupon (optional)"
-                value={form.couponCode}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))
-                }
-                placeholder="SUMMER10"
-              />
-            </div>
-            <div className="w-32">
-              <Field
-                label="Referral (optional)"
-                value={form.referralCode}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))
-                }
-                placeholder="LANKA"
-              />
-            </div>
-            <Button type="submit" disabled={busy || !occId}>
-              {busy ? 'Booking…' : 'Create booking'}
-            </Button>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {edit && (
-        <Card className="mt-4 p-4">
-          <div className="mb-3 font-mono text-xs uppercase tracking-widest text-ink-3">
-            Edit booking {edit.reference}
-            {!edit.stayEditable && ' · guest details only (already checked in)'}
-          </div>
-          <form onSubmit={saveEdit} className="flex flex-wrap items-end gap-3">
-            <div className="w-48">
+        <Modal
+          title={`Edit booking ${edit.reference}`}
+          subtitle={
+            edit.stayEditable
+              ? 'Changing dates or rooms re-prices the stay from the rate calendar and swaps inventory atomically; any coupon discount is kept as granted.'
+              : 'Guest details only — this booking has already checked in.'
+          }
+          onClose={() => setEdit(null)}
+        >
+          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Field
                 label="Guest name"
                 value={edit.name}
                 onChange={(e) => setEdit((v) => v && { ...v, name: e.target.value })}
               />
             </div>
-            <div className="w-56">
-              <Field
-                label="Email"
-                type="email"
-                value={edit.email}
-                onChange={(e) => setEdit((v) => v && { ...v, email: e.target.value })}
-                placeholder="guest@example.com"
-              />
-            </div>
-            <div className="w-40">
-              <Field
-                label="Phone"
-                value={edit.phone}
-                onChange={(e) => setEdit((v) => v && { ...v, phone: e.target.value })}
-                placeholder="+94 …"
-              />
-            </div>
+            <Field
+              label="Email"
+              type="email"
+              value={edit.email}
+              onChange={(e) => setEdit((v) => v && { ...v, email: e.target.value })}
+              placeholder="guest@example.com"
+            />
+            <Field
+              label="Phone"
+              value={edit.phone}
+              onChange={(e) => setEdit((v) => v && { ...v, phone: e.target.value })}
+              placeholder="+94 …"
+            />
             {edit.stayEditable && (
               <>
-                <div className="w-40">
-                  <Field
-                    label="Check-in"
-                    type="date"
-                    value={edit.checkin}
-                    onChange={(e) => setEdit((v) => v && { ...v, checkin: e.target.value })}
-                  />
-                </div>
-                <div className="w-40">
-                  <Field
-                    label="Check-out"
-                    type="date"
-                    value={edit.checkout}
-                    onChange={(e) => setEdit((v) => v && { ...v, checkout: e.target.value })}
-                  />
-                </div>
-                <div className="w-24">
-                  <Field
-                    label="Rooms"
-                    type="number"
-                    min={1}
-                    value={String(edit.rooms)}
-                    onChange={(e) =>
-                      setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })
-                    }
-                  />
-                </div>
+                <Field
+                  label="Check-in"
+                  type="date"
+                  value={edit.checkin}
+                  onChange={(e) => setEdit((v) => v && { ...v, checkin: e.target.value })}
+                />
+                <Field
+                  label="Check-out"
+                  type="date"
+                  min={edit.checkin}
+                  value={edit.checkout}
+                  onChange={(e) => setEdit((v) => v && { ...v, checkout: e.target.value })}
+                />
+                <Field
+                  label="Rooms"
+                  type="number"
+                  min={1}
+                  value={String(edit.rooms)}
+                  onChange={(e) =>
+                    setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })
+                  }
+                />
               </>
             )}
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Saving…' : 'Save changes'}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setEdit(null)}>
-              Cancel
-            </Button>
+            {msg?.tone === 'closed' && (
+              <div
+                className="rounded-lg px-3 py-2 text-sm font-medium sm:col-span-2"
+                style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
+              >
+                {msg.text}
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-3 border-t border-line pt-4 sm:col-span-2">
+              {edit.stayEditable && (
+                <span className="text-sm text-ink-3">
+                  {nightsBetween(edit.checkin, edit.checkout) > 0
+                    ? `${nightsBetween(edit.checkin, edit.checkout)} night${
+                        nightsBetween(edit.checkin, edit.checkout) === 1 ? '' : 's'
+                      } · ${edit.rooms} room${edit.rooms === 1 ? '' : 's'}`
+                    : 'Check-out must be after check-in'}
+                </span>
+              )}
+              <div className="flex-1" />
+              <Button type="button" variant="ghost" onClick={() => setEdit(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  busy || (edit.stayEditable && nightsBetween(edit.checkin, edit.checkout) === 0)
+                }
+              >
+                {busy ? 'Saving…' : 'Save changes'}
+              </Button>
+            </div>
           </form>
-          {edit.stayEditable && (
-            <p className="mt-2 text-xs text-ink-3">
-              Changing dates or rooms re-prices the stay from the rate calendar and swaps inventory
-              atomically; any coupon discount is kept as granted.
-            </p>
-          )}
-        </Card>
+        </Modal>
       )}
 
       {/* filters */}
@@ -421,7 +490,7 @@ export default function BookingsPage() {
         />
       </div>
 
-      {msg && (
+      {msg && !showNew && !edit && (
         <div
           className="mt-4 rounded-lg px-3 py-2 text-sm font-medium"
           style={{

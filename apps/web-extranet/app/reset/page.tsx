@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { resetPassword, ApiError } from '@/lib/api';
 import { Button, Card, Field, Logo } from '@/components/ui';
+import { ThemeToggle } from '@/components/theme';
 
 function ResetForm() {
   const router = useRouter();
@@ -66,6 +67,7 @@ function ResetForm() {
 export default function ResetPage() {
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
+      <ThemeToggle floating />
       <div className="w-full max-w-sm">
         <div className="mb-6 flex justify-center">
           <Logo size={30} />

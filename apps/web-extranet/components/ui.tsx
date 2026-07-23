@@ -1,3 +1,5 @@
+'use client';
+
 import * as React from 'react';
 
 export function Logo({ size = 26 }: { size?: number }) {
@@ -46,16 +48,72 @@ export function Card({ className = '', ...props }: React.HTMLAttributes<HTMLDivE
 
 export function Field({
   label,
+  className = '',
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return (
-    <label className="flex flex-col gap-1.5">
+    <label className="flex w-full flex-col gap-1.5">
       <span className="text-sm font-medium text-ink-2">{label}</span>
       <input
-        className="rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+        className={`w-full rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${className}`}
         {...props}
       />
     </label>
+  );
+}
+
+export function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  wide = false,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-10 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <Card className={`w-full ${wide ? 'max-w-4xl' : 'max-w-2xl'} p-6 sm:p-8`}>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-ink">{title}</h2>
+            {subtitle && <p className="mt-1 text-sm text-ink-3">{subtitle}</p>}
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-lg p-1.5 text-xl leading-none text-ink-3 transition hover:bg-surface-2 hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+      </Card>
+    </div>
   );
 }
 

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { login, isStaff, ApiError } from '@/lib/api';
 import { Button, Card, Field, Logo } from '@/components/ui';
+import { ThemeToggle } from '@/components/theme';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function LoginPage() {
           'radial-gradient(120% 100% at 85% -10%, var(--brand-soft), transparent 55%), radial-gradient(100% 90% at 10% 120%, rgba(12,110,102,0.10), transparent 50%)',
       }}
     >
+      <ThemeToggle floating />
       <div className="w-full max-w-sm">
         <div className="mb-6 flex justify-center">
           <Logo size={30} />

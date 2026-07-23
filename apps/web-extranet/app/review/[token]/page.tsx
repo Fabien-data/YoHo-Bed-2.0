@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { getReviewInvite, submitReview, ApiError, type ReviewInviteInfo } from '@/lib/api';
 import { longDate } from '@/lib/format';
 import { Button, Card, Logo } from '@/components/ui';
+import { ThemeToggle } from '@/components/theme';
 
 /** Public review form — reached from the single-use link in the check-out email. No login. */
 export default function PublicReviewPage() {
@@ -47,6 +48,7 @@ export default function PublicReviewPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
+      <ThemeToggle floating />
       <div className="w-full max-w-lg">
         <div className="mb-6 flex justify-center">
           <Logo />

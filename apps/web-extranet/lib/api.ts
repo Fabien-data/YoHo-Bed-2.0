@@ -415,6 +415,8 @@ export function createBooking(body: {
   roomId: string;
   occupancyId: string;
   customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
   checkin: string;
   checkout: string;
   rooms?: number;

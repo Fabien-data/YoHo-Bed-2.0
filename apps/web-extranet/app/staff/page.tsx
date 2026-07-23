@@ -19,6 +19,7 @@ import {
   type StaffTenant,
 } from '@/lib/api';
 import { Button, Card, Logo, Pill } from '@/components/ui';
+import { ThemeToggle } from '@/components/theme';
 import { money } from '@/lib/format';
 
 function tenantTone(status: StaffTenant['status']): 'avail' | 'low' | 'closed' {
@@ -111,6 +112,7 @@ export default function StaffPage() {
         <Pill tone="brand">Staff console</Pill>
         <div className="flex-1" />
         {user && <span className="hidden text-sm text-ink-2 sm:inline">{user.email}</span>}
+        <ThemeToggle />
         <Button
           variant="secondary"
           onClick={() => {
