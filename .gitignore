@@ -16,6 +16,10 @@ out/
 .env
 .env.*
 !.env.example
+# Local credential scratch — server passwords, keys. Never commit.
+VPS/
+*.pem
+*.key
 
 # logs
 *.log
