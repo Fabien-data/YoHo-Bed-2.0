@@ -11,29 +11,29 @@ export interface Section {
 }
 
 export const SECTIONS: Section[] = [
-  { href: '/app', label: 'Dashboard', docsUrl: 'https://www.notion.so/PLACEHOLDER-dashboard' },
+  { href: '/app', label: 'Dashboard', docsUrl: 'https://app.notion.com/p/3aa8dc2224558106b47ee600d03086db' },
   {
     href: '/app/calendar',
     label: 'Calendar',
-    docsUrl: 'https://www.notion.so/PLACEHOLDER-calendar',
+    docsUrl: 'https://app.notion.com/p/3aa8dc222455810c944bcefa0e3ef17c',
   },
   {
     href: '/app/bookings',
     label: 'Bookings',
-    docsUrl: 'https://www.notion.so/PLACEHOLDER-bookings',
+    docsUrl: 'https://app.notion.com/p/3aa8dc222455817c99a4feb8f4ad73c3',
   },
-  { href: '/app/inbox', label: 'Inbox', docsUrl: 'https://www.notion.so/PLACEHOLDER-inbox' },
+  { href: '/app/inbox', label: 'Inbox', docsUrl: 'https://app.notion.com/p/3aa8dc222455811d89e8cc29ab9a0711' },
   {
     href: '/app/customers',
     label: 'Customers',
-    docsUrl: 'https://www.notion.so/PLACEHOLDER-customers',
+    docsUrl: 'https://app.notion.com/p/3aa8dc22245581968e81c5fadc812ce5',
   },
-  { href: '/app/deals', label: 'Deals', docsUrl: 'https://www.notion.so/PLACEHOLDER-deals' },
-  { href: '/app/finance', label: 'Finance', docsUrl: 'https://www.notion.so/PLACEHOLDER-finance' },
-  { href: '/app/reviews', label: 'Reviews', docsUrl: 'https://www.notion.so/PLACEHOLDER-reviews' },
-  { href: '/app/comms', label: 'Comms', docsUrl: 'https://www.notion.so/PLACEHOLDER-comms' },
-  { href: '/app/setup', label: 'Setup', docsUrl: 'https://www.notion.so/PLACEHOLDER-setup' },
-  { href: '/app/profile', label: 'Profile', docsUrl: 'https://www.notion.so/PLACEHOLDER-profile' },
+  { href: '/app/deals', label: 'Deals', docsUrl: 'https://app.notion.com/p/3aa8dc22245581a8bda7dcda160d7c28' },
+  { href: '/app/finance', label: 'Finance', docsUrl: 'https://app.notion.com/p/3aa8dc22245581b5a2b0d23d4607e6ef' },
+  { href: '/app/reviews', label: 'Reviews', docsUrl: 'https://app.notion.com/p/3aa8dc2224558175a2f7f96874432400' },
+  { href: '/app/comms', label: 'Comms', docsUrl: 'https://app.notion.com/p/3aa8dc22245581b683afe00bfef09b52' },
+  { href: '/app/setup', label: 'Setup', docsUrl: 'https://app.notion.com/p/3aa8dc222455815c978eecf181bd1b52' },
+  { href: '/app/profile', label: 'Profile', docsUrl: 'https://app.notion.com/p/3aa8dc222455817c95fef79a2ef42304' },
 ];
 
 /** The section a pathname belongs to — same match rule the sidebar uses. */
