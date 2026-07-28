@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createDb, nextBookingReference, type DbHandle } from '../src/index';
+import { appUrlFrom } from './app-url';
 
 /**
  * Proves the booking-reference race (BUG #4) is fixed: many concurrent reference generations for
@@ -12,13 +13,6 @@ if (!superUrl && process.env.CI) {
   throw new Error('DATABASE_URL must be set in CI: these integration tests must never be skipped.');
 }
 const run = superUrl ? describe : describe.skip;
-
-function appUrlFrom(url: string): string {
-  const u = new URL(url);
-  u.username = 'yoho_app';
-  u.password = 'yoho_app_pw';
-  return u.toString();
-}
 
 run('booking reference — race-free (BUG #4)', () => {
   let sup: DbHandle;

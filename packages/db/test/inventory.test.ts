@@ -12,6 +12,7 @@ import {
   availabilityCalendar,
   type DbHandle,
 } from '../src/index';
+import { appUrlFrom } from './app-url';
 
 /**
  * Proves the overbooking race (BUG #1) is fixed: many concurrent reservations for the last
@@ -26,13 +27,6 @@ if (!superUrl && process.env.CI) {
   throw new Error('DATABASE_URL must be set in CI: these integration tests must never be skipped.');
 }
 const run = superUrl ? describe : describe.skip;
-
-function appUrlFrom(url: string): string {
-  const u = new URL(url);
-  u.username = 'yoho_app';
-  u.password = 'yoho_app_pw';
-  return u.toString();
-}
 
 run('inventory — atomic decrement under concurrency', () => {
   let sup: DbHandle;

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createDb, withTenant, tenants, properties, type DbHandle } from '../src/index';
+import { appUrlFrom } from './app-url';
 
 /**
  * Proves tenant isolation is enforced by Postgres RLS — the Phase 1 exit criterion.
@@ -15,13 +16,6 @@ if (!superUrl && process.env.CI) {
   throw new Error('DATABASE_URL must be set in CI: these integration tests must never be skipped.');
 }
 const run = superUrl ? describe : describe.skip;
-
-function appUrlFrom(url: string): string {
-  const u = new URL(url);
-  u.username = 'yoho_app';
-  u.password = 'yoho_app_pw';
-  return u.toString();
-}
 
 run('tenant isolation (RLS)', () => {
   let sup: DbHandle; // superuser/owner — bypasses RLS, used to seed
