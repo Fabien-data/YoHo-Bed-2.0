@@ -16,6 +16,7 @@ import { OtaModule } from './ota/ota.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { CustomersModule } from './customers/customers.module';
+import { FxModule } from './fx/fx.module';
 import { EmailModule } from './email/email.module';
 import { ProfileModule } from './profile/profile.module';
 import { MediaModule } from './media/media.module';
@@ -42,6 +43,7 @@ import { HealthController } from './health/health.controller';
     MediaModule,
     ReviewsModule,
     CustomersModule,
+    FxModule,
   ],
   controllers: [HealthController],
 })

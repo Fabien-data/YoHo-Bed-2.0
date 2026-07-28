@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { desc, eq, sql } from 'drizzle-orm';
 import { bookings, customers } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
+import { resolveAggCurrency } from '../common/currency';
 
 /**
  * Customer directory (Compartment I): every guest the property has ever hosted, with their
@@ -12,8 +13,12 @@ export class CustomersService {
   constructor(private readonly dbs: DatabaseService) {}
 
   list(tenantId: string) {
-    return this.dbs.withTenant(tenantId, (tx) =>
-      tx
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      // Spend folds per customer, not per tenant: one guest may have stayed at an LKR property and
+      // a USD one, while the guest beside them stayed only at the LKR one. So each row carries the
+      // set of currencies its own bookings used, and is denominated independently.
+      const confirmed = sql`${bookings.status} in ('Approved','CheckedIn','CheckedOut')`;
+      const rows = await tx
         .select({
           id: customers.id,
           name: customers.name,
@@ -22,14 +27,28 @@ export class CustomersService {
           firstSeen: customers.createdAt,
           bookings: sql<number>`count(${bookings.id})::int`,
           nights: sql<number>`coalesce(sum(${bookings.nights}) filter (where ${bookings.status} not in ('Cancelled','Rejected')), 0)::int`,
-          totalSpend: sql<string>`coalesce(sum(${bookings.amount}) filter (where ${bookings.status} in ('Approved','CheckedIn','CheckedOut')), 0)::text`,
+          spend: sql<string>`coalesce(sum(${bookings.amount}) filter (where ${confirmed}), 0)::text`,
+          spendLkr: sql<string>`coalesce(sum(${bookings.amount} * ${bookings.fxRateToLkr}) filter (where ${confirmed}), 0)::text`,
+          currencies: sql<
+            string[]
+          >`coalesce(array_agg(distinct ${bookings.currency}) filter (where ${confirmed}), '{}')`,
           lastCheckin: sql<string | null>`max(${bookings.checkin})`,
         })
         .from(customers)
         .leftJoin(bookings, eq(bookings.customerId, customers.id))
         .groupBy(customers.id)
-        .orderBy(desc(customers.createdAt)),
-    );
+        .orderBy(desc(customers.createdAt));
+
+      return rows.map(({ spend, spendLkr, currencies, ...c }) => {
+        const agg = resolveAggCurrency(currencies);
+        return {
+          ...c,
+          totalSpend: agg.approximate ? spendLkr : spend,
+          currency: agg.currency,
+          approximate: agg.approximate,
+        };
+      });
+    });
   }
 
   get(tenantId: string, id: string) {
@@ -47,6 +66,7 @@ export class CustomersService {
           nights: bookings.nights,
           rooms: bookings.rooms,
           amount: bookings.amount,
+          currency: bookings.currency,
         })
         .from(bookings)
         .where(eq(bookings.customerId, id))

@@ -23,8 +23,6 @@ import {
 } from '@/lib/api';
 import { Button, Card, Pill } from '@/components/ui';
 import {
-  money,
-  moneyShort,
   dom,
   monthDays,
   addMonths,
@@ -33,6 +31,7 @@ import {
   todayISO,
   firstOfMonth,
 } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 
 const INITIAL_MONTH = firstOfMonth(todayISO());
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -86,6 +85,10 @@ export default function CalendarPage() {
   const [editing, setEditing] = useState<Editing>(null);
   const [draft, setDraft] = useState('');
   const cancelRef = useRef(false);
+
+  const { money, moneyShort } = useMoney();
+  // Everything on this screen is scoped to the selected property, so all amounts are in its currency.
+  const propCurrency = properties.find((p) => p.id === propertyId)?.currency;
 
   const dates = useMemo(() => monthDays(month), [month]);
   const monthFrom = dates[0]!;
@@ -244,7 +247,7 @@ export default function CalendarPage() {
       const res = await setPrice(occId, bulkFrom, bulkTo, bulkBase);
       setMsg({
         tone: 'avail',
-        text: `Base ${money(bulkBase)} → selling ${money(res.selling)} across ${bulkNights} nights (${bulkRangeLabel}).`,
+        text: `Base ${money(bulkBase, propCurrency)} → selling ${money(res.selling, propCurrency)} across ${bulkNights} nights (${bulkRangeLabel}).`,
       });
     });
   const applyBulkAvail = (status: 'Open' | 'Close') =>
@@ -289,7 +292,7 @@ export default function CalendarPage() {
   function historyLine(h: AriHistoryEntry): string {
     const d = h.detail as Record<string, unknown>;
     if (h.kind === 'price')
-      return `base ${money(Number(d.base))} → selling ${money(Number(d.selling))}`;
+      return `base ${money(Number(d.base), propCurrency)} → selling ${money(Number(d.selling), propCurrency)}`;
     if (h.kind === 'drop') return `last-minute drop ${d.dropPct}%`;
     if (h.kind === 'restriction')
       return `min stay ${d.minStay} / max stay ${Number(d.maxStay) === 0 ? 'unlimited' : d.maxStay}`;
@@ -635,12 +638,12 @@ export default function CalendarPage() {
                           {r ? (
                             <>
                               <span className="font-mono text-lg font-bold text-ink">
-                                {moneyShort(r.effectiveSelling)}
+                                {moneyShort(r.effectiveSelling, propCurrency)}
                               </span>
                               {drop > 0 && (
                                 <span className="mt-0.5 flex items-center gap-1.5">
                                   <span className="font-mono text-xs text-ink-3 line-through">
-                                    {moneyShort(r.sellingPrice)}
+                                    {moneyShort(r.sellingPrice, propCurrency)}
                                   </span>
                                   <span
                                     className="rounded px-1 text-[0.6rem] font-bold"

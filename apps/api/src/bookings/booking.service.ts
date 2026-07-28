@@ -28,6 +28,7 @@ import {
   templates,
   availabilityCalendar,
   properties,
+  exchangeRates,
   reviewInvites,
   enqueueOutbox,
   type Tx,
@@ -38,6 +39,8 @@ import {
   couponDiscount,
   referralCommission,
   renderTemplate,
+  CURRENCY_META,
+  isCurrencyCode,
 } from '@yohobed/domain';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
@@ -69,6 +72,7 @@ export class BookingService {
           nights: bookings.nights,
           rooms: bookings.rooms,
           amount: bookings.amount,
+          currency: bookings.currency,
           roomId: bookings.roomId,
           customerName: customers.name,
           customerEmail: customers.email,
@@ -116,10 +120,15 @@ export class BookingService {
   ) {
     // BUG #2: price on the EXPLICIT occupancy key, and verify it belongs to the room.
     const [occ] = await tx
-      .select({ propertyId: rooms.propertyId, roomId: ratePlans.roomId })
+      .select({
+        propertyId: rooms.propertyId,
+        roomId: ratePlans.roomId,
+        currency: properties.currency,
+      })
       .from(occupancies)
       .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
       .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
+      .innerJoin(properties, eq(properties.id, rooms.propertyId))
       .where(eq(occupancies.id, dto.occupancyId));
     if (!occ) throw new NotFoundException('Occupancy not found');
     if (occ.roomId !== dto.roomId) {
@@ -257,6 +266,11 @@ export class BookingService {
     const today = new Date().toISOString().slice(0, 10);
     const reference = await nextBookingReference(tx, today);
 
+    // Denominate the booking in the property's base currency and freeze the LKR rate at creation
+    // so the cross-property consolidated (LKR) view never drifts as live rates move.
+    const currency = occ.currency;
+    const fxRateToLkr = await this.resolveFxRateToLkr(tx, currency);
+
     const [booking] = await tx
       .insert(bookings)
       .values({
@@ -277,6 +291,8 @@ export class BookingService {
         taxes: taxes.toFixed(2),
         commissionableAmount: commissionable.toFixed(2),
         discount: discount.toFixed(2),
+        currency,
+        fxRateToLkr,
       })
       .returning();
 
@@ -338,7 +354,9 @@ export class BookingService {
         opts.source === 'OTA'
           ? `New OTA booking ${reference} via ${opts.channelLabel ?? 'channel manager'}`
           : `New booking ${reference}`,
-      body: `${dto.customerName} · ${dto.checkin} → ${dto.checkout} · Rs ${amount.toFixed(2)}`,
+      body: `${dto.customerName} · ${dto.checkin} → ${dto.checkout} · ${
+        isCurrencyCode(currency) ? CURRENCY_META[currency].symbol : currency
+      } ${amount.toFixed(2)}`,
       entity: 'booking',
       entityId: booking!.id,
     });
@@ -391,6 +409,22 @@ export class BookingService {
     const updated = await this.transition(tenantId, id, 'check_out');
     this.mailer.deliverQueuedSafe(tenantId); // after commit: send the queued review invite
     return updated;
+  }
+
+  /**
+   * The LKR-conversion rate to freeze onto a booking: 1 for LKR, else the newest exchange_rates
+   * row for `currency`→LKR. Returns a numeric string for the column. Falls back to '1' if no rate
+   * exists yet (only reachable before the Phase 2 FX job seeds rates; today every property is LKR).
+   */
+  private async resolveFxRateToLkr(tx: Tx, currency: string): Promise<string> {
+    if (currency === 'LKR') return '1';
+    const [row] = await tx
+      .select({ rate: exchangeRates.rate })
+      .from(exchangeRates)
+      .where(and(eq(exchangeRates.base, currency), eq(exchangeRates.quote, 'LKR')))
+      .orderBy(desc(exchangeRates.fetchedAt))
+      .limit(1);
+    return row?.rate ?? '1';
   }
 
   private transition(tenantId: string, id: string, kind: Transition, reason?: string) {

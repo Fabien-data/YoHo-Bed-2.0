@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { desc, eq, sql } from 'drizzle-orm';
-import { tenants, bookings, auditLog } from '@yohobed/db';
+import { tenants, bookings, properties, auditLog } from '@yohobed/db';
+import type { BaseCurrencyCode } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { BookingService } from '../bookings/booking.service';
 import { EmailService } from '../email/email.service';
@@ -78,6 +79,71 @@ export class StaffService {
       });
     }
     return t;
+  }
+
+  /** A tenant's properties with their base currency — the staff view behind the currency control. */
+  listTenantProperties(tenantId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const rows = await tx
+        .select({
+          id: properties.id,
+          name: properties.name,
+          currency: properties.currency,
+          bookings: sql<number>`count(${bookings.id})::int`,
+        })
+        .from(properties)
+        .leftJoin(bookings, eq(bookings.propertyId, properties.id))
+        .groupBy(properties.id)
+        .orderBy(properties.name);
+      // `locked` is the same rule the mutation enforces, surfaced so the UI can disable the control
+      // instead of offering an action that will 409.
+      return rows.map((r) => ({ ...r, locked: r.bookings > 0 }));
+    });
+  }
+
+  /**
+   * Set a property's base currency. Staff-only (it decides settlement denomination and must match
+   * the payee bank account), and refused once the property has bookings: those bookings carry a
+   * snapshotted FX rate and amounts denominated in the old currency, so changing it would silently
+   * reinterpret history rather than convert it. This is a data-integrity rule, not a permission
+   * one — it binds staff too.
+   */
+  async setPropertyCurrency(
+    actor: AuthPrincipal,
+    tenantId: string,
+    propertyId: string,
+    currency: BaseCurrencyCode,
+  ) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [prop] = await tx.select().from(properties).where(eq(properties.id, propertyId));
+      if (!prop) throw new NotFoundException('Property not found');
+
+      if (prop.currency === currency) return prop; // no-op, don't burn an audit row
+
+      const [used] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(bookings)
+        .where(eq(bookings.propertyId, propertyId));
+      if ((used?.n ?? 0) > 0) {
+        throw new ConflictException({
+          error: 'currency_locked',
+          message:
+            `"${prop.name}" already has ${used!.n} booking(s) denominated in ${prop.currency}. ` +
+            `Changing the base currency would reinterpret their amounts, not convert them.`,
+        });
+      }
+
+      const [row] = await tx
+        .update(properties)
+        .set({ currency, updatedAt: new Date() })
+        .where(eq(properties.id, propertyId))
+        .returning();
+      await this.audit(actor, tenantId, 'property.currency', 'property', propertyId, {
+        currency,
+        previous: prop.currency,
+      });
+      return row;
+    });
   }
 
   recentAudit() {

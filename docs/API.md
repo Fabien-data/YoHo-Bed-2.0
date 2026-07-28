@@ -134,9 +134,9 @@ stateDiagram-v2
 
 ## Dashboard
 
-| Method & path                    | Auth       | Purpose                                                                                                                                                                                                                                                                        |
-| -------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /dashboard?date&propertyId` | JWT+Tenant | Front-desk aggregate for a date (default today): arrivals, departures, in-house count, pending approvals, occupancy % (confirmed room-nights ÷ physical rooms), month-to-view gross (from per-night snapshots, so multi-month stays land in the right month), recent bookings. |
+| Method & path                    | Auth       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /dashboard?date&propertyId` | JWT+Tenant | Front-desk aggregate for a date (default today): arrivals, departures, in-house count, pending approvals, occupancy % (confirmed room-nights ÷ physical rooms), month-to-view gross (from per-night snapshots, so multi-month stays land in the right month), recent bookings. `month.currency` + `month.approximate` denominate the gross: exact when scoped to one property, consolidated to LKR when it spans base currencies. |
 
 ## Commercial (deals, coupons, referrals)
 
@@ -151,14 +151,14 @@ stateDiagram-v2
 
 ## Finance
 
-| Method & path                                                | Auth       | Purpose                                                                                                                                                                                                   |
-| ------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /bookings/:id/invoice`                                 | JWT+Tenant | Create the booking's invoice `INV-<reference>` (idempotent — returns the existing one), lines from the per-night snapshot.                                                                                |
-| `GET /invoices` · `GET /invoices/:id`                        | JWT+Tenant | List / one with lines.                                                                                                                                                                                    |
-| `POST /bookings/:id/payments` · `GET /bookings/:id/payments` | JWT+Tenant | Record/list payments (direction received/sent). When received payments cover the invoice, it flips to `paid`.                                                                                             |
-| `GET /finance/payout-statement?propertyId&from&to`           | JWT+Tenant | Settlement over confirmed bookings (Approved/CheckedIn/CheckedOut): `gross = propertyBase + yohoCommission + otaCommission + taxes`, `netPayable = propertyBase`. Reconciles to the cent by construction. |
-| `POST /finance/payouts` · `GET /finance/payouts`             | JWT+Tenant | Snapshot a statement as a payout record / list them.                                                                                                                                                      |
-| `GET /finance/revenue?from&to`                               | JWT+Tenant | Booking counts + gross grouped by status; `approvedGross` = confirmed statuses only.                                                                                                                      |
+| Method & path                                                | Auth       | Purpose                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /bookings/:id/invoice`                                 | JWT+Tenant | Create the booking's invoice `INV-<reference>` (idempotent — returns the existing one), lines from the per-night snapshot.                                                                                                                                                                                                                      |
+| `GET /invoices` · `GET /invoices/:id`                        | JWT+Tenant | List / one with lines.                                                                                                                                                                                                                                                                                                                          |
+| `POST /bookings/:id/payments` · `GET /bookings/:id/payments` | JWT+Tenant | Record/list payments (direction received/sent). Stored in the booking's currency; an optional `currency` in the body is an assertion and a mismatch is **400 `currency_mismatch`**. When received payments _in that currency_ cover the invoice, it flips to `paid`.                                                                            |
+| `GET /finance/payout-statement?propertyId&from&to`           | JWT+Tenant | Settlement over confirmed bookings (Approved/CheckedIn/CheckedOut): `gross = propertyBase + yohoCommission + otaCommission + taxes`, `netPayable = propertyBase`. Reconciles to the cent by construction, exact in the property's `currency` — never FX-converted; **409 `mixed_currency_settlement`** if its bookings somehow span currencies. |
+| `POST /finance/payouts` · `GET /finance/payouts`             | JWT+Tenant | Snapshot a statement as a payout record / list them.                                                                                                                                                                                                                                                                                            |
+| `GET /finance/revenue?from&to`                               | JWT+Tenant | Booking counts + gross grouped by status; `approvedGross` = confirmed statuses only. Spans properties, so it returns `currency` + `approximate` — native when the tenant prices in one currency, LKR-consolidated otherwise (see PRICING.md §10).                                                                                               |
 
 ## OTA distribution
 
@@ -190,10 +190,10 @@ stateDiagram-v2
 
 ## Customers
 
-| Method & path        | Auth       | Purpose                                                                                |
-| -------------------- | ---------- | -------------------------------------------------------------------------------------- |
-| `GET /customers`     | JWT+Tenant | Guest directory: bookings count, non-cancelled nights, confirmed spend, last check-in. |
-| `GET /customers/:id` | JWT+Tenant | One guest + full booking history.                                                      |
+| Method & path        | Auth       | Purpose                                                                                                                                                                                                                                                                                       |
+| -------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /customers`     | JWT+Tenant | Guest directory: bookings count, non-cancelled nights, confirmed spend, last check-in. `totalSpend` carries `currency` + `approximate`, folded **per guest** — a guest who stayed at properties with different base currencies gets a consolidated figure while their neighbours stay native. |
+| `GET /customers/:id` | JWT+Tenant | One guest + full booking history.                                                                                                                                                                                                                                                             |
 
 ## Profile & media
 
@@ -210,13 +210,15 @@ stateDiagram-v2
 
 All routes: **Roles** (`YOHO_STAFF` / `YOHO_ADMIN`). Every action is written to the audit log.
 
-| Method & path                                                | Purpose                                                                                                                                    |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /staff/tenants`                                         | Every tenant + status + pending-booking count.                                                                                             |
-| `GET /staff/tenants/:id/bookings`                            | A tenant's bookings (cross-tenant, still under RLS via scoped context).                                                                    |
-| `POST /staff/tenants/:id/bookings/:bid/approve` · `…/reject` | Approve/reject on the owner's behalf.                                                                                                      |
-| `POST /staff/tenants/:id/status`                             | Set `active` / `inactive` / `suspended`. `pending → active` sends the welcome email. Suspension blocks login and every subsequent request. |
-| `GET /staff/audit`                                           | Recent audit entries (actor, action, entity, detail).                                                                                      |
+| Method & path                                                | Purpose                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /staff/tenants`                                         | Every tenant + status + pending-booking count.                                                                                                                                                                                            |
+| `GET /staff/tenants/:id/bookings`                            | A tenant's bookings (cross-tenant, still under RLS via scoped context).                                                                                                                                                                   |
+| `POST /staff/tenants/:id/bookings/:bid/approve` · `…/reject` | Approve/reject on the owner's behalf.                                                                                                                                                                                                     |
+| `POST /staff/tenants/:id/status`                             | Set `active` / `inactive` / `suspended`. `pending → active` sends the welcome email. Suspension blocks login and every subsequent request.                                                                                                |
+| `GET /staff/tenants/:id/properties`                          | A tenant's properties with base `currency`, booking count, and `locked` (mirrors the rule below).                                                                                                                                         |
+| `POST /staff/tenants/:id/properties/:pid/currency`           | Set the property's base currency (`LKR`/`USD` only). **409 `currency_locked`** once the property has bookings — their amounts are denominated in the old currency, so a change would reinterpret history. Audited as `property.currency`. |
+| `GET /staff/audit`                                           | Recent audit entries (actor, action, entity, detail).                                                                                                                                                                                     |
 
 ## Distribution health (dev/ops)
 

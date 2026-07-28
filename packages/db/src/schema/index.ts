@@ -5,6 +5,7 @@ export * from './tax';
 export * from './bookings';
 export * from './commercial';
 export * from './finance';
+export * from './fx';
 export * from './comms';
 export * from './distribution';
 export * from './audit';

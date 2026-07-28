@@ -3,7 +3,8 @@ import { makeTenant, openAndPrice, request, stopApp, type TenantFixture } from '
 
 afterAll(stopApp);
 
-const SECRET = 'test-cm-webhook-secret-000001';
+// Must match whatever the app booted with — CI overrides this env, global-setup only defaults it.
+const SECRET = process.env.CM_WEBHOOK_SECRET ?? 'test-cm-webhook-secret-000001';
 let codeSeq = 0;
 
 async function mapRoom(fx: TenantFixture): Promise<string> {

@@ -12,11 +12,14 @@ import {
   staffBookingAction,
   setTenantStatus,
   getAudit,
+  getStaffTenantProperties,
+  setPropertyCurrency,
   ApiError,
   type AuditEntry,
   type Booking,
   type SessionUser,
   type StaffTenant,
+  type StaffProperty,
 } from '@/lib/api';
 import { Button, Card, Logo, Pill } from '@/components/ui';
 import { ThemeToggle } from '@/components/theme';
@@ -42,6 +45,8 @@ export default function StaffPage() {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [properties, setProperties] = useState<StaffProperty[]>([]);
+  const [ccyError, setCcyError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async (selectId?: string | null) => {
@@ -51,6 +56,7 @@ export default function StaffPage() {
     const next = selectId ?? t[0]?.id ?? null;
     setTenantId(next);
     setBookings(next ? await getStaffTenantBookings(next) : []);
+    setProperties(next ? await getStaffTenantProperties(next).catch(() => []) : []);
   }, []);
 
   useEffect(() => {
@@ -68,7 +74,9 @@ export default function StaffPage() {
 
   async function selectTenant(id: string) {
     setTenantId(id);
+    setCcyError(null);
     setBookings(await getStaffTenantBookings(id));
+    setProperties(await getStaffTenantProperties(id).catch(() => []));
   }
 
   async function act(action: 'approve' | 'reject', bookingId: string) {
@@ -98,6 +106,27 @@ export default function StaffPage() {
     try {
       await setTenantStatus(t.id, 'active');
       await refresh(tenantId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Base currency is set here rather than by the owner: it decides the denomination of settlement
+   * and has to match the payee bank account, which only staff can verify. The server refuses the
+   * change once the property has bookings; `locked` mirrors that rule so the control disables
+   * instead of offering an action that will fail.
+   */
+  async function changeCurrency(p: StaffProperty, currency: 'LKR' | 'USD') {
+    if (!tenantId || p.locked || p.currency === currency) return;
+    setBusy(true);
+    setCcyError(null);
+    try {
+      await setPropertyCurrency(tenantId, p.id, currency);
+      setProperties(await getStaffTenantProperties(tenantId));
+      setAudit(await getAudit().catch(() => []));
+    } catch (e) {
+      setCcyError(e instanceof ApiError ? e.message : 'Could not change the base currency.');
     } finally {
       setBusy(false);
     }
@@ -177,6 +206,52 @@ export default function StaffPage() {
 
         {/* Selected tenant bookings + audit */}
         <section className="flex flex-col gap-6">
+          {selected && properties.length > 0 && (
+            <div>
+              <h2 className="text-lg font-bold tracking-tight text-ink">
+                {selected.name} — base currency
+              </h2>
+              <p className="mt-1 text-xs text-ink-3">
+                The currency each property prices and settles in. It must match the payee bank
+                account, and locks permanently once the property has bookings — their amounts are
+                recorded in it, so a change would reinterpret history rather than convert it.
+              </p>
+              {ccyError && (
+                <p className="mt-2 rounded-lg border border-line px-3 py-2 text-xs text-ink-2">
+                  {ccyError}
+                </p>
+              )}
+              <Card className="mt-3 divide-y divide-line">
+                {properties.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-ink">{p.name}</div>
+                      <div className="font-mono text-[0.65rem] text-ink-3">
+                        {p.locked
+                          ? `locked · ${p.bookings} booking${p.bookings === 1 ? '' : 's'} in ${p.currency}`
+                          : 'no bookings yet · editable'}
+                      </div>
+                    </div>
+                    {p.locked ? (
+                      <Pill tone="muted">{p.currency}</Pill>
+                    ) : (
+                      <select
+                        value={p.currency}
+                        disabled={busy}
+                        onChange={(e) => changeCurrency(p, e.target.value as 'LKR' | 'USD')}
+                        aria-label={`Base currency for ${p.name}`}
+                        className="rounded-lg border border-line bg-[var(--surface-2)] px-2 py-1.5 text-sm font-semibold text-ink-2"
+                      >
+                        <option value="LKR">LKR</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
+
           <div>
             <h2 className="text-lg font-bold tracking-tight text-ink">
               {selected ? selected.name : 'Bookings'} — approvals
@@ -210,7 +285,7 @@ export default function StaffPage() {
                           <Pill tone={bookingTone(b.status)}>{b.status}</Pill>
                         </td>
                         <td className="px-4 py-2 text-right font-mono font-semibold">
-                          {money(b.amount)}
+                          {money(b.amount, b.currency)}
                         </td>
                         <td className="px-4 py-2 text-right">
                           {b.status === 'Pending' && (

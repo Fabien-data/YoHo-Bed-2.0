@@ -1,3 +1,5 @@
+import type { CurrencyCode } from '@yohobed/domain';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 const TOKEN_KEY = 'yoho_token';
@@ -18,6 +20,8 @@ export interface SessionUser {
 export interface Property {
   id: string;
   name: string;
+  /** Base currency the property prices/settles in (LKR or USD). */
+  currency?: CurrencyCode;
 }
 
 export interface Room {
@@ -401,6 +405,7 @@ export interface Booking {
   nights: number;
   rooms: number;
   amount: string;
+  currency?: CurrencyCode;
   roomId: string;
   customerName: string;
   customerEmail?: string | null;
@@ -422,7 +427,7 @@ export function createBooking(body: {
   rooms?: number;
   couponCode?: string;
   referralCode?: string;
-}): Promise<{ id: string; reference: string; amount: string }> {
+}): Promise<{ id: string; reference: string; amount: string; currency?: CurrencyCode }> {
   return apiFetch('/bookings', { method: 'POST', body: JSON.stringify(body) });
 }
 
@@ -462,6 +467,7 @@ export interface DashboardBooking {
   nights: number;
   rooms: number;
   amount: string;
+  currency?: CurrencyCode;
   customerName: string;
   roomName: string;
 }
@@ -473,7 +479,14 @@ export interface DashboardOverview {
   inHouse: number;
   pendingApprovals: number;
   occupancy: { totalRooms: number; occupied: number; pct: number };
-  month: { from: string; gross: number; nightsSold: number };
+  month: {
+    from: string;
+    gross: number;
+    nightsSold: number;
+    currency?: CurrencyCode;
+    /** True when the figure spans base currencies and was consolidated — label it as an estimate. */
+    approximate?: boolean;
+  };
   recent: DashboardBooking[];
 }
 
@@ -487,6 +500,7 @@ export function getDashboard(date?: string, propertyId?: string): Promise<Dashbo
 
 export interface PayoutStatement {
   propertyId: string;
+  currency?: CurrencyCode;
   from: string;
   to: string;
   bookingCount: number;
@@ -514,10 +528,32 @@ export interface Revenue {
   byStatus: Record<string, { count: number; gross: number }>;
   approvedGross: number;
   totalBookings: number;
+  /** Denomination of the gross figures — native when the tenant prices in one currency. */
+  currency?: CurrencyCode;
+  /** True when properties price in different currencies and totals were consolidated to LKR. */
+  approximate?: boolean;
 }
 
 export function getRevenue(from: string, to: string): Promise<Revenue> {
   return apiFetch<Revenue>(`/finance/revenue?from=${from}&to=${to}`);
+}
+
+// --- Exchange rates (multi-currency display) ---------------------------------
+
+export interface FxRate {
+  base: string;
+  /** 1 base = rate LKR. Null until a rate exists for that currency. */
+  rate: number | null;
+  source: string | null;
+  fetchedAt: string | null;
+  symbol: string;
+}
+export interface FxRates {
+  quote: string;
+  rates: FxRate[];
+}
+export function getFxRates(): Promise<FxRates> {
+  return apiFetch<FxRates>('/fx/rates');
 }
 
 // --- Staff console ----------------------------------------------------------
@@ -560,6 +596,30 @@ export function setTenantStatus(
   return apiFetch(`/staff/tenants/${tenantId}/status`, {
     method: 'POST',
     body: JSON.stringify({ status }),
+  });
+}
+
+export interface StaffProperty {
+  id: string;
+  name: string;
+  currency: CurrencyCode;
+  /** Bookings recorded against this property — non-zero locks the base currency. */
+  bookings: number;
+  locked: boolean;
+}
+
+export function getStaffTenantProperties(tenantId: string): Promise<StaffProperty[]> {
+  return apiFetch<StaffProperty[]>(`/staff/tenants/${tenantId}/properties`);
+}
+
+export function setPropertyCurrency(
+  tenantId: string,
+  propertyId: string,
+  currency: 'LKR' | 'USD',
+): Promise<StaffProperty> {
+  return apiFetch(`/staff/tenants/${tenantId}/properties/${propertyId}/currency`, {
+    method: 'POST',
+    body: JSON.stringify({ currency }),
   });
 }
 
@@ -860,6 +920,10 @@ export interface CustomerRow {
   bookings: number;
   nights: number;
   totalSpend: string;
+  /** Denomination of `totalSpend` — this guest's own bookings, not the tenant's. */
+  currency?: CurrencyCode;
+  /** True when this guest stayed at properties with different base currencies. */
+  approximate?: boolean;
   lastCheckin: string | null;
 }
 export function listCustomers(): Promise<CustomerRow[]> {

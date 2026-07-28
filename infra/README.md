@@ -16,11 +16,11 @@ uploads) are backed up nightly.
 
 ## Layout
 
-| Path | Purpose |
-|---|---|
-| `provision.sh` | Bare Ubuntu 24.04 → full running stack. Idempotent. |
-| `deploy.sh` | Pull, build, migrate, reload. Installed at `/srv/yohobed/deploy.sh`. |
-| `backup.sh` | Nightly `pg_dump` + env/media archive, optional off-box copy. |
+| Path           | Purpose                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| `provision.sh` | Bare Ubuntu 24.04 → full running stack. Idempotent.                  |
+| `deploy.sh`    | Pull, build, migrate, reload. Installed at `/srv/yohobed/deploy.sh`. |
+| `backup.sh`    | Nightly `pg_dump` + env/media archive, optional off-box copy.        |
 
 Server layout:
 
@@ -89,7 +89,7 @@ deliberately omits them so a routine deploy can't wipe tester data.
 **Don't lock yourself out.** Keep an SSH key on both `ubuntu` and `root`, and use a
 key with no passphrase for automation — a passphrase-protected key fails
 non-interactively in a way that looks identical to a key that isn't installed.
-OVH images also ship `ubuntu` with a pre-expired password that blocks *all* sessions,
+OVH images also ship `ubuntu` with a pre-expired password that blocks _all_ sessions,
 including non-interactive ones, until it's changed on a PTY.
 
 ## Backups

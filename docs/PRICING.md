@@ -129,8 +129,64 @@ Related parity functions kept for legacy-compatible surfaces: `systemBaseRate(co
 15% drop → charged price `round2(31625 × 0.85)` = **Rs 26,881.25**. Tax is decomposed from the
 _charged_ price, so settlement still reconciles.
 
-## 10. Display convention
+## 10. Multi-currency — base vs display
 
-All money is stored `numeric(12,2)` in LKR and displayed as **`Rs 24,390.25`** (`money()` in
-`apps/web-extranet/lib/format.ts`); calendar cells use the compact `Rs 24,390` form. Amounts in
-templates render via `{{amount}}` with two decimals.
+**FX never touches the pricing path.** Everything in §§1–9 happens in a single currency; a rate is
+only ever applied to a figure that is already final. This is deliberate: the engine mirrors legacy
+PHP float arithmetic bit-for-bit, and injecting a conversion anywhere upstream would break parity.
+
+### The two tiers
+
+| Tier                                 | Currencies      | Meaning                                                                            |
+| ------------------------------------ | --------------- | ---------------------------------------------------------------------------------- |
+| **Base** (`properties.currency`)     | LKR, USD        | What the property prices, stores, invoices and settles in. Exact, never converted. |
+| **Display** (`SUPPORTED_CURRENCIES`) | + INR, GBP, EUR | A viewing preference only. Converted at the current rate and prefixed `≈`.         |
+
+A booking records the property's currency **and** `fx_rate_to_lkr`, the rate at the moment of
+creation. Rates are stored against an LKR pivot in `exchange_rates` (append-only; `1 base = rate
+LKR`), fetched by the worker and overridable by staff.
+
+### Who sets the base currency
+
+Staff, not owners — it decides the denomination of settlement and must match the payee bank
+account. `POST /staff/tenants/:id/properties/:pid/currency`, and **refused (409 `currency_locked`)
+once the property has any booking**: those bookings are denominated in the old currency, so a change
+would reinterpret history rather than convert it. Owners see it read-only on the Setup screen.
+
+### How aggregates are denominated
+
+Any total spanning more than one booking applies one rule (`resolveAggCurrency`,
+`apps/api/src/common/currency.ts`):
+
+- **One currency in play** → reported natively and exactly. No FX. A tenant whose properties all
+  price in USD sees USD.
+- **More than one** → each booking converted via its own snapshotted `fx_rate_to_lkr`, summed in
+  LKR, and returned with `approximate: true` so the UI can label it. Historic rates are used on
+  purpose: a consolidated total must not drift every time the FX job runs.
+
+Applied to `GET /finance/revenue`, `GET /dashboard` (month gross) and `GET /customers`
+(`totalSpend`, folded **per guest** — one guest may have stayed at properties of both kinds).
+
+Since an LKR-only tenant has one currency and `fx_rate_to_lkr = 1`, this is byte-identical to the
+pre-multi-currency behaviour.
+
+### Where conversion is forbidden
+
+- **Settlement.** `payout-statement` is scoped to one property and stays exact in its currency; if
+  its bookings ever span currencies it raises 409 `mixed_currency_settlement` rather than emit a
+  total that adds rupees to dollars. A payout is a payment instruction, never an estimate.
+- **Payments vs invoices.** A payment inherits the booking's currency; a caller may assert
+  `currency` and a mismatch is rejected 400 `currency_mismatch`. The "is it paid in full?" check
+  only totals payments in the invoice's own currency — otherwise 300 USD would settle a 300 LKR
+  invoice.
+
+## 11. Display convention
+
+Money is stored `numeric(12,2)` in the property's base currency and displayed with that currency's
+symbol — **`Rs 24,390.25`**, `$ 100.00` (`money()` in `apps/web-extranet/lib/format.ts`, symbols
+from `CURRENCY_META`); calendar cells use the compact `Rs 24,390` form. LKR remains the default and
+the consolidation currency.
+
+A leading **`≈`** means the figure is not exact, from either of two causes: the viewer picked a
+display currency other than the amount's own, or the server consolidated a multi-currency aggregate
+(`approximate: true`). Amounts in templates render via `{{amount}}` with two decimals.

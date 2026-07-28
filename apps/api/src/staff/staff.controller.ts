@@ -8,8 +8,10 @@ import { StaffService } from './staff.service';
 import {
   setTenantStatusSchema,
   rejectSchema,
+  setPropertyCurrencySchema,
   type SetTenantStatusDto,
   type RejectDto,
+  type SetPropertyCurrencyDto,
 } from './dto';
 import type { AuthPrincipal } from '../auth/dto';
 
@@ -59,6 +61,22 @@ export class StaffController {
     @Body(new ZodValidationPipe(setTenantStatusSchema)) dto: SetTenantStatusDto,
   ) {
     return this.staff.setTenantStatus(user, tenantId, dto.status);
+  }
+
+  @Get('tenants/:id/properties')
+  tenantProperties(@Param('id') tenantId: string) {
+    return this.staff.listTenantProperties(tenantId);
+  }
+
+  @Post('tenants/:id/properties/:pid/currency')
+  @HttpCode(200)
+  setPropertyCurrency(
+    @CurrentUser() user: AuthPrincipal,
+    @Param('id') tenantId: string,
+    @Param('pid') propertyId: string,
+    @Body(new ZodValidationPipe(setPropertyCurrencySchema)) dto: SetPropertyCurrencyDto,
+  ) {
+    return this.staff.setPropertyCurrency(user, tenantId, propertyId, dto.currency);
   }
 
   @Get('audit')

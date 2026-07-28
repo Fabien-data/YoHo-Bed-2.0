@@ -204,7 +204,16 @@ export default function SetupPage() {
                 }`}
                 style={propertyId === p.id ? { background: 'var(--brand-soft)' } : undefined}
               >
-                {p.name}
+                <span className="flex items-center justify-between gap-2">
+                  {p.name}
+                  {/* Base currency is a commercial term set by YoHoBed, so it is shown, not edited. */}
+                  <span
+                    className="font-mono text-[0.62rem] font-bold tracking-widest text-ink-3"
+                    title={`${p.name} prices and settles in ${p.currency ?? 'LKR'}. Contact YoHoBed to change this.`}
+                  >
+                    {p.currency ?? 'LKR'}
+                  </span>
+                </span>
               </button>
             ))}
           </div>

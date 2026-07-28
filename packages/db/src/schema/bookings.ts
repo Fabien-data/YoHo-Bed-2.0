@@ -89,6 +89,12 @@ export const bookings = pgTable('bookings', {
   /** Coupon discount off the amount (Compartment D). The guest pays amount − discount. */
   discount: numeric('discount', { precision: 12, scale: 2 }).notNull().default('0'),
   currency: text('currency').notNull().default('LKR'),
+  /**
+   * FX rate snapshotted at booking creation: 1 unit of `currency` = this many LKR (1 for LKR).
+   * Frozen so the cross-property consolidated (LKR) view never drifts as live rates move. Never
+   * used inside per-property finance, which stays in `currency`. numeric(18,8) for rate precision.
+   */
+  fxRateToLkr: numeric('fx_rate_to_lkr', { precision: 18, scale: 8 }).notNull().default('1'),
   /** Front-desk timestamps (Compartment G): set when the guest physically arrives/leaves. */
   checkedInAt: timestamp('checked_in_at', { withTimezone: true }),
   checkedOutAt: timestamp('checked_out_at', { withTimezone: true }),

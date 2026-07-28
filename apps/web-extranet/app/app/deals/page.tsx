@@ -22,12 +22,14 @@ import {
   type ReferralCommission,
 } from '@/lib/api';
 import { Button, Card, Field, Pill } from '@/components/ui';
-import { money, todayISO, addDays } from '@/lib/format';
+import { todayISO, addDays } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 
 const selectClass =
   'rounded-xl border border-line-strong bg-surface-2 px-4 py-2.5 text-sm font-semibold text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
 
 export default function DealsPage() {
+  const { money } = useMoney();
   const [properties, setProperties] = useState<Property[]>([]);
   const [propertyId, setPropertyId] = useState('');
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -306,12 +308,12 @@ export default function DealsPage() {
                 }
               >
                 <option value="percentage">Percentage</option>
-                <option value="fixed">Fixed (Rs)</option>
+                <option value="fixed">Fixed amount</option>
               </select>
             </label>
             <div className="w-28">
               <Field
-                label={couponForm.type === 'percentage' ? 'Percent' : 'Rs off'}
+                label={couponForm.type === 'percentage' ? 'Percent' : 'Amount off'}
                 type="number"
                 min={1}
                 value={couponForm.value}

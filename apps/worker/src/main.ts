@@ -9,11 +9,16 @@ import {
   type OutboxRow,
 } from '@yohobed/db';
 import { resolveAdapter } from '@yohobed/cm-adapter';
+import { fetchAndStoreRates, DEFAULT_FX_URL } from './fx';
 
 const DATABASE_URL =
   process.env.APP_DATABASE_URL ?? 'postgresql://yoho_app:yoho_app_pw@localhost:5433/yohobed';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6380';
 const QUEUE = 'cm-push';
+const FX_URL = process.env.FX_PROVIDER_URL ?? DEFAULT_FX_URL;
+// How often to refresh FX rates. Append-only, so extra refreshes are cheap; default 6h keeps rates
+// fresh through the day without hammering the free provider. Set FX_FETCH_INTERVAL_MS=0 to disable.
+const FX_INTERVAL_MS = Number(process.env.FX_FETCH_INTERVAL_MS ?? 6 * 60 * 60 * 1000);
 
 const redisUrl = new URL(REDIS_URL);
 // Let BullMQ own the Redis client (avoids two-copies-of-ioredis type clashes). maxRetriesPerRequest
@@ -135,12 +140,21 @@ async function relay(): Promise<void> {
 const relayTimer = setInterval(relay, 1500);
 void relay();
 
+// FX rate refresh: fetch once at startup, then on an interval. Errors are logged, never fatal.
+let fxTimer: NodeJS.Timeout | undefined;
+if (FX_INTERVAL_MS > 0) {
+  void fetchAndStoreRates(db, { url: FX_URL });
+  fxTimer = setInterval(() => void fetchAndStoreRates(db, { url: FX_URL }), FX_INTERVAL_MS);
+}
+
 console.log(
-  `[worker] YoHoBed CM worker started — queue=${QUEUE} redis=${REDIS_URL} provider=${adapter.provider}`,
+  `[worker] YoHoBed CM worker started — queue=${QUEUE} redis=${REDIS_URL} provider=${adapter.provider} ` +
+    `fx=${FX_INTERVAL_MS > 0 ? `${FX_URL} every ${Math.round(FX_INTERVAL_MS / 3600000)}h` : 'disabled'}`,
 );
 
 async function shutdown(): Promise<void> {
   clearInterval(relayTimer);
+  if (fxTimer) clearInterval(fxTimer);
   await worker.close();
   await queue.close();
   await close();

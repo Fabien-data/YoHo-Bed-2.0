@@ -13,7 +13,8 @@ import {
   type CmMapping,
   type Room,
 } from '@/lib/api';
-import { money, longDate, todayISO, addDays } from '@/lib/format';
+import { longDate, todayISO, addDays } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 import { Button, Card, Field, Pill } from '@/components/ui';
 
 const STATUS_TONE: Record<
@@ -32,6 +33,7 @@ function when(iso: string): string {
 }
 
 export default function InboxPage() {
+  const { money } = useMoney();
   const [reservations, setReservations] = useState<OtaReservation[]>([]);
   const [mappings, setMappings] = useState<CmMapping[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);

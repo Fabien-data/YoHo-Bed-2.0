@@ -1,8 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { decomposeBooking } from '@yohobed/domain';
-import { bookings, bookingDays, invoices, invoiceLines, payments, payouts } from '@yohobed/db';
+import {
+  bookings,
+  bookingDays,
+  invoices,
+  invoiceLines,
+  payments,
+  payouts,
+  properties,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
+import { resolveAggCurrency } from '../common/currency';
+import { CONFIRMED_STATUSES, isConfirmedStatus } from '../common/booking-status';
 import type { RecordPaymentDto } from './dto';
 
 @Injectable()
@@ -33,6 +48,7 @@ export class FinanceService {
           bookingId,
           number: `INV-${b.reference}`,
           amount: b.amount,
+          currency: b.currency,
           status: 'issued',
         })
         .returning();
@@ -79,6 +95,16 @@ export class FinanceService {
       const [b] = await tx.select().from(bookings).where(eq(bookings.id, bookingId));
       if (!b) throw new NotFoundException('Booking not found');
 
+      // A payment is always denominated in the booking's currency. If a caller states one, it must
+      // agree: the settled-in-full check below compares payment totals against the invoice amount,
+      // and comparing 300 USD to 300 LKR would mark a barely-paid invoice as paid.
+      if (dto.currency && dto.currency !== b.currency) {
+        throw new BadRequestException({
+          error: 'currency_mismatch',
+          message: `Booking ${b.reference} is denominated in ${b.currency}; received ${dto.currency}.`,
+        });
+      }
+
       const [pay] = await tx
         .insert(payments)
         .values({
@@ -86,6 +112,7 @@ export class FinanceService {
           bookingId,
           direction: dto.direction,
           amount: dto.amount.toFixed(2),
+          currency: b.currency,
           method: dto.method,
           reference: dto.reference ?? null,
           note: dto.note ?? null,
@@ -97,9 +124,21 @@ export class FinanceService {
         const [agg] = await tx
           .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
           .from(payments)
-          .where(and(eq(payments.bookingId, bookingId), eq(payments.direction, 'received')));
+          .where(
+            and(
+              eq(payments.bookingId, bookingId),
+              eq(payments.direction, 'received'),
+              // Belt-and-braces: only ever total payments that share the booking's denomination.
+              eq(payments.currency, b.currency),
+            ),
+          );
         const [inv] = await tx.select().from(invoices).where(eq(invoices.bookingId, bookingId));
-        if (inv && inv.status !== 'paid' && Number(agg!.total) >= Number(inv.amount)) {
+        if (
+          inv &&
+          inv.status !== 'paid' &&
+          inv.currency === b.currency &&
+          Number(agg!.total) >= Number(inv.amount)
+        ) {
           await tx
             .update(invoices)
             .set({ status: 'paid', updatedAt: new Date() })
@@ -130,7 +169,7 @@ export class FinanceService {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const where = and(
         eq(bookings.propertyId, propertyId),
-        inArray(bookings.status, ['Approved', 'CheckedIn', 'CheckedOut']),
+        inArray(bookings.status, [...CONFIRMED_STATUSES]),
         gte(bookings.checkin, from),
         lte(bookings.checkin, to),
       );
@@ -141,9 +180,23 @@ export class FinanceService {
           gross: sql<string>`coalesce(sum(${bookings.amount}), 0)`,
           base: sql<string>`coalesce(sum(${bookings.totalBasePrice}), 0)`,
           taxes: sql<string>`coalesce(sum(${bookings.taxes}), 0)`,
+          currencies: sql<string[]>`coalesce(array_agg(distinct ${bookings.currency}), '{}')`,
         })
         .from(bookings)
         .where(where);
+
+      // A settlement is a payment instruction, so it is never approximate: it must be exact in one
+      // currency. Bookings here should be homogeneous (currency is stamped from the property and
+      // locked once bookings exist), so a mix means the invariant was broken out-of-band — refuse
+      // rather than emit a total that silently adds rupees to dollars.
+      if (totals!.currencies.length > 1) {
+        throw new ConflictException({
+          error: 'mixed_currency_settlement',
+          message:
+            `Bookings in this period span multiple currencies (${totals!.currencies.join(', ')}). ` +
+            `A payout must settle in a single currency — resolve the affected bookings first.`,
+        });
+      }
 
       const [yohoAgg] = await tx
         .select({
@@ -160,8 +213,14 @@ export class FinanceService {
         Number(totals!.base),
         Number(yohoAgg!.yoho),
       );
+      // A statement is scoped to one property, so it's entirely in that property's base currency.
+      const [prop] = await tx
+        .select({ currency: properties.currency })
+        .from(properties)
+        .where(eq(properties.id, propertyId));
       return {
         propertyId,
+        currency: prop?.currency ?? 'LKR',
         from,
         to,
         bookingCount: totals!.count,
@@ -188,6 +247,7 @@ export class FinanceService {
           otaCommission: stmt.otaCommission.toFixed(2),
           taxes: stmt.taxes.toFixed(2),
           netPayable: stmt.netPayable.toFixed(2),
+          currency: stmt.currency,
           status: 'pending',
         })
         .returning(),
@@ -201,30 +261,49 @@ export class FinanceService {
     );
   }
 
-  /** Revenue summary across the tenant's bookings in a period, grouped by status. */
+  /**
+   * Revenue summary across the tenant's bookings in a period, grouped by status.
+   *
+   * Spans every property, so it can span base currencies: grouped by (status, currency) and folded
+   * via `resolveAggCurrency` — native when the tenant prices in one currency, LKR-consolidated
+   * (using each booking's snapshotted rate) when it doesn't.
+   */
   revenueSummary(tenantId: string, from: string, to: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const rows = await tx
         .select({
           status: bookings.status,
+          currency: bookings.currency,
           count: sql<number>`count(*)::int`,
           gross: sql<string>`coalesce(sum(${bookings.amount}), 0)`,
+          grossLkr: sql<string>`coalesce(sum(${bookings.amount} * ${bookings.fxRateToLkr}), 0)`,
         })
         .from(bookings)
         .where(and(gte(bookings.checkin, from), lte(bookings.checkin, to)))
-        .groupBy(bookings.status);
+        .groupBy(bookings.status, bookings.currency);
 
+      const agg = resolveAggCurrency(rows.map((r) => r.currency));
       const byStatus: Record<string, { count: number; gross: number }> = {};
       let approvedGross = 0;
       let totalBookings = 0;
       for (const r of rows) {
-        byStatus[r.status] = { count: r.count, gross: Number(r.gross) };
-        if (r.status === 'Approved' || r.status === 'CheckedIn' || r.status === 'CheckedOut') {
-          approvedGross += Number(r.gross);
-        }
+        const gross = Number(agg.approximate ? r.grossLkr : r.gross);
+        // Two properties in different currencies can contribute to the same status bucket.
+        const bucket = (byStatus[r.status] ??= { count: 0, gross: 0 });
+        bucket.count += r.count;
+        bucket.gross += gross;
+        if (isConfirmedStatus(r.status)) approvedGross += gross;
         totalBookings += r.count;
       }
-      return { from, to, byStatus, approvedGross, totalBookings };
+      return {
+        from,
+        to,
+        byStatus,
+        approvedGross,
+        totalBookings,
+        currency: agg.currency,
+        approximate: agg.approximate,
+      };
     });
   }
 }

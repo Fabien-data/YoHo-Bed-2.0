@@ -98,12 +98,12 @@ context, so they can't themselves sit behind it. Access is confined to auth/staf
 
 ## Finance (`schema/finance.ts`)
 
-| Table           | RLS | Purpose · key constraints                                                                                            |
-| --------------- | --- | -------------------------------------------------------------------------------------------------------------------- |
-| `invoices`      | ✅  | `INV-<booking reference>`, unique number; status draft/issued/paid/void.                                             |
-| `invoice_lines` | ✅  | One line per booking night × rooms.                                                                                  |
-| `payments`      | ✅  | Received/sent money against a booking (method, reference).                                                           |
-| `payouts`       | ✅  | Snapshotted settlement for a property + period: gross/base/yoho/ota/taxes/netPayable; status pending/scheduled/paid. |
+| Table           | RLS | Purpose · key constraints                                                                                                                                                                                 |
+| --------------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoices`      | ✅  | `INV-<booking reference>`, unique number; status draft/issued/paid/void; `currency` inherited from the booking.                                                                                           |
+| `invoice_lines` | ✅  | One line per booking night × rooms.                                                                                                                                                                       |
+| `payments`      | ✅  | Received/sent money against a booking (method, reference). `currency` is inherited from the booking, never chosen per payment — the settled-in-full check only totals payments sharing that denomination. |
+| `payouts`       | ✅  | Snapshotted settlement for a property + period: gross/base/yoho/ota/taxes/netPayable; status pending/scheduled/paid; `currency` = the property's base currency (a settlement is never FX-converted).      |
 
 ## Communications (`schema/comms.ts`)
 
@@ -173,6 +173,8 @@ context, so they can't themselves sit behind it. Access is confined to auth/staf
 | 0014 | Onboarding: `pending` tenant status                                                          |
 | 0015 | Email seam: messages.error                                                                   |
 | 0016 | Compartment I: availability min_stay/max_stay, ari_history, reviews, review_invites          |
+| 0017 | Multi-currency: properties.currency, bookings.fx_rate_to_lkr, exchange_rates                 |
+| 0018 | Multi-currency: payments.currency, payouts.currency                                          |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

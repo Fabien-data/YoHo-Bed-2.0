@@ -30,6 +30,12 @@ export const payments = pgTable('payments', {
   bookingId: uuid('booking_id').references(() => bookings.id, { onDelete: 'set null' }),
   direction: paymentDirection('direction').notNull(),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  /**
+   * Denomination of `amount` — always inherited from the booking (and therefore its property's
+   * base currency), never chosen per payment. Recorded explicitly so the "is this invoice settled?"
+   * comparison in FinanceService.recordPayment can refuse to compare across currencies.
+   */
+  currency: text('currency').notNull().default('LKR'),
   method: paymentMethod('method').notNull().default('bank'),
   reference: text('reference'),
   note: text('note'),
@@ -84,6 +90,11 @@ export const payouts = pgTable('payouts', {
   otaCommission: numeric('ota_commission', { precision: 14, scale: 2 }).notNull(),
   taxes: numeric('taxes', { precision: 14, scale: 2 }).notNull().default('0'),
   netPayable: numeric('net_payable', { precision: 14, scale: 2 }).notNull(),
+  /**
+   * The property's base currency at settlement time. A payout is scoped to one property, so every
+   * figure on this row is exact in this currency — no FX is ever applied to a settlement.
+   */
+  currency: text('currency').notNull().default('LKR'),
   status: payoutStatus('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

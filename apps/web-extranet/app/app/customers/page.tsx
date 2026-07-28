@@ -2,7 +2,8 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { listCustomers, getCustomer, type CustomerRow, type Booking } from '@/lib/api';
-import { money, longDate } from '@/lib/format';
+import { longDate } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 import { Card, Pill } from '@/components/ui';
 
 const STATUS_TONE: Record<string, 'avail' | 'closed' | 'low' | 'muted' | 'brand'> = {
@@ -16,6 +17,7 @@ const STATUS_TONE: Record<string, 'avail' | 'closed' | 'low' | 'muted' | 'brand'
 };
 
 export default function CustomersPage() {
+  const { money } = useMoney();
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [history, setHistory] = useState<Record<string, Booking[]>>({});
@@ -90,7 +92,7 @@ export default function CustomersPage() {
                       <td className="px-4 py-3 text-right font-mono text-ink">{c.bookings}</td>
                       <td className="px-4 py-3 text-right font-mono text-ink-2">{c.nights}</td>
                       <td className="px-4 py-3 text-right font-mono font-semibold text-ink">
-                        {money(c.totalSpend)}
+                        {money(c.totalSpend, c.currency, c.approximate)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-ink-2">
                         {c.lastCheckin ? longDate(c.lastCheckin) : '—'}
@@ -119,7 +121,7 @@ export default function CustomersPage() {
                                     {b.rooms > 1 ? ` · ${b.rooms} rooms` : ''}
                                   </span>
                                   <span className="ml-auto font-mono font-semibold text-ink">
-                                    {money(b.amount)}
+                                    {money(b.amount, b.currency)}
                                   </span>
                                   <span className="font-mono text-[0.65rem] uppercase text-ink-3">
                                     {b.source}

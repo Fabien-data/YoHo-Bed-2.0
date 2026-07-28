@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gt, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
-import { bookings, bookingDays, customers, rooms } from '@yohobed/db';
+import { bookings, bookingDays, customers, rooms, properties } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
-
-/** Statuses that represent confirmed, revenue-bearing business. */
-const CONFIRMED = ['Approved', 'CheckedIn', 'CheckedOut'] as const;
+import { resolveAggCurrency } from '../common/currency';
+import { CONFIRMED_STATUSES } from '../common/booking-status';
 
 /**
  * The owner's morning screen (Compartment G): who arrives, who leaves, who is in-house,
@@ -29,6 +28,7 @@ export class DashboardService {
         nights: bookings.nights,
         rooms: bookings.rooms,
         amount: bookings.amount,
+        currency: bookings.currency,
         customerName: customers.name,
         roomName: rooms.name,
       };
@@ -87,9 +87,11 @@ export class DashboardService {
       const nextMonth = new Date(`${monthStart}T00:00:00Z`);
       nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
       const monthEnd = nextMonth.toISOString().slice(0, 10);
-      const [rev] = await tx
+      const revRows = await tx
         .select({
+          currency: bookings.currency,
           gross: sql<string>`coalesce(sum(${bookingDays.sellingPrice} * ${bookings.rooms}), 0)`,
+          grossLkr: sql<string>`coalesce(sum(${bookingDays.sellingPrice} * ${bookings.rooms} * ${bookings.fxRateToLkr}), 0)`,
           nights: sql<number>`count(*)::int`,
         })
         .from(bookingDays)
@@ -99,12 +101,35 @@ export class DashboardService {
             and(
               gte(bookingDays.date, monthStart),
               sql`${bookingDays.date} < ${monthEnd}`,
-              inArray(bookings.status, [...CONFIRMED]),
+              inArray(bookings.status, [...CONFIRMED_STATUSES]),
             ),
           ),
-        );
+        )
+        .groupBy(bookings.currency);
 
       const recent = await fromBookings().orderBy(desc(bookings.createdAt)).limit(5);
+
+      // Scoped to one property the month gross is exact in that property's currency; across all
+      // properties it may span currencies, so it folds to LKR via each booking's snapshotted rate
+      // and is flagged approximate. Grouping by currency is what makes the distinction automatic.
+      const monthAgg = resolveAggCurrency(revRows.map((r) => r.currency));
+      let monthGross = 0;
+      let nightsSold = 0;
+      for (const r of revRows) {
+        monthGross += Number(monthAgg.approximate ? r.grossLkr : r.gross);
+        nightsSold += r.nights;
+      }
+
+      // With no bookings yet there is nothing to infer a currency from, so fall back to the
+      // property's own base currency rather than reporting a bare LKR zero for a USD property.
+      let monthCurrency = monthAgg.currency;
+      if (propertyId && revRows.length === 0) {
+        const [p] = await tx
+          .select({ currency: properties.currency })
+          .from(properties)
+          .where(eq(properties.id, propertyId));
+        monthCurrency = (p?.currency as typeof monthCurrency) ?? 'LKR';
+      }
 
       return {
         date,
@@ -117,7 +142,13 @@ export class DashboardService {
           occupied,
           pct: totalRooms > 0 ? Math.round((occupied / totalRooms) * 100) : 0,
         },
-        month: { from: monthStart, gross: Number(rev!.gross), nightsSold: rev!.nights },
+        month: {
+          from: monthStart,
+          gross: monthGross,
+          nightsSold,
+          currency: monthCurrency,
+          approximate: monthAgg.approximate,
+        },
         recent,
       };
     });

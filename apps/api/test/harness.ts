@@ -12,6 +12,7 @@ import {
   rateCodes,
   ratePlans,
   occupancies,
+  exchangeRates,
   seedDefaultTemplates,
   type Database,
 } from '@yohobed/db';
@@ -156,6 +157,89 @@ export async function makeTenant(
   };
 }
 
+export interface PropertyFixture {
+  propertyId: string;
+  roomId: string;
+  occupancyId: string;
+}
+
+/**
+ * Add a SECOND property to an existing tenant, optionally in a different base currency — the
+ * fixture behind the multi-currency aggregation tests. Mirrors what makeTenant builds (room +
+ * BB rate plan + occupancy) so the property is immediately bookable.
+ */
+export async function addProperty(
+  fx: TenantFixture,
+  opts: { currency?: 'LKR' | 'USD'; name?: string; roomQuantity?: number } = {},
+): Promise<PropertyFixture> {
+  const db = admin();
+  const [property] = await db
+    .insert(properties)
+    .values({
+      tenantId: fx.tenantId,
+      name: opts.name ?? 'E2E Property 2',
+      currency: opts.currency ?? 'LKR',
+      commissionType: 'percentage',
+      commissionPercentage: '10',
+    })
+    .returning();
+  const [room] = await db
+    .insert(rooms)
+    .values({
+      tenantId: fx.tenantId,
+      propertyId: property!.id,
+      name: 'E2E Room 2',
+      quantity: opts.roomQuantity ?? 5,
+    })
+    .returning();
+  const [bb] = await db.select().from(rateCodes).where(eq(rateCodes.code, 'BB'));
+  const [plan] = await db
+    .insert(ratePlans)
+    .values({
+      tenantId: fx.tenantId,
+      propertyId: property!.id,
+      roomId: room!.id,
+      rateCodeId: bb!.id,
+    })
+    .returning();
+  const [occ] = await db
+    .insert(occupancies)
+    .values({ tenantId: fx.tenantId, ratePlanId: plan!.id, label: 'Double', accommodates: 2 })
+    .returning();
+  return { propertyId: property!.id, roomId: room!.id, occupancyId: occ!.id };
+}
+
+/**
+ * Publish an FX rate (1 `base` = `rate` LKR). Without one, BookingService falls back to 1 and a
+ * USD booking would snapshot a meaningless rate, so currency tests must set this before booking.
+ */
+export async function setFxRate(base: string, rate: number): Promise<void> {
+  await admin()
+    .insert(exchangeRates)
+    .values({ base, quote: 'LKR', rate: rate.toFixed(8), source: 'e2e' });
+}
+
+/** Open inventory + price a specific room/occupancy (the multi-property variant of openAndPrice). */
+export async function openAndPriceProperty(
+  fx: TenantFixture,
+  p: PropertyFixture,
+  from: string,
+  to: string,
+  opts: { roomsToSell?: number; base?: number } = {},
+): Promise<void> {
+  const avail = await request('POST', `/rooms/${p.roomId}/availability`, {
+    token: fx.token,
+    body: { from, to, roomsToSell: opts.roomsToSell ?? 5, status: 'Open' },
+  });
+  if (avail.status !== 200)
+    throw new Error(`openAvailability failed: ${JSON.stringify(avail.body)}`);
+  const price = await request('POST', `/occupancies/${p.occupancyId}/price`, {
+    token: fx.token,
+    body: { from, to, base: opts.base ?? 100 },
+  });
+  if (price.status !== 200) throw new Error(`setPrice failed: ${JSON.stringify(price.body)}`);
+}
+
 /** A cross-tenant YoHo staff user (tenantId null), for RBAC tests. */
 export async function makeStaff(role: 'YOHO_STAFF' | 'YOHO_ADMIN' = 'YOHO_STAFF') {
   const db = admin();
@@ -216,7 +300,10 @@ export async function openAndPrice(
   if (price.status !== 200) throw new Error(`setPrice failed: ${JSON.stringify(price.body)}`);
 }
 
-/** Book a stay through the real endpoint. */
+/**
+ * Book a stay through the real endpoint. Defaults to the tenant's primary room/occupancy; pass
+ * `roomId`/`occupancyId` to book a second property (see `addProperty`).
+ */
 export function book(
   fx: TenantFixture,
   body: Partial<{
@@ -225,6 +312,8 @@ export function book(
     checkin: string;
     checkout: string;
     rooms: number;
+    roomId: string;
+    occupancyId: string;
   }> & { checkin: string; checkout: string },
 ) {
   return request('POST', '/bookings', {

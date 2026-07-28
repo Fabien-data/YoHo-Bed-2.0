@@ -12,7 +12,7 @@ import {
   type Property,
 } from '@/lib/api';
 import { Button, Card, Pill } from '@/components/ui';
-import { money } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 
 const selectClass =
   'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
@@ -96,6 +96,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const { money } = useMoney();
 
   const load = useCallback(async () => {
     try {
@@ -192,8 +193,12 @@ export default function DashboardPage() {
             />
             <Stat
               label={monthLabel || 'This month'}
-              value={money(String(data.month.gross))}
-              hint={`${data.month.nightsSold} room-nights confirmed`}
+              value={money(String(data.month.gross), data.month.currency, data.month.approximate)}
+              hint={
+                data.month.approximate
+                  ? `${data.month.nightsSold} room-nights · consolidated to ${data.month.currency}`
+                  : `${data.month.nightsSold} room-nights confirmed`
+              }
             />
           </div>
 
@@ -266,7 +271,7 @@ export default function DashboardPage() {
                         </Pill>
                       </td>
                       <td className="px-4 py-2 text-right font-mono font-semibold">
-                        {money(b.amount)}
+                        {money(b.amount, b.currency)}
                       </td>
                     </tr>
                   ))}

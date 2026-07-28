@@ -15,7 +15,8 @@ import {
   type Occupancy,
 } from '@/lib/api';
 import { Button, Card, Field, Modal, Pill } from '@/components/ui';
-import { money, todayISO, addDays } from '@/lib/format';
+import { todayISO, addDays } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 
 /** Whole nights between two YYYY-MM-DD dates (0 if invalid or not positive). */
 function nightsBetween(checkin: string, checkout: string): number {
@@ -54,6 +55,7 @@ const selectClass =
   'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
 
 export default function BookingsPage() {
+  const { money } = useMoney();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filter, setFilter] = useState<Filter>('All');
   const [q, setQ] = useState('');
@@ -176,7 +178,10 @@ export default function BookingsPage() {
       });
       setEdit(null);
       await load();
-      setMsg({ tone: 'avail', text: `Updated ${edit.reference} — new total ${money(b.amount)}.` });
+      setMsg({
+        tone: 'avail',
+        text: `Updated ${edit.reference} — new total ${money(b.amount, b.currency)}.`,
+      });
     } catch (err) {
       setMsg({
         tone: 'closed',
@@ -213,7 +218,7 @@ export default function BookingsPage() {
       setShowNew(false);
       setForm((f) => ({ ...f, name: '', email: '', phone: '', rooms: 1 }));
       await load();
-      setMsg({ tone: 'avail', text: `Booked ${b.reference} — ${money(b.amount)}.` });
+      setMsg({ tone: 'avail', text: `Booked ${b.reference} — ${money(b.amount, b.currency)}.` });
     } catch (err) {
       setMsg({
         tone: 'closed',
@@ -533,7 +538,7 @@ export default function BookingsPage() {
                     <Pill tone={tone(b.status)}>{b.status}</Pill>
                   </td>
                   <td className="px-4 py-2 text-right font-mono font-semibold">
-                    {money(b.amount)}
+                    {money(b.amount, b.currency)}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-1">

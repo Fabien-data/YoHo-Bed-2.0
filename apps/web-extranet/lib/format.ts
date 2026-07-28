@@ -1,19 +1,37 @@
 /** Shared display + date helpers for the extranet (all dates are UTC 'YYYY-MM-DD'). */
 
-/** Full LKR money: "Rs 24,390.24". */
-export function money(v?: string | number | null): string {
-  if (v === undefined || v === null || v === '') return '—';
-  const n = typeof v === 'string' ? Number(v) : v;
-  if (Number.isNaN(n)) return '—';
-  return 'Rs ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { CURRENCY_META, isCurrencyCode, type CurrencyCode } from '@yohobed/domain';
+
+/** The symbol for a currency code, defaulting to LKR's "Rs" for any unknown/legacy value. */
+function symbolOf(currency?: string | null): string {
+  return currency && isCurrencyCode(currency) ? CURRENCY_META[currency].symbol : 'Rs';
 }
 
-/** Compact LKR for tight grid cells: "Rs 24,390" (no decimals). */
-export function moneyShort(v?: string | number | null): string {
+/**
+ * Full money in a given currency: "Rs 24,390.24", "$ 1,240.00". Currency defaults to LKR so any
+ * legacy call `money(v)` is unchanged. Conversion to a display currency is layered on top by
+ * `useMoney()` (components/currency.tsx) — this formatter just renders a value in one currency.
+ */
+export function money(v?: string | number | null, currency: CurrencyCode | string = 'LKR'): string {
   if (v === undefined || v === null || v === '') return '—';
   const n = typeof v === 'string' ? Number(v) : v;
   if (Number.isNaN(n)) return '—';
-  return 'Rs ' + Math.round(n).toLocaleString('en-US');
+  return (
+    symbolOf(currency) +
+    ' ' +
+    n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  );
+}
+
+/** Compact money for tight grid cells: "Rs 24,390" (no decimals). */
+export function moneyShort(
+  v?: string | number | null,
+  currency: CurrencyCode | string = 'LKR',
+): string {
+  if (v === undefined || v === null || v === '') return '—';
+  const n = typeof v === 'string' ? Number(v) : v;
+  if (Number.isNaN(n)) return '—';
+  return symbolOf(currency) + ' ' + Math.round(n).toLocaleString('en-US');
 }
 
 /** Today as 'YYYY-MM-DD' in the user's LOCAL timezone (toISOString would lag before 05:30 LKT). */

@@ -101,6 +101,12 @@ export const properties = pgTable('properties', {
   commissionPercentage: numeric('commission_percentage', { precision: 6, scale: 2 })
     .notNull()
     .default('10'),
+  /**
+   * Base currency the property prices, stores, and settles in — 'LKR' or 'USD' only
+   * (BASE_CURRENCIES in @yohobed/domain). Display-only currencies (INR/GBP/EUR) are never stored
+   * here. All money on this property's bookings/invoices/payouts is denominated in this currency.
+   */
+  currency: text('currency').notNull().default('LKR'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -10,7 +10,8 @@ import {
   type PayoutStatement,
 } from '@/lib/api';
 import { Button, Card, Pill } from '@/components/ui';
-import { money, todayISO, firstOfMonth, monthDays, addMonths, monthYear } from '@/lib/format';
+import { todayISO, firstOfMonth, monthDays, addMonths, monthYear } from '@/lib/format';
+import { useMoney } from '@/components/currency';
 
 const selectClass =
   'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
@@ -21,6 +22,7 @@ export default function FinancePage() {
   const [month, setMonth] = useState(firstOfMonth(todayISO()));
   const [revenue, setRevenue] = useState<Revenue | null>(null);
   const [payout, setPayout] = useState<PayoutStatement | null>(null);
+  const { money } = useMoney();
 
   const load = useCallback(async (pid: string, first: string) => {
     const days = monthDays(first);
@@ -113,8 +115,15 @@ export default function FinancePage() {
             Revenue · approved · {monthYear(month)} (all properties)
           </div>
           <div className="mt-1 text-3xl font-extrabold text-ink">
-            {money(revenue ? revenue.approvedGross : 0)}
+            {money(revenue ? revenue.approvedGross : 0, revenue?.currency, revenue?.approximate)}
           </div>
+          {revenue?.approximate && (
+            <p className="mt-1 text-xs text-ink-3">
+              Your properties price in different currencies, so this total is consolidated to{' '}
+              {revenue.currency} at each booking&apos;s recorded rate — approximate. Per-property
+              settlement below stays exact.
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             {revenue &&
               Object.entries(revenue.byStatus).map(([st, v]) => (
@@ -138,20 +147,22 @@ export default function FinancePage() {
           {payout && payout.bookingCount > 0 ? (
             <>
               <div className="mt-1 text-3xl font-extrabold text-ink">
-                {money(payout.netPayable)}{' '}
+                {money(payout.netPayable, payout.currency)}{' '}
                 <span className="text-sm font-semibold text-ink-3">net payable</span>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono text-sm">
                 <span className="text-ink-3">Gross selling</span>
-                <span className="text-right font-semibold">{money(payout.grossSelling)}</span>
+                <span className="text-right font-semibold">
+                  {money(payout.grossSelling, payout.currency)}
+                </span>
                 <span className="text-ink-3">Property base</span>
-                <span className="text-right">{money(payout.propertyBase)}</span>
+                <span className="text-right">{money(payout.propertyBase, payout.currency)}</span>
                 <span className="text-ink-3">Yoho commission</span>
-                <span className="text-right">{money(payout.yohoCommission)}</span>
+                <span className="text-right">{money(payout.yohoCommission, payout.currency)}</span>
                 <span className="text-ink-3">OTA commission</span>
-                <span className="text-right">{money(payout.otaCommission)}</span>
+                <span className="text-right">{money(payout.otaCommission, payout.currency)}</span>
                 <span className="text-ink-3">Taxes</span>
-                <span className="text-right">{money(payout.taxes)}</span>
+                <span className="text-right">{money(payout.taxes, payout.currency)}</span>
               </div>
               <div
                 className="mt-3 text-xs font-medium"
@@ -160,6 +171,7 @@ export default function FinancePage() {
                 {reconciles ? '✓' : '⚠'} base + yoho + ota + taxes ={' '}
                 {money(
                   payout.propertyBase + payout.yohoCommission + payout.otaCommission + payout.taxes,
+                  payout.currency,
                 )}{' '}
                 {reconciles ? 'reconciles to gross' : 'does not reconcile'}
               </div>
