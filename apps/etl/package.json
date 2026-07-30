@@ -1,0 +1,27 @@
+{
+  "name": "@yohobed/etl",
+  "version": "0.0.0",
+  "private": true,
+  "description": "YoHoBed ETL — migrates the legacy MySQL (armyoftheload) into Postgres, gated by a numeric parity harness.",
+  "type": "module",
+  "scripts": {
+    "discover": "tsx src/cli.ts discover",
+    "migrate": "tsx src/cli.ts migrate",
+    "parity": "tsx src/cli.ts parity",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@yohobed/db": "workspace:*",
+    "@yohobed/domain": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "mysql2": "^3.11.5",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  }
+}

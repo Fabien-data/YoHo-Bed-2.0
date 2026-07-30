@@ -54,13 +54,14 @@ flowchart LR
 
 Three runtime processes plus infrastructure:
 
-| Process             | What it is                                                                                                         | Port |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------ | ---- |
-| `apps/api`          | NestJS modular monolith — all business logic, ~90 endpoints across 20 modules                                      | 3001 |
-| `apps/web-extranet` | Next.js 14 App Router — owner PMS, staff console, and public pages (login, register, password reset, guest review) | 3000 |
-| `apps/worker`       | BullMQ worker — drains the transactional outbox to the channel manager                                             | —    |
-| Postgres 16         | All state; row-level security enforced on the app's role                                                           | 5433 |
-| Redis 7             | BullMQ queue backing                                                                                               | 6380 |
+| Process             | What it is                                                                                                                                                                                                                           | Port |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| `apps/api`          | NestJS modular monolith — all business logic, ~90 endpoints across 20 modules                                                                                                                                                        | 3001 |
+| `apps/web-extranet` | Next.js 14 App Router — owner PMS, staff console, and public pages (login, register, password reset, guest review)                                                                                                                   | 3000 |
+| `apps/worker`       | BullMQ worker — drains the transactional outbox to the channel manager, fetches daily FX rates                                                                                                                                       | —    |
+| `apps/etl`          | One-shot legacy MySQL → Postgres migration + the parity cutover gate. Run by hand, never serving traffic; writes as the **owner** role because it crosses every tenant in one pass (see [apps/etl/README.md](../apps/etl/README.md)) | —    |
+| Postgres 16         | All state; row-level security enforced on the app's role                                                                                                                                                                             | 5433 |
+| Redis 7             | BullMQ queue backing                                                                                                                                                                                                                 | 6380 |
 
 Shared packages: `@yohobed/domain` (framework-free money engine — see [PRICING.md](PRICING.md)),
 `@yohobed/db` (Drizzle schema, migrations, RLS, DB helpers — see [DATA-MODEL.md](DATA-MODEL.md)),
