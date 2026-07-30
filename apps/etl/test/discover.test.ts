@@ -69,13 +69,13 @@ describe('schema discovery', () => {
 
   it('degrades but still proceeds when only an optional column is absent', () => {
     const schema = completeSchema();
-    schema.get('customers')!.delete('phone'); // nice to have, not load-bearing
+    schema.get('customers')!.delete('mobile'); // nice to have, not load-bearing
     const report = buildReport(schema, counts(schema), 'armyoftheload', NOW);
 
     expect(report.canProceed).toBe(true);
     const finding = report.tables.find((t) => t.table === 'customers')!;
     expect(finding.status).toBe('degraded');
-    expect(finding.columns.find((c) => c.column === 'phone')!.status).toBe('missing-optional');
+    expect(finding.columns.find((c) => c.column === 'mobile')!.status).toBe('missing-optional');
   });
 
   it('reports columns the contract never declared, so migrating them is a decision not an oversight', () => {

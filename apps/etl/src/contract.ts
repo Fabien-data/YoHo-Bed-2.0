@@ -99,6 +99,11 @@ export const LEGACY_CONTRACT: TableContract[] = [
       { name: 'id', purpose: 'identity' },
       { name: 'accomadates', purpose: 'occupancies.accommodates — NOTE the legacy misspelling' },
     ],
+    notes:
+      'The misspelling `accomadates` is REAL and load-bearing — legacy queries it as a SQL column ' +
+      "(RatesAndAvailability.php:1413 max('occupancies.accomadates'), RateService.php:61). The " +
+      'reconstructed dump instead shows name/code/value for this table, which is one of the ' +
+      'places it is demonstrably wrong. Trust the code here, and confirm against a real dump.',
   },
   {
     table: 'occupancy_rateplan',
@@ -153,8 +158,13 @@ export const LEGACY_CONTRACT: TableContract[] = [
       { name: 'id', purpose: 'identity' },
       { name: 'name', purpose: 'customers.name', optional: true },
       { name: 'email', purpose: 'customers.email — the dedupe key', optional: true },
-      { name: 'phone', purpose: 'customers.phone', optional: true },
+      { name: 'mobile', purpose: 'customers.phone (legacy calls it `mobile`)', optional: true },
     ],
+    notes:
+      'The phone column is `mobile`, not `phone` — confirmed in code: ' +
+      "BookingsController.php:104 does Customer::where('mobile', ...) and stores a calling-code " +
+      'prefixed number. Legacy also looks customers up by mobile suffix, so numbers are not ' +
+      'normalised and may need cleaning during migration.',
   },
   {
     table: 'bookings',

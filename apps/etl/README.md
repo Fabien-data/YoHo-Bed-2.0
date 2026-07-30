@@ -19,22 +19,54 @@ So this ETL never assumes the reconstruction is true. Every table and column it 
 [`src/contract.ts`](src/contract.ts), and `discover` checks that contract against the real database
 before a single row moves.
 
-## Step 1 — `discover` (read-only, safe against production)
+## Step 1 — `discover`
 
-The first thing to run once legacy credentials exist. Read-only credentials are sufficient.
+### From a schema dump (preferred — no server, no credentials)
+
+A schema dump is just DDL text, so validating against one needs no MySQL server, no credentials in
+flight, and no production access. It also contains **no guest data**, so it is safe to hand around.
+
+```bash
+# on the legacy server (or anywhere with access to it)
+mysqldump --no-data -u USER -p armyoftheload > legacy-schema.sql
+
+# then, anywhere
+pnpm --filter @yohobed/etl discover -- --dump legacy-schema.sql
+```
+
+### From a live database (read-only, safe against production)
 
 ```bash
 LEGACY_MYSQL_URL='mysql://readonly:pw@host:3306/armyoftheload' \
   pnpm --filter @yohobed/etl discover
 ```
 
-It reports, per table: whether it exists, its row count, which contracted columns are missing
+Read-only credentials are sufficient — discovery never writes. This route additionally reports row
+counts, which a `--no-data` dump cannot provide.
+
+### Reading the report
+
+Per table: whether it exists, its row count (live only), which contracted columns are missing
 (required vs optional), which columns exist that the contract does not declare (data we would
 silently drop), and the actual column types. Exit code `0` means every required table and column is
 present and migration may proceed; `1` means resolve the gaps first.
 
 Undeclared columns do **not** block a cutover — they are a review list, so dropping a column is a
 decision someone made rather than something nobody noticed.
+
+### What it already says about the reconstruction
+
+Running it against `backend-portal/database.sql` (pinned in
+[`test/dump-schema.test.ts`](test/dump-schema.test.ts)) correctly refuses to clear a cutover, and
+names two places where that file disagrees with the running legacy code:
+
+- **`selling_price` is absent entirely** — the TopDown pricing source.
+- **`occupancies.accomadates` is absent**; the file shows `name/code/value` instead. But legacy
+  queries `accomadates` as a real SQL column (`RatesAndAvailability.php:1413`), so the code is right
+  and the file is wrong.
+
+It also found that the guest phone column is `mobile`, not `phone`
+(`BookingsController.php:104`) — the contract was corrected to match.
 
 ## Step 2 — `migrate`
 
