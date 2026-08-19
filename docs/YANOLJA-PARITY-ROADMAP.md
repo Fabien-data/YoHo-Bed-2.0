@@ -12,8 +12,8 @@
 | ------ | --------------- | -------------------------------------- | -------------- |
 | 0      | 0 Foundations   | SaaS entitlements + property depth     | ✅ **Done**    |
 | 1      | 0 Foundations   | Design system + Yanolja app shell      | ✅ **Done**    |
-| 2      | 1 Front desk    | Room units + live migration            | ⏳ Next        |
-| 3      | 1 Front desk    | Stay View tape chart                   | ⬜ Not started |
+| 2      | 1 Front desk    | Room units + live migration            | ✅ **Done**    |
+| 3      | 1 Front desk    | Stay View tape chart                   | ⏳ Next        |
 | 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ⬜ Not started |
 | 5      | 2 Money core    | Folio + charge posting                 | ⬜ Not started |
 | 6      | 2 Money core    | Cashiering, ledgers, POS               | ⬜ Not started |
@@ -227,6 +227,36 @@ reason, blocked_by_user_id)`.- API in `apps/api/src/inventory/`: `GET|POST /prop
 - Tests: db-integration proving the migration preserves every booking and never double-books a unit;
   e2e for assignment conflicts.
 - **Acceptance:** yova.markui.lk migrates in place, zero data loss, every booking has legs.
+
+> **✅ Shipped 2026-08-19.** Migration `0020_room_units`, applied additively — `rooms` keeps its
+> meaning as the sellable bucket, so `availability_calendar`, `rate_plans`, `cm_room_mappings`,
+> the outbox and `@yohobed/domain` are all untouched.
+>
+> New tables `room_units`, `booking_rooms`, `booking_groups`, `maintenance_blocks`, plus
+> `bookings.group_id`. The migration back-fills in three steps: expand each `rooms.quantity` into
+> property-wide numbered units (01..NN, interleaved across room types exactly as Yanolja's demo
+> property is), emit one leg per physical room for every occupying booking, then greedily
+> first-fit legs onto units. **A leg that finds no free unit is left unassigned rather than
+> aborting** — legacy bucket data can be over-allocated, and a migration that refuses to run on
+> real data is worthless.
+>
+> Rehearsed against the seeded database: 295 units from 295 bucket quantity across 59 properties,
+> every property's unit count matching its bucket, 34 legs for exactly the occupying bookings
+> (Cancelled correctly excluded, NoShow correctly included), zero unassigned, zero double-bookings.
+>
+> **Double-booking is now structurally impossible**, via a gist exclusion constraint on
+> `(room_unit_id, daterange(checkin, checkout, '[)'))` where the leg is assigned and not released
+> — the same class of guarantee as `rooms_to_sell >= 0`. Half-open ranges keep same-day turnover
+> legal. Cancelling stamps `released_at` rather than nulling the unit, so the room frees up while
+> the history survives; `NoShow` deliberately does not release.
+>
+> API in `apps/api/src/inventory/room-units.service.ts` + `room-units.controller.ts`:
+> list/create/patch units, a bucket-vs-physical counts endpoint, `GET /bookings/:id/rooms`,
+> `POST /bookings/:id/assign` and `auto-assign` (partial success reported). The booking lifecycle
+> now creates legs on booking, releases them on cancel/reject, and un-assigns + re-shapes them on
+> amend.
+>
+> Test count **213 → 234** (db 8→15, API e2e 78→92, plus the 16 Playwright).
 
 **Sprint 3 — Stay View.** _Yanolja module A1 — the screen the product is judged on._
 

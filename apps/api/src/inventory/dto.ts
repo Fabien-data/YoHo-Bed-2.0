@@ -58,3 +58,39 @@ export const openAvailabilitySchema = z
   })
   .refine((v) => v.to >= v.from, { message: 'to must be on or after from', path: ['to'] });
 export type OpenAvailabilityDto = z.infer<typeof openAvailabilitySchema>;
+
+// --- Room units (physical rooms) ---------------------------------------------
+
+export const createRoomUnitSchema = z.object({
+  roomId: z.string().uuid(),
+  /** What the tape chart shows. Free-form so "01", "1A" and "Villa 3" all work. */
+  code: z.string().min(1).max(32),
+  displayOrder: z.number().int().min(0).optional(),
+  floor: z.string().max(32).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type CreateRoomUnitDto = z.infer<typeof createRoomUnitSchema>;
+
+export const updateRoomUnitSchema = z
+  .object({
+    code: z.string().min(1).max(32).optional(),
+    displayOrder: z.number().int().min(0).optional(),
+    floor: z.string().max(32).nullable().optional(),
+    notes: z.string().max(500).nullable().optional(),
+    status: z.enum(['active', 'inactive']).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
+export type UpdateRoomUnitDto = z.infer<typeof updateRoomUnitSchema>;
+
+/** `roomUnitId: null` un-assigns the leg, which is how a room is freed without cancelling. */
+export const assignRoomsSchema = z.object({
+  assignments: z
+    .array(
+      z.object({
+        legId: z.string().uuid(),
+        roomUnitId: z.string().uuid().nullable(),
+      }),
+    )
+    .min(1),
+});
+export type AssignRoomsDto = z.infer<typeof assignRoomsSchema>;

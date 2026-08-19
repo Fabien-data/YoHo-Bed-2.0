@@ -3,13 +3,22 @@ import { AuthModule } from '../auth/auth.module';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { InventoryService } from './inventory.service';
 import { RoomsService } from './rooms.service';
+import { RoomUnitsService } from './room-units.service';
 import { RoomsController } from './rooms.controller';
 import { PropertyRoomsController } from './property-rooms.controller';
 import { RoomtypesController } from './roomtypes.controller';
+import { PropertyRoomUnitsController, RoomUnitsController } from './room-units.controller';
 
 @Module({
   imports: [AuthModule],
-  controllers: [RoomsController, PropertyRoomsController, RoomtypesController],
-  providers: [InventoryService, RoomsService, TenantGuard],
+  controllers: [
+    RoomsController,
+    PropertyRoomsController,
+    RoomtypesController,
+    PropertyRoomUnitsController,
+    RoomUnitsController,
+  ],
+  providers: [InventoryService, RoomsService, RoomUnitsService, TenantGuard],
+  exports: [RoomUnitsService],
 })
 export class InventoryModule {}

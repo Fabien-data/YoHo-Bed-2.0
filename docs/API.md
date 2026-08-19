@@ -70,6 +70,32 @@
 | `GET /rooms/:id/ari-history`                                  | JWT+Tenant | Last 100 ARI changes (kind availability/price/drop/restriction, date range, detail, actor email).                                                                                |
 | `POST /rooms/:id/reserve` · `POST /rooms/:id/release`         | JWT+Tenant | Raw inventory adjust (the booking flow uses these internally). Reserve is atomic — `409 insufficient_availability` if any night can't supply. Release caps at physical quantity. |
 
+## Physical rooms & assignment
+
+`rooms` is the sellable bucket; `room_units` are the numbered rooms inside it. A booking gets one
+`booking_rooms` **leg** per physical room, created unassigned — an OTA reservation has no opinion
+about which room, and a walk-in is placed at the desk.
+
+| Method & path                                   | Auth       | Purpose                                                                                                                                                                                          |
+| ----------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /properties/:propertyId/room-units`        | JWT+Tenant | Every physical room, ordered by number, with the room type it belongs to.                                                                                                                        |
+| `GET /properties/:propertyId/room-units/counts` | JWT+Tenant | Per room type: sellable `quantity` vs `activeUnits`/`totalUnits`. A setup warning, not an error — a room out of service legitimately makes them differ.                                          |
+| `POST /properties/:propertyId/room-units`       | JWT+Tenant | Create one. **409** on a duplicate code within the property. `displayOrder` defaults to the numeric part of the code, so "07" sorts between 06 and 08.                                           |
+| `PATCH /room-units/:id`                         | JWT+Tenant | Rename/renumber, set floor/notes, or take out of service. **409** when deactivating a room that still has current or future reservations.                                                        |
+| `GET /bookings/:id/rooms`                       | JWT+Tenant | The booking's legs and the room each holds.                                                                                                                                                      |
+| `POST /bookings/:id/assign`                     | JWT+Tenant | `{ assignments: [{ legId, roomUnitId }] }`. `roomUnitId: null` un-assigns. **409** if the room is occupied or blocked for those dates, **400** if it is a different room type or out of service. |
+| `POST /bookings/:id/auto-assign`                | JWT+Tenant | Fill every unassigned leg with the lowest-numbered free room. Returns `{ assigned, unassigned, legs }` — **partial success is deliberate**, so three of four rooms still get placed.             |
+
+Conflicts are decided by the database, not by a pre-check: an exclusion constraint on
+`booking_rooms` makes an overlapping assignment impossible, closing the same race that
+`rooms_to_sell >= 0` closes for buckets. Two agents assigning the last free room at the same
+moment cannot both win. Half-open ranges mean a **same-day turnover is allowed**.
+
+Cancelling or rejecting a booking releases its rooms; `NoShow` deliberately does not. Amending a
+booking un-assigns its legs and re-shapes them to the new dates and room count, so the desk (or
+auto-assign) places the guest again — stretching a stay into dates its current room is not free
+for would otherwise fail the whole amendment.
+
 ## Rates & pricing
 
 | Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |

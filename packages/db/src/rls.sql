@@ -250,3 +250,29 @@ DROP POLICY IF EXISTS tenant_isolation ON tenant_features;
 CREATE POLICY tenant_isolation ON tenant_features
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Room units, booking legs, groups and maintenance blocks (Yanolja-parity Sprint 2).
+
+ALTER TABLE room_units ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON room_units;
+CREATE POLICY tenant_isolation ON room_units
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_rooms;
+CREATE POLICY tenant_isolation ON booking_rooms
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_groups ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_groups;
+CREATE POLICY tenant_isolation ON booking_groups
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE maintenance_blocks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON maintenance_blocks;
+CREATE POLICY tenant_isolation ON maintenance_blocks
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

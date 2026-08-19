@@ -19,6 +19,7 @@ import {
   subscriptions,
   properties,
   rooms,
+  roomUnits,
   availabilityCalendar,
   rateCodes,
   ratePlans,
@@ -347,6 +348,32 @@ try {
   // Message templates: the SAME set new tenants get at registration (single source of truth).
   await db.delete(templates).where(eq(templates.tenantId, tenantId));
   await seedDefaultTemplates(db, tenantId);
+
+  // Physical rooms. Numbered across the whole property (01..NN) the way Yanolja numbers them,
+  // matching exactly what migration 0020 back-fills for existing data.
+  for (const pid of [propertyId, taxPropId]) {
+    const propRooms = await db
+      .select()
+      .from(rooms)
+      .where(eq(rooms.propertyId, pid))
+      .orderBy(rooms.createdAt, rooms.id);
+    let n = 0;
+    const units = propRooms.flatMap((r) =>
+      Array.from({ length: r.quantity }, () => {
+        n += 1;
+        return {
+          tenantId,
+          propertyId: pid,
+          roomId: r.id,
+          code: String(n).padStart(2, '0'),
+          displayOrder: n,
+        };
+      }),
+    );
+    if (units.length > 0) {
+      await db.insert(roomUnits).values(units).onConflictDoNothing();
+    }
+  }
 
   // Channel-manager room-code mappings (Compartment F) — routes webhook pushes to our rooms.
   await db.delete(cmRoomMappings).where(eq(cmRoomMappings.tenantId, tenantId));

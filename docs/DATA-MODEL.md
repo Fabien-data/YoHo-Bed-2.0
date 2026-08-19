@@ -83,6 +83,24 @@ share that one function so they cannot disagree about what a tenant bought.
 | `rooms`                 | ✅  | A sellable room type instance. `quantity` = physical count.                                                                                                                                                                                                                                     |
 | `availability_calendar` | ✅  | **The single source of truth for sellable inventory.** Unique `(room_id, date)`; `physical_quantity`; `rooms_to_sell` with **`CHECK (rooms_to_sell >= 0)`** (the overbooking backstop); `status` Open/Close; `min_stay` (default 1) / `max_stay` (0 = unlimited) for arrival-date restrictions. |
 
+### Buckets vs physical rooms
+
+`rooms` is the **sellable bucket** — one row per room-type-per-property with a `quantity`. It is
+what `availability_calendar`, `rate_plans`, `cm_room_mappings` and the outbox all speak, and none
+of that changed when physical rooms arrived.
+
+`room_units` sits beside it and answers what the bucket cannot: which actual room the guest is in.
+That is the prerequisite for Stay View, Room View, room assignment and every housekeeping screen.
+
+| Table                | RLS | Purpose · key constraints                                                                                                                                                    |
+| -------------------- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `room_units`         | ✅  | A physically identifiable room. Unique `(property_id, code)` — codes are property-wide, not per room type. `display_order`, `floor`, `notes`, `status` `active`\|`inactive`. |
+| `maintenance_blocks` | ✅  | A room out of service (the hatched bar on the tape chart). `block_from`/`block_to` half-open, `reason`, `released_at`. Overlapping live blocks on one room are refused.      |
+
+`SUM(active room_units) = rooms.quantity` is deliberately **not** a constraint — a unit taken out
+of service must be allowed to make the two diverge. `GET /properties/:id/room-units/counts`
+surfaces the difference as a setup warning instead.
+
 ## Rates & tax (`schema/rates.ts`, `schema/tax.ts`)
 
 | Table                | RLS       | Purpose · key constraints                                                                                                                                   |
@@ -106,6 +124,29 @@ share that one function so they cannot disagree about what a tenant bought.
 | `booking_days`      | ✅        | **Per-night price snapshot at booking time** (base/selling/commission/tax) — the audit + settlement source, immune to later rate edits.                                                                                                                                                                                                               |
 | `booking_approvals` | ✅        | Lifecycle audit trail (created/approved/rejected/cancelled/no_show/checked_in/checked_out/amended + reason + actor).                                                                                                                                                                                                                                  |
 | `booking_counters`  | ➖ global | Per-day counter behind `nextBookingReference` — references are globally unique like legacy.                                                                                                                                                                                                                                                           |
+| `booking_rooms`     | ✅        | **One leg per physical room** — what a tape-chart bar actually is. Nullable `room_unit_id` (unassigned), `leg_index` unique per booking, denormalised `checkin`/`checkout`, `adults`/`children`, `released_at`.                                                                                                                                       |
+| `booking_groups`    | ✅        | Sibling reservations under one Group ID (Yanolja's `3359-1` / `3359-2`). Purely presentational — it never merges the money.                                                                                                                                                                                                                           |
+
+### Why legs, and why the money stays on the booking
+
+A booking with `rooms = 3` gets three `booking_rooms` legs. Money remains entirely on `bookings`
+and `booking_days`, so **`@yohobed/domain` is untouched** by physical rooms — a leg only records
+where the guests sleep. Yanolja instead splits a multi-room booking into sibling reservations
+under a Group ID; `booking_groups` reproduces that presentation without splitting the money.
+
+**Double-booking a physical room is structurally impossible**, the same way `rooms_to_sell >= 0`
+makes overselling a bucket impossible:
+
+```sql
+EXCLUDE USING gist (room_unit_id WITH =, daterange(checkin, checkout, '[)') WITH &&)
+  WHERE (room_unit_id IS NOT NULL AND released_at IS NULL)
+```
+
+Three consequences worth knowing. Ranges are **half-open**, so a same-day turnover (one guest out,
+the next in) is allowed rather than flagged as a clash. **Unassigned** legs hold no room, so any
+number may coexist. And cancelling stamps `released_at` rather than nulling `room_unit_id` — the
+room is freed for re-sale while "which room was that cancellation in?" stays answerable.
+`NoShow` deliberately does **not** release: the room was held for a guest who never arrived.
 
 ## Commercial (`schema/commercial.ts`)
 
@@ -197,6 +238,7 @@ share that one function so they cannot disagree about what a tenant bought.
 | 0017 | Multi-currency: properties.currency, bookings.fx_rate_to_lkr, exchange_rates                 |
 | 0018 | Multi-currency: payments.currency, payouts.currency                                          |
 | 0019 | SaaS: plans, subscriptions, tenant_features, tenants.distribution_mode, property detail cols |
+| 0020 | Room units: room_units, booking_rooms, booking_groups, maintenance_blocks + back-fill        |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

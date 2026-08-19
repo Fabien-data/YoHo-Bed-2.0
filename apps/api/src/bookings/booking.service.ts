@@ -45,6 +45,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
+import { createLegs, releaseLegs, resizeLegs, unassignLegs } from '../inventory/room-units.service';
 import { eachNight } from '../common/dates';
 import type { Env } from '../config/env';
 import type { AmendBookingDto, CreateBookingDto } from './dto';
@@ -124,6 +125,8 @@ export class BookingService {
         propertyId: rooms.propertyId,
         roomId: ratePlans.roomId,
         currency: properties.currency,
+        // Seeds the per-leg pax; the booking itself has no adults/children of its own.
+        accommodates: occupancies.accommodates,
       })
       .from(occupancies)
       .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
@@ -296,6 +299,17 @@ export class BookingService {
       })
       .returning();
 
+    // One leg per physical room. Units are left unassigned: an OTA reservation has no opinion
+    // about which room, and a walk-in is assigned at the desk. Auto-assign fills them on demand.
+    await createLegs(tx, {
+      tenantId,
+      bookingId: booking!.id,
+      rooms: dto.rooms,
+      checkin: dto.checkin,
+      checkout: dto.checkout,
+      adults: occ.accommodates ?? 1,
+    });
+
     await tx.insert(bookingDays).values(
       nights.map((d) => {
         const p = byDate.get(d)!;
@@ -449,6 +463,7 @@ export class BookingService {
         status = 'Rejected';
         action = 'rejected';
         await releaseStay(tx, b.roomId, nights, b.rooms);
+        await releaseLegs(tx, b.id);
         releasedInventory = true;
       } else if (kind === 'cancel') {
         if (b.status !== 'Pending' && b.status !== 'Approved') {
@@ -457,6 +472,9 @@ export class BookingService {
         status = 'Cancelled';
         action = 'cancelled';
         await releaseStay(tx, b.roomId, nights, b.rooms);
+        // Frees the physical room for re-sale. NoShow deliberately does NOT do this: the room was
+        // held for a guest who never arrived, and the tape chart must keep showing it as held.
+        await releaseLegs(tx, b.id);
         releasedInventory = true;
       } else if (kind === 'no_show') {
         if (b.status !== 'Approved')
@@ -640,6 +658,19 @@ export class BookingService {
           }
           throw e;
         }
+
+        // Stretch the legs to the new dates. If the room the guest was in is not free for the
+        // new range, the exclusion constraint rejects it — so rather than fail the amendment,
+        // unassign first and let the desk (or auto-assign) place them again.
+        await unassignLegs(tx, b.id);
+        await resizeLegs(tx, {
+          tenantId,
+          bookingId: b.id,
+          rooms: newRooms,
+          checkin: newCheckin,
+          checkout: newCheckout,
+        });
+
         await enqueueOutbox(tx, {
           tenantId,
           aggregate: 'availability',
