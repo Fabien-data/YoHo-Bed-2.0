@@ -10,10 +10,13 @@ import {
 } from '@yohobed/domain';
 import { createDb } from './client';
 import { seedDefaultTemplates } from './default-templates';
+import { seedDefaultPlans } from './default-plans';
 import {
   tenants,
   users,
   memberships,
+  plans,
+  subscriptions,
   properties,
   rooms,
   availabilityCalendar,
@@ -351,6 +354,18 @@ try {
     { tenantId, propertyId, roomId, code: 'CM-DLX-001' },
     { tenantId, propertyId: taxPropId, roomId: taxRoomId, code: 'CM-OCN-101' },
   ]);
+
+  // Subscription catalogue (global) + put the demo tenant on Enterprise so every gated module is
+  // reachable in dev. Real tenants are placed on a plan by staff at approval time.
+  await seedDefaultPlans(db);
+  const [enterprise] = await db.select().from(plans).where(eq(plans.code, 'enterprise'));
+  await db
+    .insert(subscriptions)
+    .values({ tenantId, planId: enterprise!.id, status: 'active', seats: 10 })
+    .onConflictDoUpdate({
+      target: subscriptions.tenantId,
+      set: { planId: enterprise!.id, status: 'active', updatedAt: new Date() },
+    });
 
   // Cross-tenant YoHo staff user (tenantId null) for the staff console.
   const STAFF_EMAIL = 'staff@yohobed.test';

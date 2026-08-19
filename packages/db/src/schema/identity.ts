@@ -5,6 +5,7 @@ import {
   text,
   integer,
   numeric,
+  time,
   timestamp,
   unique,
 } from 'drizzle-orm/pg-core';
@@ -25,6 +26,12 @@ export const userStatus = pgEnum('user_status', ['active', 'invited', 'disabled'
 /** OWNER/OWNER_STAFF are tenant-scoped; YOHO_STAFF/YOHO_ADMIN are cross-tenant staff roles. */
 export const roleKey = pgEnum('role_key', ['OWNER', 'OWNER_STAFF', 'YOHO_STAFF', 'YOHO_ADMIN']);
 
+/**
+ * How a tenant reaches the market — see DistributionMode in @yohobed/domain.
+ * 'yoho' keeps the platform commission and payout chain; 'standalone' is a pure PMS subscriber.
+ */
+export const distributionMode = pgEnum('distribution_mode', ['yoho', 'standalone']);
+
 /** A tenant = a property owner (legacy `propertyowners`). The root of every ownership chain. */
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -32,6 +39,11 @@ export const tenants = pgTable('tenants', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   status: tenantStatus('status').notNull().default('active'),
+  /**
+   * Defaults to 'yoho' so every pre-existing tenant keeps the commission/payout behaviour it had
+   * before subscriptions existed. Only new PMS-only subscribers are created 'standalone'.
+   */
+  distributionMode: distributionMode('distribution_mode').notNull().default('yoho'),
   /** When the owner accepted the platform agreement (Compartment H; legacy property agreement). */
   agreementAcceptedAt: timestamp('agreement_accepted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -107,6 +119,31 @@ export const properties = pgTable('properties', {
    * here. All money on this property's bookings/invoices/payouts is denominated in this currency.
    */
   currency: text('currency').notNull().default('LKR'),
+
+  /**
+   * Property identity & operating parameters (Yanolja-parity Sprint 0). Every one of these is
+   * consumed downstream: `code` is the number beside the property name in Yanolja's header;
+   * the address block prints on registration cards and invoices; `timezone` is what the night
+   * audit rolls the business date against; the check-in/out times seed every reservation.
+   */
+  code: text('code'),
+  address: text('address'),
+  city: text('city'),
+  state: text('state'),
+  country: text('country'),
+  zip: text('zip'),
+  phone: text('phone'),
+  email: text('email'),
+  timezone: text('timezone').notNull().default('Asia/Colombo'),
+  checkinTime: time('checkin_time').notNull().default('14:00:00'),
+  checkoutTime: time('checkout_time').notNull().default('11:00:00'),
+  starRating: integer('star_rating'),
+  /**
+   * Intentionally not a foreign key: `media` already references `properties`, so a FK back would
+   * make the two table modules import each other. The application resolves it.
+   */
+  logoMediaId: uuid('logo_media_id'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

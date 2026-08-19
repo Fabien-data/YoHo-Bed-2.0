@@ -8,6 +8,7 @@
  */
 
 export * from './types';
+export * from './entitlements';
 export * from './currency';
 export * from './rounding';
 export * from './commission';

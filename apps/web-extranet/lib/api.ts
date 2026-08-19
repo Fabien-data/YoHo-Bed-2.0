@@ -556,6 +556,77 @@ export function getFxRates(): Promise<FxRates> {
   return apiFetch<FxRates>('/fx/rates');
 }
 
+// --- Subscription plan & entitlements ---------------------------------------
+
+export interface CataloguePlan {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  priceMonthly: string;
+  currency: string;
+  features: { features?: Record<string, boolean>; limits?: Record<string, number> };
+}
+
+export interface Entitlements {
+  features: Record<string, boolean>;
+  /** -1 means unlimited. */
+  limits: Record<string, number>;
+}
+
+export interface TenantPlan {
+  plan: {
+    code: string;
+    name: string;
+    description: string | null;
+    priceMonthly: string;
+    currency: string;
+  } | null;
+  subscription: {
+    status: 'trialing' | 'active' | 'past_due' | 'cancelled';
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    trialEndsAt: string | null;
+    seats: number;
+  } | null;
+  distributionMode: 'yoho' | 'standalone';
+  entitlements: Entitlements;
+}
+
+export function listPlans(): Promise<CataloguePlan[]> {
+  return apiFetch<CataloguePlan[]>('/billing/plans');
+}
+export function getTenantPlan(): Promise<TenantPlan> {
+  return apiFetch<TenantPlan>('/billing/plan');
+}
+export function getEntitlements(): Promise<Entitlements> {
+  return apiFetch<Entitlements>('/billing/entitlements');
+}
+
+/** Human labels for the feature keys in @yohobed/domain — keep in step with FEATURE_KEYS. */
+export const FEATURE_LABELS: Record<string, string> = {
+  stay_view: 'Stay View',
+  room_view: 'Room View',
+  housekeeping: 'Housekeeping',
+  work_orders: 'Work orders',
+  folio: 'Guest folio',
+  cashiering: 'Cashiering',
+  pos: 'Point of sale',
+  night_audit: 'Night audit',
+  channel_manager: 'Channel manager',
+  guest_messaging: 'Guest messaging',
+  reports_advanced: 'Advanced reports',
+  b2b_marketplace: 'B2B marketplace',
+  ai_copilot: 'AI copilot',
+  multi_property: 'Multiple properties',
+};
+
+export const LIMIT_LABELS: Record<string, string> = {
+  max_properties: 'Properties',
+  max_rooms: 'Rooms',
+  max_users: 'Users',
+};
+
 // --- Staff console ----------------------------------------------------------
 
 export function isStaff(user: SessionUser | null): boolean {

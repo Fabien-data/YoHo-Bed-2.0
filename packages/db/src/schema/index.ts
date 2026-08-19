@@ -1,4 +1,5 @@
 export * from './identity';
+export * from './billing';
 export * from './inventory';
 export * from './rates';
 export * from './tax';

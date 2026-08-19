@@ -134,6 +134,13 @@
       "when": 1785229070253,
       "tag": "0018_blue_talon",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787027664281,
+      "tag": "0019_saas_entitlements",
+      "breakpoints": true
     }
   ]
 }

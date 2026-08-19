@@ -42,17 +42,38 @@ erDiagram
 
 ## Identity & tenancy (`schema/identity.ts`)
 
-| Table             | RLS         | Purpose · key constraints                                                                                                                          |
-| ----------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants`         | ➖ registry | A property owner — the root of every ownership chain. Unique `email`; `status` enum `pending/active/inactive/suspended`; `agreement_accepted_at`.  |
-| `users`           | ➖ registry | Login identity. Unique `email`; nullable `tenant_id` (null = cross-tenant YoHo staff); bcrypt `password_hash`.                                     |
-| `memberships`     | ➖ registry | What a user may do, where. Role enum `OWNER/OWNER_STAFF/YOHO_STAFF/YOHO_ADMIN`; staff rows have `tenant_id = null`; unique `(user_id, tenant_id)`. |
-| `sessions`        | ➖ registry | Opaque token hashes (reserved for refresh flows).                                                                                                  |
-| `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                               |
-| `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived.                    |
+| Table             | RLS         | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants`         | ➖ registry | A property owner — the root of every ownership chain. Unique `email`; `status` enum `pending/active/inactive/suspended`; `agreement_accepted_at`.                                                                                                                                                                                                                                                                       |
+| `users`           | ➖ registry | Login identity. Unique `email`; nullable `tenant_id` (null = cross-tenant YoHo staff); bcrypt `password_hash`.                                                                                                                                                                                                                                                                                                          |
+| `memberships`     | ➖ registry | What a user may do, where. Role enum `OWNER/OWNER_STAFF/YOHO_STAFF/YOHO_ADMIN`; staff rows have `tenant_id = null`; unique `(user_id, tenant_id)`.                                                                                                                                                                                                                                                                      |
+| `sessions`        | ➖ registry | Opaque token hashes (reserved for refresh flows).                                                                                                                                                                                                                                                                                                                                                                       |
+| `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived. Plus its identity & operating parameters: `code` (the number shown beside the name), address block (`address/city/state/country/zip`), `phone`, `email`, `timezone` (what night audit rolls the business date against), `checkin_time`/`checkout_time`, `star_rating`, `logo_media_id`. |
 
 Identity tables are the tenancy _registry_ — they're what the guards consult to build the tenant
 context, so they can't themselves sit behind it. Access is confined to auth/staff code paths.
+
+`tenants.distribution_mode` (`yoho`\|`standalone`, default `yoho`) decides whether the platform
+commission and payout chain apply at all. A `standalone` tenant bought the PMS as a subscription
+and sells its own inventory, so `commissionStructureFor()` hands the pricing engine a
+zero-percentage structure — the flag selects the _input_, it never branches the maths.
+
+## Subscriptions & entitlements (`schema/billing.ts`)
+
+| Table             | RLS          | Purpose · key constraints                                                                                                                                         |
+| ----------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`           | ➖ catalogue | The sellable tiers. Unique `code`; `price_monthly` + `currency`; `features` jsonb holding a `PlanFeatures` document; `status` `active`\|`archived`; `sort_order`. |
+| `subscriptions`   | ✅           | One row per tenant (unique `tenant_id`) — the tier they are on. `status` `trialing/active/past_due/cancelled`; period dates; `seats`.                             |
+| `tenant_features` | ✅           | Per-tenant override on top of the plan, so support can grant one module off-plan. Unique `(tenant_id, key)`; `enabled`; `limit_value` for the numeric caps.       |
+
+`plans` is deliberately un-fenced: it is a global product catalogue, identical for every tenant and
+safe to read. Only staff may write it, which `RolesGuard` enforces at the API.
+
+Resolution lives in `resolveEntitlements()` in `@yohobed/domain` — plan grants first, tenant
+overrides on top, **deny-by-default** so a newly added feature key is never accidentally live for
+existing subscribers. A cancelled or past-due subscription grants nothing. The API and the web app
+share that one function so they cannot disagree about what a tenant bought.
 
 ## Inventory (`schema/inventory.ts`)
 
@@ -175,6 +196,7 @@ context, so they can't themselves sit behind it. Access is confined to auth/staf
 | 0016 | Compartment I: availability min_stay/max_stay, ari_history, reviews, review_invites          |
 | 0017 | Multi-currency: properties.currency, bookings.fx_rate_to_lkr, exchange_rates                 |
 | 0018 | Multi-currency: payments.currency, payouts.currency                                          |
+| 0019 | SaaS: plans, subscriptions, tenant_features, tenants.distribution_mode, property detail cols |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

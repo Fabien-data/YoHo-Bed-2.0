@@ -234,3 +234,19 @@ DROP POLICY IF EXISTS tenant_isolation ON ari_history;
 CREATE POLICY tenant_isolation ON ari_history
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Subscriptions & entitlements (Yanolja-parity Sprint 0).
+-- `plans` deliberately has NO RLS: it is a global product catalogue, identical for every tenant
+-- and safe to read. Only staff may write it, which is enforced by RolesGuard in the API.
+
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON subscriptions;
+CREATE POLICY tenant_isolation ON subscriptions
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE tenant_features ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON tenant_features;
+CREATE POLICY tenant_isolation ON tenant_features
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

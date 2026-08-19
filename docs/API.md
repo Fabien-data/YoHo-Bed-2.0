@@ -219,6 +219,24 @@ All routes: **Roles** (`YOHO_STAFF` / `YOHO_ADMIN`). Every action is written to 
 | `GET /staff/tenants/:id/properties`                          | A tenant's properties with base `currency`, booking count, and `locked` (mirrors the rule below).                                                                                                                                         |
 | `POST /staff/tenants/:id/properties/:pid/currency`           | Set the property's base currency (`LKR`/`USD` only). **409 `currency_locked`** once the property has bookings — their amounts are denominated in the old currency, so a change would reinterpret history. Audited as `property.currency`. |
 | `GET /staff/audit`                                           | Recent audit entries (actor, action, entity, detail).                                                                                                                                                                                     |
+| `POST /staff/tenants/:tenantId/plan`                         | Move a tenant onto a subscription plan by `{ planCode }`, creating the subscription if absent. **404** on an unknown code. Takes effect on the next request.                                                                              |
+| `POST /staff/tenants/:tenantId/distribution-mode`            | Set `{ mode: 'yoho' \| 'standalone' }`. `standalone` zeroes the YoHo commission for that tenant's pricing.                                                                                                                                |
+
+## Subscription plan & entitlements (`/billing`)
+
+Yanolja's "Know Your Plan", plus the machine-readable entitlement set the web shell uses to decide
+which modules to render. Gated routes elsewhere use `@Feature('…')` + `EntitlementGuard`, which
+runs after `TenantGuard` and returns **403** listing the missing features.
+
+| Method & path               | Auth       | Purpose                                                                                                                                                   |
+| --------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /billing/plans`        | JWT        | The active catalogue, cheapest first (code, name, price, currency, feature document).                                                                     |
+| `GET /billing/plan`         | JWT+Tenant | This tenant's plan, subscription state, `distributionMode` and resolved `entitlements`. A tenant with no subscription returns `plan: null`, not an error. |
+| `GET /billing/entitlements` | JWT+Tenant | Just `{ features, limits }`. Every key is always present; `limits` uses `-1` for unlimited and `0` for not-included.                                      |
+
+Entitlements are **deny-by-default**, and a `cancelled` or `past_due` subscription grants nothing.
+Staff are not exempt — a YoHo staff member acting inside a tenant sees exactly what that tenant
+bought, so support never demonstrates a module the customer cannot use.
 
 ## Distribution health (dev/ops)
 

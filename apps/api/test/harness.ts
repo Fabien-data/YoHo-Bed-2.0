@@ -13,7 +13,10 @@ import {
   ratePlans,
   occupancies,
   exchangeRates,
+  plans,
+  subscriptions,
   seedDefaultTemplates,
+  seedDefaultPlans,
   type Database,
 } from '@yohobed/db';
 import { AppModule } from '../src/app.module';
@@ -79,6 +82,9 @@ export async function makeTenant(
     status?: 'pending' | 'active' | 'inactive' | 'suspended';
     roomQuantity?: number;
     commissionPercentage?: number;
+    /** Subscription tier. Omit for no subscription at all (deny-all entitlements). */
+    plan?: 'starter' | 'pro' | 'enterprise';
+    distributionMode?: 'yoho' | 'standalone';
   } = {},
 ): Promise<TenantFixture> {
   const db = admin();
@@ -86,8 +92,22 @@ export async function makeTenant(
 
   const [tenant] = await db
     .insert(tenants)
-    .values({ name: `E2E ${email}`, email, status: opts.status ?? 'active' })
+    .values({
+      name: `E2E ${email}`,
+      email,
+      status: opts.status ?? 'active',
+      distributionMode: opts.distributionMode ?? 'yoho',
+    })
     .returning();
+
+  if (opts.plan) {
+    await seedDefaultPlans(db);
+    const [p] = await db.select().from(plans).where(eq(plans.code, opts.plan));
+    await db
+      .insert(subscriptions)
+      .values({ tenantId: tenant!.id, planId: p!.id, status: 'active' })
+      .onConflictDoNothing({ target: subscriptions.tenantId });
+  }
   const [user] = await db
     .insert(users)
     .values({
@@ -268,12 +288,19 @@ export interface Res<T = any> {
 export async function request<T = any>(
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
-  opts: { token?: string; body?: unknown; headers?: Record<string, string> } = {},
+  opts: {
+    token?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+    /** Sets `x-tenant-id`. Only needed to pick between tenants, or to attempt another's. */
+    tenantId?: string;
+  } = {},
 ): Promise<Res<T>> {
   const server = (await startApp()).getHttpServer();
   const supertest = (await import('supertest')).default;
   let req = supertest(server)[method.toLowerCase() as 'get'](path);
   if (opts.token) req = req.set('Authorization', `Bearer ${opts.token}`);
+  if (opts.tenantId) req = req.set('x-tenant-id', opts.tenantId);
   for (const [k, v] of Object.entries(opts.headers ?? {})) req = req.set(k, v);
   if (opts.body !== undefined) req = req.send(opts.body as object);
   const res = await req;
