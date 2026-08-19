@@ -1,16 +1,16 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { activeSection } from '@/lib/sections';
+import { activeNavItem } from '@/lib/nav';
 
 /**
  * Testing-phase footer: links the current section to its public feature guide
  * (a Notion page explaining the feature + backend logic, with a feedback form).
- * Hidden until the section's real docs URL is wired into lib/sections.ts.
+ * Hidden until the section's real docs URL is wired into lib/nav.ts.
  */
 export function FeatureDocsLink() {
   const pathname = usePathname();
-  const section = activeSection(pathname);
+  const section = activeNavItem(pathname);
   if (!section || section.docsUrl.includes('PLACEHOLDER')) return null;
 
   return (
