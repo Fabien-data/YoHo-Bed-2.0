@@ -75,7 +75,8 @@ JWT_SECRET=dev-secret-jwt-key-32-characters!! \
 pnpm test
 ```
 
-105 tests across four suites (domain 42, db 8, api e2e 36, cm-adapter 19). Notes that matter:
+197 tests across six suites (domain 56, db 8, api e2e 78, cm-adapter 19, etl 31, worker 5). Notes
+that matter:
 
 - **Turbo strict env mode:** `turbo.json`'s `test.env` allow-list is what passes
   `DATABASE_URL` & friends through to the suites. Without it the db/api integration tests would
@@ -89,11 +90,52 @@ pnpm test
 - Per-package: `pnpm --filter @yohobed/domain test` (no DB needed) · `--filter @yohobed/db test`
   · `--filter @yohobed/api test` · `--filter @yohobed/cm-adapter test` (no DB needed).
 
+### Browser E2E (Playwright)
+
+```bash
+pnpm build                                   # both servers run built output
+pnpm --filter @yohobed/web-extranet e2e      # or `e2e:ui` for the interactive runner
+```
+
+16 tests in `apps/web-extranet/e2e/`. `playwright.config.ts` starts the API and the web app
+itself; the one prerequisite is a migrated, seeded database. Two things it has to work around,
+both of which fail _silently_ if you change them:
+
+- **`NEXT_PUBLIC_API_URL` is inlined at build time.** Setting it on the `next start` command does
+  nothing — the bundle already contains the value from `next build`. The API therefore runs on
+  **3001**, the port baked into the default, rather than a port the test config picks.
+- **CORS.** The API allows `http://localhost:3000` unless told otherwise, so the config passes
+  `CORS_ORIGINS` for the Playwright origin. Without it every authenticated request is blocked and
+  only the logged-out tests pass.
+
+### Running the DB suites without Docker
+
+When Docker Desktop is unavailable, a throwaway cluster from a local PostgreSQL install works just
+as well — and on the same port, so no config changes are needed. On Windows with PostgreSQL 17
+installed (`C:\Program Files\PostgreSQL\17\bin`):
+
+```bash
+PGBIN="/c/Program Files/PostgreSQL/17/bin"
+PGDATA='C:\path\to\scratch\pgdata'          # MUST be a Windows path, not /c/...
+"$PGBIN/initdb.exe"  -D "$PGDATA" -U postgres --auth=trust --encoding=UTF8
+"$PGBIN/pg_ctl.exe"  -D "$PGDATA" -o "-p 5433" -l "$PGDATA\..\pg.log" start
+"$PGBIN/psql.exe" -h 127.0.0.1 -p 5433 -U postgres -c "CREATE DATABASE yohobed;"
+# …then migrate/seed/test exactly as above, and finally:
+"$PGBIN/pg_ctl.exe"  -D "$PGDATA" stop -m fast
+```
+
+Three traps. Give `initdb`/`pg_ctl` a **Windows** path — a git-bash `/c/…` path is resolved against
+the _current drive_, so it silently builds the cluster somewhere like `D:\c\Users\…`. `pg_ctl start`
+does not return control in git bash, so background it and poll the port instead of waiting on it.
+And use `127.0.0.1`, never `localhost` (§6). A separately installed PostgreSQL **service** on :5432
+is not a substitute unless you know its `postgres` password — the scratch cluster uses trust auth
+precisely to sidestep that.
+
 ## 4. CI (`.github/workflows/ci.yml`)
 
 Every push to `main` and every PR runs one `verify` job on `ubuntu-latest` with Postgres 16 +
 Redis 7 service containers: install (frozen lockfile) → **build** → **db:migrate** →
-**db:seed** → **typecheck** → **test** (all four suites) → **format:check** (Prettier;
+**db:seed** → **typecheck** → **test** (all six suites) → **format:check** (Prettier;
 generated files are excluded via `.prettierignore` — never hand-format `pnpm-lock.yaml` or
 `packages/db/drizzle/`).
 

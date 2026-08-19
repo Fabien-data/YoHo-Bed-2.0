@@ -5,24 +5,28 @@ monorepo houses the complete **PMS** (property-management system): the hotel-own
 YoHo staff console, the channel-manager distribution pipeline, and the pricing/tax/settlement
 engine — a faithful, parity-tested rebuild of the legacy platform with its four known bugs fixed.
 
-**Status: the legacy-parity MVP is feature-complete.** All planned build phases (0–8) and MVP
-compartments (A–K) are done: owner PMS, staff console, OTA reservation inbox, front desk +
-check-in/out, onboarding + email, photos, reviews/CRM, an API e2e test suite, CI, and a real
-AxisRooms channel-manager adapter. 105 automated tests. What remains before launch is
-infrastructure, not features — see [docs/GAP-ANALYSIS.md](docs/GAP-ANALYSIS.md).
+**Status: the legacy-parity MVP is feature-complete; the Yanolja-parity PMS program is underway.**
+All original build phases (0–8) and MVP compartments (A–K) are done: owner PMS, staff console, OTA
+reservation inbox, front desk + check-in/out, onboarding + email, photos, reviews/CRM, an API e2e
+suite, CI, and a real AxisRooms channel-manager adapter.
+
+The current work is rebuilding this into a **full hotel PMS at feature parity with Yanolja Cloud
+Solution**, sold as subscription SaaS — see
+[docs/YANOLJA-PARITY-ROADMAP.md](docs/YANOLJA-PARITY-ROADMAP.md) for the sprint plan and status.
 
 ## Documentation
 
-| Doc                                          | What it covers                                                                                 |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design: apps, tenancy & RLS, security model, outbox pipeline, the four legacy bug fixes |
-| [docs/API.md](docs/API.md)                   | Every HTTP endpoint, auth requirements, business rules, environment variables                  |
-| [docs/DATA-MODEL.md](docs/DATA-MODEL.md)     | Every table, constraints, RLS status, DB helpers, migrations, seed data                        |
-| [docs/PRICING.md](docs/PRICING.md)           | The money engine: commission, OTA gross-up, taxes, settlement — with worked examples           |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md)     | Runbook: local dev, tests, CI, go-live checklists (email, AxisRooms), troubleshooting          |
-| [docs/USER-GUIDE.md](docs/USER-GUIDE.md)     | **Hotel-owner guide** — every screen and daily workflow, in plain language                     |
-| [docs/STAFF-GUIDE.md](docs/STAFF-GUIDE.md)   | YoHo staff console guide — tenant approval, oversight, audit                                   |
-| [docs/GAP-ANALYSIS.md](docs/GAP-ANALYSIS.md) | Legacy vs 2.0 feature matrix and what's still to build                                         |
+| Doc                                                              | What it covers                                                                                       |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [docs/YANOLJA-PARITY-ROADMAP.md](docs/YANOLJA-PARITY-ROADMAP.md) | **The sprint plan.** Every sprint, its scope and status, plus the full Yanolja PMS feature inventory |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                     | System design: apps, tenancy & RLS, security model, outbox pipeline, the four legacy bug fixes       |
+| [docs/API.md](docs/API.md)                                       | Every HTTP endpoint, auth requirements, business rules, environment variables                        |
+| [docs/DATA-MODEL.md](docs/DATA-MODEL.md)                         | Every table, constraints, RLS status, DB helpers, migrations, seed data                              |
+| [docs/PRICING.md](docs/PRICING.md)                               | The money engine: commission, OTA gross-up, taxes, settlement — with worked examples                 |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md)                         | Runbook: local dev, tests, CI, go-live checklists (email, AxisRooms), troubleshooting                |
+| [docs/USER-GUIDE.md](docs/USER-GUIDE.md)                         | **Hotel-owner guide** — every screen and daily workflow, in plain language                           |
+| [docs/STAFF-GUIDE.md](docs/STAFF-GUIDE.md)                       | YoHo staff console guide — tenant approval, oversight, audit                                         |
+| [docs/GAP-ANALYSIS.md](docs/GAP-ANALYSIS.md)                     | Legacy vs 2.0 feature matrix and what's still to build                                               |
 
 ## Stack
 
@@ -44,7 +48,8 @@ packages/
   cm-adapter     channel-manager adapters (AxisRooms real, fake dev)  [BUILT]
   contracts      tRPC + zod + OpenAPI contracts                       [planned]
   mcp            MCP tool surface over the domain services            [planned]
-  ui / telemetry / testing                                            [planned]
+  ui             design system — Radix + TanStack, source-only          [BUILT]
+  telemetry / testing                                                   [planned]
 ```
 
 ## Quick start
@@ -95,9 +100,16 @@ JWT_SECRET=dev-secret-jwt-key-32-characters!! \
 pnpm test
 ```
 
-105 tests: 42 domain (pricing/tax parity) + 8 db (RLS isolation + concurrency proofs) +
-36 API e2e (real HTTP against the real app under RLS) + 19 cm-adapter (AxisRooms wire contract).
-CI runs the same pipeline on every push ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+197 Vitest tests: 56 domain (pricing/tax parity + entitlements) + 8 db (RLS isolation +
+concurrency proofs) + 78 API e2e (real HTTP against the real app under RLS) + 19 cm-adapter
+(AxisRooms wire contract) + 31 etl + 5 worker. CI runs the same pipeline on every push
+([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
+Plus 16 Playwright browser tests over the PMS shell —
+`pnpm --filter @yohobed/web-extranet e2e` (needs `pnpm build` and a seeded database first).
+
+Docker Desktop is the documented route, but the DB-backed suites also run against a throwaway
+cluster built from a local PostgreSQL install — see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## The four legacy bugs, fixed and regression-guarded
 
