@@ -556,6 +556,142 @@ export function getFxRates(): Promise<FxRates> {
   return apiFetch<FxRates>('/fx/rates');
 }
 
+// --- Stay view (the tape chart) ---------------------------------------------
+
+export interface StayBar {
+  kind: 'booking' | 'block';
+  id: string;
+  from: string;
+  /** Exclusive — the guest is gone on this date. */
+  to: string;
+  bookingId?: string;
+  reference?: string;
+  guestName?: string;
+  status?: string;
+  source?: string;
+  channel?: string | null;
+  groupId?: string | null;
+  balanceDue?: boolean;
+  reason?: string;
+}
+
+export interface StayUnit {
+  id: string;
+  roomId: string;
+  code: string;
+  floor: string | null;
+  status: 'active' | 'inactive';
+  bars: StayBar[];
+}
+
+export interface StayRoomType {
+  roomId: string;
+  name: string;
+  quantity: number;
+  perDate: Array<{ date: string; available: number | null; closed: boolean; rate: string | null }>;
+  units: StayUnit[];
+}
+
+export interface StayFooter {
+  date: string;
+  soldRooms: number;
+  blocked: number;
+  availableInventory: number;
+  totalRooms: number;
+  occupancyPct: number;
+}
+
+export interface StayView {
+  property: { id: string; name: string; code: string | null; currency: string };
+  from: string;
+  to: string;
+  dates: string[];
+  roomTypes: StayRoomType[];
+  unassigned: Array<StayBar & { roomId: string }>;
+  footer: StayFooter[];
+  counts: {
+    all: number;
+    vacant: number;
+    occupied: number;
+    reserved: number;
+    blocked: number;
+    dueOut: number;
+  };
+}
+
+export function getStayView(propertyId: string, from: string, to: string): Promise<StayView> {
+  return apiFetch<StayView>(`/stayview?propertyId=${propertyId}&from=${from}&to=${to}`);
+}
+
+export interface BookingLeg {
+  id: string;
+  legIndex: number;
+  roomUnitId: string | null;
+  code: string | null;
+  checkin: string;
+  checkout: string;
+  adults: number;
+  children: number;
+  releasedAt: string | null;
+}
+
+export function getBookingLegs(bookingId: string): Promise<BookingLeg[]> {
+  return apiFetch<BookingLeg[]>(`/bookings/${bookingId}/rooms`);
+}
+
+export function assignRooms(
+  bookingId: string,
+  assignments: Array<{ legId: string; roomUnitId: string | null }>,
+): Promise<BookingLeg[]> {
+  return apiFetch<BookingLeg[]>(`/bookings/${bookingId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ assignments }),
+  });
+}
+
+export function autoAssignRooms(
+  bookingId: string,
+): Promise<{ assigned: number; unassigned: number; legs: BookingLeg[] }> {
+  return apiFetch(`/bookings/${bookingId}/auto-assign`, { method: 'POST' });
+}
+
+export interface RoomUnit {
+  id: string;
+  propertyId: string;
+  roomId: string;
+  roomName: string;
+  code: string;
+  displayOrder: number;
+  floor: string | null;
+  notes: string | null;
+  status: 'active' | 'inactive';
+}
+
+export function listRoomUnits(propertyId: string): Promise<RoomUnit[]> {
+  return apiFetch<RoomUnit[]>(`/properties/${propertyId}/room-units`);
+}
+
+export function createBlock(
+  propertyId: string,
+  body: { roomUnitId: string; blockFrom: string; blockTo: string; reason: string },
+): Promise<unknown> {
+  return apiFetch(`/properties/${propertyId}/blocks`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateBlock(
+  id: string,
+  body: { blockFrom?: string; blockTo?: string; reason?: string },
+): Promise<unknown> {
+  return apiFetch(`/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function releaseBlock(id: string): Promise<unknown> {
+  return apiFetch(`/blocks/${id}/release`, { method: 'POST' });
+}
+
 // --- Subscription plan & entitlements ---------------------------------------
 
 export interface CataloguePlan {

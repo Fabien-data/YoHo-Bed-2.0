@@ -5,6 +5,7 @@ import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { PropertiesModule } from './properties/properties.module';
+import { StayViewModule } from './stayview/stayview.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { RatesModule } from './rates/rates.module';
 import { BookingsModule } from './bookings/bookings.module';
@@ -31,6 +32,7 @@ import { HealthController } from './health/health.controller';
     BillingModule,
     PropertiesModule,
     InventoryModule,
+    StayViewModule,
     RatesModule,
     BookingsModule,
     DistributionModule,

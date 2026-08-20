@@ -96,6 +96,30 @@ booking un-assigns its legs and re-shapes them to the new dates and room count, 
 auto-assign) places the guest again — stretching a stay into dates its current room is not free
 for would otherwise fail the whole amendment.
 
+## Stay view (the tape chart)
+
+| Method & path                         | Auth       | Purpose                                                                                                                                                                                                         |
+| ------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /stayview?propertyId&from&to`    | JWT+Tenant | The whole chart for a date window in one request: room types -> rooms -> bars, per-date availability and rate, the metric footer, and the counted chips. `to` is exclusive; the window is capped at 120 nights. |
+| `GET /properties/:propertyId/blocks`  | JWT+Tenant | Maintenance blocks on the property, including released ones.                                                                                                                                                    |
+| `POST /properties/:propertyId/blocks` | JWT+Tenant | Take a room out of service. **409** if it overlaps another block, or if a guest is in the room over those dates.                                                                                                |
+| `PATCH /blocks/:id`                   | JWT+Tenant | Move or re-word a block. Same conflict rules.                                                                                                                                                                   |
+| `POST /blocks/:id/release`            | JWT+Tenant | "Unblock room" — puts it back in service without erasing that it was ever blocked.                                                                                                                              |
+
+The chart is assembled server-side rather than stitched together in the browser from six endpoints:
+Stay View is one dense screen and it has to feel instant. Everything is bounded by one property and
+the window, so the payload stays small even for a large hotel.
+
+**Occupancy is divided by SELLABLE rooms, not physical ones.** An eight-room property with one
+blocked and five sold reads **71%** (5/7), not 63% (5/8) — reproduced exactly from Yanolja, where
+the same arithmetic is visible in the screenshots. `availableInventory` follows the same rule:
+`(totalRooms - blocked) - soldRooms`.
+
+Legs with no room yet come back in a separate `unassigned` array rather than attached to a room —
+Yanolja's "Default Unmapped Room" strip. `counts` is computed for the **first date** in the
+window, which is the business date the user picked. There is no `dirty` count until housekeeping
+lands in Sprint 4; a chip permanently reading zero would be worse than no chip.
+
 ## Rates & pricing
 
 | Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |

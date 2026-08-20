@@ -13,8 +13,8 @@
 | 0      | 0 Foundations   | SaaS entitlements + property depth     | ✅ **Done**    |
 | 1      | 0 Foundations   | Design system + Yanolja app shell      | ✅ **Done**    |
 | 2      | 1 Front desk    | Room units + live migration            | ✅ **Done**    |
-| 3      | 1 Front desk    | Stay View tape chart                   | ⏳ Next        |
-| 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ⬜ Not started |
+| 3      | 1 Front desk    | Stay View tape chart                   | ✅ **Done**    |
+| 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ⏳ Next        |
 | 5      | 2 Money core    | Folio + charge posting                 | ⬜ Not started |
 | 6      | 2 Money core    | Cashiering, ledgers, POS               | ⬜ Not started |
 | 7      | 2 Money core    | Night audit                            | ⬜ Not started |
@@ -268,6 +268,32 @@ reason, blocked_by_user_id)`.- API in `apps/api/src/inventory/`: `GET|POST /prop
   right slide-over detail with sticky Total/Paid/Balance; Group Reservation List panel; footer
   Available Inventory + Occupancy %. Drag to move a booking between units; drag to extend a stay.
 - **Acceptance:** 40 units × 90 days scrolls smoothly; moves write through and emit outbox events.
+
+> **✅ Shipped 2026-08-19.** API `GET /stayview?propertyId&from&to` assembles the whole window
+> server-side — room types → rooms → bars, per-date availability and rate, the metric footer and
+> the counted chips — rather than making the browser stitch six endpoints together. Window capped
+> at 120 nights. Plus maintenance-block CRUD (`POST /properties/:id/blocks`, `PATCH /blocks/:id`,
+> `POST /blocks/:id/release`) behind the hatched-bar context menu.
+>
+> **Occupancy divides by SELLABLE rooms, not physical ones** — an 8-room property with 1 blocked
+> and 5 sold reads 71% (5/7), not 63%. That is read straight off the Yanolja screenshots, where
+> every occupancy figure in the strip divides by 7, and it is asserted in an e2e test so it cannot
+> drift.
+>
+> **The chart deliberately does NOT use TanStack Virtual.** Each room is one relatively-positioned
+> strip with the column rules painted as a repeating CSS gradient and bars placed absolutely on
+> top; 40 rooms × 90 days is 40 elements, not 3,600. Virtualisation would add machinery to solve a
+> problem this removes. Bars clip to the window with the cut edge squared off, so a stay running
+> past the edge reads as continuing rather than as a short stay.
+>
+> Client-side chip filtering (the window is already loaded, so it is instant and costs no round
+> trip) hides _rooms_, never bars. Clicking any bar opens the reservation slide-over with
+> per-leg room assignment and auto-assign; clicking a block offers Unblock.
+>
+> Vitest 234 → **246** (API e2e 92→104). 5 Playwright specs for the chart are written but have
+> **not been run yet** — verify with `pnpm --filter @yohobed/web-extranet e2e`. `dirty` is absent from
+> the chips until housekeeping lands in Sprint 4 — a chip permanently reading 0 is worse than no
+> chip.
 
 **Sprint 4 — Room View, Reservations, Housekeeping.** _Yanolja modules A2, A3, A8._
 

@@ -6,6 +6,7 @@ import {
   Gauge,
   Gift,
   Inbox,
+  LayoutGrid,
   MessageSquare,
   Receipt,
   Settings,
@@ -52,6 +53,13 @@ export const NAV: NavGroup[] = [
         label: 'Dashboard',
         icon: Gauge,
         docsUrl: 'https://app.notion.com/p/3aa8dc2224558106b47ee600d03086db',
+      },
+      {
+        href: '/app/stayview',
+        label: 'Stay view',
+        icon: LayoutGrid,
+        docsUrl: 'PLACEHOLDER',
+        feature: 'stay_view',
       },
       {
         href: '/app/bookings',
