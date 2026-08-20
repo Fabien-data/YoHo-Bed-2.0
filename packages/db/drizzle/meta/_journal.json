@@ -148,6 +148,20 @@
       "when": 1787131013696,
       "tag": "0020_room_units",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787202111057,
+      "tag": "0021_housekeeping",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1787202111058,
+      "tag": "0022_grandfather_subscriptions",
+      "breakpoints": true
     }
   ]
 }

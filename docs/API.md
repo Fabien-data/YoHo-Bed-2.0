@@ -120,6 +120,29 @@ Yanolja's "Default Unmapped Room" strip. `counts` is computed for the **first da
 window, which is the business date the user picked. There is no `dirty` count until housekeeping
 lands in Sprint 4; a chip permanently reading zero would be worse than no chip.
 
+## Room view & housekeeping
+
+| Method & path                                                     | Auth       | Purpose                                                                                                |
+| ----------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /room-view?propertyId&date`                                  | JWT+Tenant | Every room as a card: derived state, housekeeping flag, the stay in it, VIP/balance/work-order badges. |
+| `GET /house-status/summary?propertyId&date`                       | JWT+Tenant | Counts for the status chips.                                                                           |
+| `POST /properties/:propertyId/housekeeping`                       | JWT+Tenant | Set a room's housekeeping state for a date. Upserts — rows are created lazily.                         |
+| `POST /properties/:propertyId/housekeeping/mark-departures-dirty` | JWT+Tenant | The morning sweep: every room a guest left today becomes dirty, and no others.                         |
+| `GET` / `POST /properties/:propertyId/work-orders`                | JWT+Tenant | Maintenance jobs. **Pro and above.**                                                                   |
+| `PATCH /work-orders/:id`                                          | JWT+Tenant | Update or complete one. **409** on reopening a completed order. **Pro and above.**                     |
+
+Room View and the House Status grid share one code path — they are the same data rendered two
+ways, so the two screens cannot disagree about whether room 05 is dirty.
+
+**Entitlements.** Housekeeping is in every plan; even a one-property Starter hotel has to clean
+rooms. Work orders are Pro and above, so those three routes carry their own `@Feature` —
+method-level metadata overrides the controller default in `EntitlementGuard`.
+
+Every tenant has a subscription: migration `0022` grandfathers the pre-existing ones onto
+Enterprise, and registration provisions a Starter trial. That matters because entitlements are
+deny-by-default — a tenant with no subscription row is entitled to nothing, which was harmless
+only while nothing was gated.
+
 ## Rates & pricing
 
 | Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |

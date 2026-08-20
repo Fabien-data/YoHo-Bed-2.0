@@ -23,7 +23,11 @@ describe('subscription plans & entitlements', () => {
   });
 
   it('denies every feature for a tenant with no subscription', async () => {
-    const owner = await makeTenant();
+    // Every real tenant has a subscription — migration 0022 grandfathers the existing ones and
+    // registration provisions new ones — so this state has to be asked for explicitly. It is
+    // still worth asserting: deny-by-default is what stops a new feature key leaking to
+    // everyone the moment it is added.
+    const owner = await makeTenant({ plan: 'none' });
     const res = await request('GET', '/billing/entitlements', {
       token: owner.token,
       tenantId: owner.tenantId,

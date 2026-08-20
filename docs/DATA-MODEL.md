@@ -101,6 +101,37 @@ That is the prerequisite for Stay View, Room View, room assignment and every hou
 of service must be allowed to make the two diverge. `GET /properties/:id/room-units/counts`
 surfaces the difference as a setup warning instead.
 
+## Housekeeping (`schema/housekeeping.ts`)
+
+| Table                 | RLS | Purpose · key constraints                                                                                                                                                    |
+| --------------------- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `housekeeping_status` | ✅  | One row per room per **day**. Unique `(room_unit_id, date)`; status `dirty`/`clean`/`inspected`/`out_of_order`; `assigned_to_user_id`, `remarks`, `changed_at`/`changed_by`. |
+| `work_orders`         | ✅  | A maintenance job. Nullable `room_unit_id` — plenty of jobs are the lobby or the lift. `priority`, `status`, `assigned_to_user_id`, `deadline`, `completed_at`.              |
+
+The enum is named `housekeeping_state`, not `housekeeping_status`: Postgres gives every table an
+implicit composite type of the same name, so an enum cannot share its table's name.
+
+**A missing row means `clean`** — a room nobody has touched is not dirty. Rows are created lazily,
+so a 200-room hotel does not accrue 73,000 rows a year for rooms that were never occupied. Keying
+by date rather than holding one "current status" column keeps history, which is what "who cleaned
+05 on the 12th" needs, and what night audit will roll forward.
+
+`out_of_order` here and a `maintenance_blocks` row are deliberately separate. A block reserves
+**dates** — it is what stops the room being assigned next week. This is the state of the room
+**today**. A supervisor marking a room out of order at 9am must not silently cancel next month's
+reservations.
+
+### Room state is derived, never stored
+
+`Vacant / ArrivingToday / Occupied / PendingCheckout / OutOfOrder` is always a function of the
+reservations plus the housekeeping flag. Storing it would create a second source of truth that
+drifts the moment a booking is amended.
+
+One subtlety worth knowing: a guest departing **today** is excluded by the half-open stay overlap
+(`checkout` is exclusive) but is still physically in the room until they leave. That is exactly
+`PendingCheckout`, so it needs its own query rather than falling out of the overlap — the same
+reason Stay View's due-out count is computed separately from the bars it draws.
+
 ## Rates & tax (`schema/rates.ts`, `schema/tax.ts`)
 
 | Table                | RLS       | Purpose · key constraints                                                                                                                                   |
@@ -239,6 +270,8 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 | 0018 | Multi-currency: payments.currency, payouts.currency                                          |
 | 0019 | SaaS: plans, subscriptions, tenant_features, tenants.distribution_mode, property detail cols |
 | 0020 | Room units: room_units, booking_rooms, booking_groups, maintenance_blocks + back-fill        |
+| 0021 | Housekeeping: housekeeping_status, work_orders + guest-depth columns on customers            |
+| 0022 | Data-only: grandfathers every existing tenant onto an enterprise subscription                |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

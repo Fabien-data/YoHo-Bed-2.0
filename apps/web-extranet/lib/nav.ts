@@ -8,6 +8,7 @@ import {
   Inbox,
   LayoutGrid,
   MessageSquare,
+  Grid3x3,
   Receipt,
   Settings,
   Star,
@@ -60,6 +61,13 @@ export const NAV: NavGroup[] = [
         icon: LayoutGrid,
         docsUrl: 'PLACEHOLDER',
         feature: 'stay_view',
+      },
+      {
+        href: '/app/roomview',
+        label: 'Room view',
+        icon: Grid3x3,
+        docsUrl: 'PLACEHOLDER',
+        feature: 'room_view',
       },
       {
         href: '/app/bookings',

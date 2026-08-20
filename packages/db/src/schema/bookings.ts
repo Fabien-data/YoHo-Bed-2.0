@@ -5,10 +5,11 @@ import {
   text,
   integer,
   numeric,
+  boolean,
   date,
   timestamp,
+  unique,
 } from 'drizzle-orm/pg-core';
-import { unique } from 'drizzle-orm/pg-core';
 import { tenants, properties } from './identity';
 import { rooms, roomUnits } from './inventory';
 import { occupancies } from './rates';
@@ -50,6 +51,19 @@ export const customers = pgTable('customers', {
   name: text('name').notNull(),
   email: text('email'),
   phone: text('phone'),
+  // Guest depth — what a registration card and a police/immigration report need, and what the
+  // front desk fills in at check-in. All nullable: an OTA booking arrives with a name and little
+  // else, and demanding more would block the check-in it is meant to support.
+  nationality: text('nationality'),
+  idType: text('id_type'),
+  idNumber: text('id_number'),
+  dateOfBirth: date('date_of_birth'),
+  address: text('address'),
+  city: text('city'),
+  country: text('country'),
+  /** Flags the guest across every screen — Yanolja's crown badge on the room card. */
+  vip: boolean('vip').notNull().default(false),
+  notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

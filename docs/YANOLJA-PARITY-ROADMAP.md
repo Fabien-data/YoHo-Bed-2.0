@@ -14,7 +14,7 @@
 | 1      | 0 Foundations   | Design system + Yanolja app shell      | ✅ **Done**    |
 | 2      | 1 Front desk    | Room units + live migration            | ✅ **Done**    |
 | 3      | 1 Front desk    | Stay View tape chart                   | ✅ **Done**    |
-| 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ⏳ Next        |
+| 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | 🟡 Partial²    |
 | 5      | 2 Money core    | Folio + charge posting                 | ⬜ Not started |
 | 6      | 2 Money core    | Cashiering, ledgers, POS               | ⬜ Not started |
 | 7      | 2 Money core    | Night audit                            | ⬜ Not started |
@@ -25,6 +25,10 @@
 | 14+    | 6 AI            | MCP, Copilot, Revenue Manager, Healer  | ⬜ Not started |
 
 ¹ Blocked on receiving Yanolja Snapshots Part 02 — see "Open items" below.
+
+² Housekeeping, work orders, Room View and guest-depth columns are done. The Reservations
+rebuild (Individual/Group toggle, card+list views, Make/Merge Group, GR registration card) and the
+Guest Database screen are still outstanding.
 
 ## Context
 
@@ -308,6 +312,32 @@ assigned_to_user_id, remarks)` and `work_orders(...priority, assign_to, deadline
 - Guest depth: `customers` gains nationality, ID/passport, address, DOB, VIP; Guest Database screen.
 - **Acceptance: a hotel can run a full day** — view the chart, assign a walk-in, check in, mark rooms
   dirty/clean, block a room for maintenance, check out.
+
+> **🟡 Partly shipped 2026-08-19.** Migration `0021` adds `housekeeping_status` (one row per room
+> per day, unique on `(room_unit_id, date)`) and `work_orders`, plus the guest-depth columns on
+> `customers`. A **missing housekeeping row means clean** — rows are created lazily, so a 200-room
+> hotel does not accrue 73,000 rows a year for rooms nobody touched.
+>
+> Room state (`Vacant / ArrivingToday / Occupied / PendingCheckout / OutOfOrder`) is **derived,
+> never stored** — storing it would be a second source of truth that drifts the moment a booking
+> is amended. Room View and House Status share one code path, so they cannot disagree.
+>
+> Two bugs found and fixed while testing. A guest departing **today** is excluded by the half-open
+> stay overlap but is still in the room until they leave — so `PendingCheckout` needs its own
+> query, and Stay View's `dueOut` count (which derived from the drawn bars) was **always 0 on the
+> very date the chips describe**. Both now have dedicated queries and a regression test.
+>
+> The entitlement layer had a live landmine: a tenant with **no** subscription row resolves to
+> deny-all, and no existing tenant had one. Migration `0022` grandfathers every existing tenant
+> onto Enterprise, and registration now provisions a Starter trial. Housekeeping is in every plan
+> (even a Starter hotel cleans rooms); **work orders are Pro and above**, gated per-method.
+>
+> Vitest 230 → **244** (API e2e 104 → 118: 14 housekeeping tests, and the deny-by-default billing
+> test now asks for a subscription-less tenant explicitly via the new `plan: 'none'` fixture).
+>
+> **Still outstanding in this sprint:** the Reservations rebuild (Individual/Group toggle,
+> card+list views, Export, advanced search, Make/Merge Group, printable GR registration card) and
+> the Guest Database screen that surfaces the new guest-depth columns.
 
 ### Phase 2 — Money core (Sprints 5–7)
 

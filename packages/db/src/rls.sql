@@ -276,3 +276,17 @@ DROP POLICY IF EXISTS tenant_isolation ON maintenance_blocks;
 CREATE POLICY tenant_isolation ON maintenance_blocks
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Housekeeping and work orders (Yanolja-parity Sprint 4).
+
+ALTER TABLE housekeeping_status ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON housekeeping_status;
+CREATE POLICY tenant_isolation ON housekeeping_status
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON work_orders;
+CREATE POLICY tenant_isolation ON work_orders
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

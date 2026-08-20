@@ -5,6 +5,7 @@ import {
   bookingRooms,
   bookings,
   customers,
+  housekeepingStatus,
   maintenanceBlocks,
   occupancies,
   otaReservations,
@@ -101,6 +102,37 @@ export class StayViewService {
         this.ratesInWindow(tx, roomIds, from, to, ratePlanId),
       ]);
 
+      // Housekeeping arrived in Sprint 4, so the chip strip can finally carry a real Dirty count
+      // for the picked date rather than omitting it.
+      const [dirtyRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(housekeepingStatus)
+        .where(
+          and(
+            eq(housekeepingStatus.propertyId, propertyId),
+            eq(housekeepingStatus.date, from),
+            eq(housekeepingStatus.status, 'dirty'),
+          ),
+        );
+      const dirty = dirtyRow?.n ?? 0;
+
+      // Due-out cannot come from the drawn legs: a stay ending exactly on `from` is excluded by
+      // the window overlap (checkout is exclusive), so counting it there always returned 0 for
+      // the very date the chips describe.
+      const [dueOutRow] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(bookingRooms)
+        .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+        .where(
+          and(
+            eq(bookings.propertyId, propertyId),
+            isNull(bookingRooms.releasedAt),
+            eq(bookingRooms.checkout, from),
+            eq(bookings.status, 'CheckedIn'),
+          ),
+        );
+      const dueOut = dueOutRow?.n ?? 0;
+
       // --- index everything by the keys the assembly needs -----------------
       const barsByUnit = new Map<string, StayBar[]>();
       const unassigned: StayBar[] = [];
@@ -187,7 +219,7 @@ export class StayViewService {
         /** Legs with no room yet — Yanolja's "Default Unmapped Room" row. */
         unassigned,
         footer,
-        counts: this.countsFor(from, legRows, blockRows, activeUnits),
+        counts: { ...this.countsFor(from, legRows, blockRows, activeUnits), dirty, dueOut },
       };
     });
   }
@@ -196,8 +228,7 @@ export class StayViewService {
    * The counted filter chips, for the first date in the window (the "business date" the user
    * picked). Staff scan these numbers to decide where the day's work is.
    *
-   * `Dirty` is absent until housekeeping lands in Sprint 4 — a chip permanently reading 0 would
-   * be worse than no chip.
+   * `dirty` is added by the caller from `housekeeping_status`, which is why it is not computed here.
    */
   private countsFor(
     date: string,
@@ -209,14 +240,12 @@ export class StayViewService {
     const blockedNow = blocks.filter((b) => b.blockFrom <= date && date < b.blockTo).length;
     const occupied = on.filter((l) => l.status === 'CheckedIn').length;
     const reserved = on.filter((l) => l.status === 'Approved' || l.status === 'Pending').length;
-    const dueOut = legs.filter((l) => l.checkout === date && l.status === 'CheckedIn').length;
     return {
       all: activeUnits,
       vacant: Math.max(activeUnits - on.length - blockedNow, 0),
       occupied,
       reserved,
       blocked: blockedNow,
-      dueOut,
     };
   }
 

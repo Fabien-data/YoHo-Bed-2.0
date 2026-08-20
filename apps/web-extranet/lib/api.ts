@@ -692,6 +692,118 @@ export function releaseBlock(id: string): Promise<unknown> {
   return apiFetch(`/blocks/${id}/release`, { method: 'POST' });
 }
 
+// --- Room View / housekeeping ------------------------------------------------
+
+export type RoomState = 'OutOfOrder' | 'Occupied' | 'PendingCheckout' | 'ArrivingToday' | 'Vacant';
+export type HousekeepingState = 'dirty' | 'clean' | 'inspected' | 'out_of_order';
+
+export interface RoomCard {
+  unitId: string;
+  code: string;
+  roomId: string;
+  roomName: string;
+  floor: string | null;
+  unitStatus: 'active' | 'inactive';
+  state: RoomState;
+  housekeeping: HousekeepingState;
+  remarks: string | null;
+  assignedTo: string | null;
+  guestName: string | null;
+  bookingId: string | null;
+  reference: string | null;
+  checkin: string | null;
+  checkout: string | null;
+  vip: boolean;
+  balanceDue: boolean;
+  adults: number | null;
+  children: number | null;
+  source: string | null;
+  blockReason: string | null;
+  openWorkOrders: number;
+}
+
+export interface HouseSummary {
+  all: number;
+  vacant: number;
+  occupied: number;
+  arriving: number;
+  pendingCheckout: number;
+  outOfOrder: number;
+  dirty: number;
+  clean: number;
+  inspected: number;
+}
+
+export function getRoomView(propertyId: string, date: string): Promise<RoomCard[]> {
+  return apiFetch<RoomCard[]>(`/room-view?propertyId=${propertyId}&date=${date}`);
+}
+
+export function getHouseSummary(propertyId: string, date: string): Promise<HouseSummary> {
+  return apiFetch<HouseSummary>(`/house-status/summary?propertyId=${propertyId}&date=${date}`);
+}
+
+export function setHousekeeping(
+  propertyId: string,
+  body: {
+    roomUnitId: string;
+    date: string;
+    status: HousekeepingState;
+    remarks?: string;
+  },
+): Promise<unknown> {
+  return apiFetch(`/properties/${propertyId}/housekeeping`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function markDeparturesDirty(propertyId: string, date: string): Promise<{ marked: number }> {
+  return apiFetch(`/properties/${propertyId}/housekeeping/mark-departures-dirty?date=${date}`, {
+    method: 'POST',
+  });
+}
+
+export interface WorkOrder {
+  id: string;
+  roomUnitId: string | null;
+  code: string | null;
+  title: string;
+  description: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'done' | 'cancelled';
+  assignedToName: string | null;
+  deadline: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export function listWorkOrders(propertyId: string): Promise<WorkOrder[]> {
+  return apiFetch<WorkOrder[]>(`/properties/${propertyId}/work-orders`);
+}
+
+export function createWorkOrder(
+  propertyId: string,
+  body: {
+    roomUnitId?: string;
+    title: string;
+    description?: string;
+    priority?: WorkOrder['priority'];
+    deadline?: string;
+  },
+): Promise<WorkOrder> {
+  return apiFetch(`/properties/${propertyId}/work-orders`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateWorkOrder(
+  id: string,
+  body: Partial<Pick<WorkOrder, 'title' | 'priority' | 'status'>>,
+): Promise<WorkOrder> {
+  return apiFetch(`/work-orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
 // --- Subscription plan & entitlements ---------------------------------------
 
 export interface CataloguePlan {

@@ -83,7 +83,8 @@ export async function makeTenant(
     roomQuantity?: number;
     commissionPercentage?: number;
     /** Subscription tier. Omit for no subscription at all (deny-all entitlements). */
-    plan?: 'starter' | 'pro' | 'enterprise';
+    /** `'none'` provisions no subscription at all — for asserting deny-by-default. */
+    plan?: 'starter' | 'pro' | 'enterprise' | 'none';
     distributionMode?: 'yoho' | 'standalone';
   } = {},
 ): Promise<TenantFixture> {
@@ -100,9 +101,14 @@ export async function makeTenant(
     })
     .returning();
 
-  if (opts.plan) {
+  // Every tenant gets a subscription, because every tenant in production has one (migration
+  // 0022 grandfathers the existing ones, registration provisions new ones). Entitlements are
+  // deny-by-default, so a fixture without a subscription would 403 on every gated route and the
+  // failure would look like a bug in the route rather than in the fixture.
+  if (opts.plan !== 'none') {
     await seedDefaultPlans(db);
-    const [p] = await db.select().from(plans).where(eq(plans.code, opts.plan));
+    const code = opts.plan ?? 'enterprise';
+    const [p] = await db.select().from(plans).where(eq(plans.code, code));
     await db
       .insert(subscriptions)
       .values({ tenantId: tenant!.id, planId: p!.id, status: 'active' })
