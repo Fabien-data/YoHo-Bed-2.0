@@ -168,6 +168,35 @@ Enterprise, and registration provisions a Starter trial. That matters because en
 deny-by-default — a tenant with no subscription row is entitled to nothing, which was harmless
 only while nothing was gated.
 
+## Folio — the guest bill
+
+| Method & path                                | Auth       | Purpose                                                                                                      |
+| -------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| `GET /bookings/:id/folio`                    | JWT+Tenant | Every window, its lines, its payments and its balance. Window 1 is created on demand.                        |
+| `POST /bookings/:id/folio/post-room-charges` | JWT+Tenant | Copy the room charges off the `booking_days` snapshot. **Idempotent** — returns `{posted, skipped}`.         |
+| `POST /bookings/:id/folio/windows`           | JWT+Tenant | Open another window (the company bill beside the guest's).                                                   |
+| `POST /folios/:id/charges`                   | JWT+Tenant | Post an extra, from the catalogue or spelled out. Anything given explicitly overrides the catalogue default. |
+| `POST /folio-charges/:id/void`               | JWT+Tenant | Reverse a line. **409** if already voided.                                                                   |
+| `POST /folio-charges/transfer`               | JWT+Tenant | Split the bill. **400** across bookings or into a closed window.                                             |
+| `POST /folios/:id/payments`                  | JWT+Tenant | Take money against a window. Recorded in `payments`.                                                         |
+| `POST /folios/:id/close?force=`              | JWT+Tenant | Close a window. **409** on a non-zero balance unless `force=true`.                                           |
+| `GET /folios/unsettled?propertyId`           | JWT+Tenant | Every stay that still owes money, **in-house first**.                                                        |
+| `GET` / `POST /charge-particulars`           | JWT+Tenant | The chargeable-item catalogue. **409** on a duplicate code.                                                  |
+
+All of it is **Pro and above** — a Starter hotel gets the front desk, not the cashier.
+
+**Room charges are copied from `booking_days`, never recomputed**, and the snapshot is per room
+per night, so lines are multiplied by `bookings.rooms`. The posted lines therefore sum to
+`bookings.amount` to the cent — asserted in a test, because a folio that disagrees with settlement
+is the worst class of bug this system can have.
+
+Closing refuses a non-zero balance by default: closing a bill someone still owes money on is how a
+hotel loses revenue silently. `force=true` is the deliberate override for a write-off or an
+externally settled balance.
+
+Room charges are posted explicitly for now. Automatic nightly posting belongs to night audit
+(Sprint 7), which is when the business date actually rolls.
+
 ## Rates & pricing
 
 | Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |

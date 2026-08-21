@@ -132,6 +132,43 @@ One subtlety worth knowing: a guest departing **today** is excluded by the half-
 `PendingCheckout`, so it needs its own query rather than falling out of the overlap — the same
 reason Stay View's due-out count is computed separately from the bars it draws.
 
+## Folio — the guest bill (`schema/folio.ts`)
+
+| Table                | RLS | Purpose · key constraints                                                                                                                                    |
+| -------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `folios`             | ✅  | A billing window on a booking. Unique `(booking_id, window)`; `label`, `status` `open`/`closed`/`void`; currency inherited from the booking, never chosen.   |
+| `charge_particulars` | ✅  | The catalogue of chargeable items. Unique `(tenant_id, code)`; `default_price`, `tax_rate_pct`, `tax_inclusive`, `active`.                                   |
+| `folio_charges`      | ✅  | One line on the bill. `net + tax = total`, always. `source` `room`/`manual`/`pos`; `posted_for` is the business date; `voided_at` reverses without deleting. |
+| `folio_transfers`    | ✅  | An audit row per charge moved between windows — the split-bill trail.                                                                                        |
+
+`payments` gains a nullable `folio_id`. Deliberately **not** a separate `folio_payments` table:
+`payments` is already the record of what a guest paid, and a second one would be a second answer
+to "is this settled?".
+
+### Room charges are copied, never recomputed
+
+Posting room charges reads the `booking_days` snapshot and copies it. The money engine already
+decided what each night costs; a second calculation is a second answer waiting to disagree with
+settlement. **The snapshot is per room per night**, so each line is multiplied by
+`bookings.rooms` — which is why the posted lines sum to `bookings.amount` exactly. That equality
+is asserted in `folio.e2e.test.ts` and is the load-bearing guarantee of the folio.
+
+Posting is idempotent through a partial unique index:
+
+```sql
+CREATE UNIQUE INDEX folio_charges_room_night_uq
+  ON folio_charges (folio_id, booking_date)
+  WHERE (source = 'room' AND voided_at IS NULL);
+```
+
+Excluding voided rows is what lets a wrongly-posted night be reversed and re-posted, while still
+making a double-post impossible.
+
+Extras follow the room rate's convention: a **tax-inclusive** price has its tax decomposed out of
+the total, so a bill never mixes tax-in and tax-on lines. Voiding stamps `voided_at` rather than
+deleting — a bill that silently loses a line is worse than one showing a line was reversed, and
+the guest's copy may already be printed.
+
 ## Rates & tax (`schema/rates.ts`, `schema/tax.ts`)
 
 | Table                | RLS       | Purpose · key constraints                                                                                                                                   |
@@ -272,6 +309,7 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 | 0020 | Room units: room_units, booking_rooms, booking_groups, maintenance_blocks + back-fill        |
 | 0021 | Housekeeping: housekeeping_status, work_orders + guest-depth columns on customers            |
 | 0022 | Data-only: grandfathers every existing tenant onto an enterprise subscription                |
+| 0023 | Folio: folios, charge_particulars, folio_charges, folio_transfers, payments.folio_id         |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

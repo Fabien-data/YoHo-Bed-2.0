@@ -15,6 +15,9 @@ import {
   exchangeRates,
   plans,
   subscriptions,
+  taxTypes,
+  taxDurations,
+  propertyTaxTypes,
   seedDefaultTemplates,
   type Database,
 } from '@yohobed/db';
@@ -81,10 +84,15 @@ export async function makeTenant(
     status?: 'pending' | 'active' | 'inactive' | 'suspended';
     roomQuantity?: number;
     commissionPercentage?: number;
-    /** Subscription tier. Omit for no subscription at all (deny-all entitlements). */
     /** `'none'` provisions no subscription at all — for asserting deny-by-default. */
     plan?: 'starter' | 'pro' | 'enterprise' | 'none';
     distributionMode?: 'yoho' | 'standalone';
+    /**
+     * Attach a 10% service charge and 15% VAT, like the "Ceylon Tax Villa" demo property, so a
+     * fixture can exercise the tax path. Untaxed by default: most suites do not care, and zero
+     * rates keep their arithmetic easy to read.
+     */
+    taxed?: boolean;
   } = {},
 ): Promise<TenantFixture> {
   const db = admin();
@@ -136,6 +144,30 @@ export async function makeTenant(
       commissionPercentage: String(opts.commissionPercentage ?? 10),
     })
     .returning();
+
+  if (opts.taxed) {
+    // Two taxes at different priorities, matching the taxed demo property: the service charge
+    // applies first, then VAT on top of it.
+    for (const [name, rate, priority] of [
+      ['Service Charge', '10.0000', 1],
+      ['VAT', '15.0000', 2],
+    ] as const) {
+      const [type] = await db.insert(taxTypes).values({ tenantId: tenant!.id, name }).returning();
+      await db.insert(taxDurations).values({
+        tenantId: tenant!.id,
+        taxTypeId: type!.id,
+        startDate: '2000-01-01',
+        endDate: '2099-12-31',
+        ratePercent: rate,
+      });
+      await db.insert(propertyTaxTypes).values({
+        tenantId: tenant!.id,
+        propertyId: property!.id,
+        taxTypeId: type!.id,
+        priority,
+      });
+    }
+  }
   const [room] = await db
     .insert(rooms)
     .values({

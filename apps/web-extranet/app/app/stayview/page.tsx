@@ -26,6 +26,7 @@ import {
 } from '@/lib/api';
 import { useProperties } from '@/lib/queries';
 import { TapeChart } from '@/components/stayview/tape-chart';
+import { FolioPanel } from '@/components/folio/folio-panel';
 
 /** Yanolja shows a fortnight at a time; wide enough to plan, narrow enough to read. */
 const WINDOW_NIGHTS = 15;
@@ -281,6 +282,11 @@ function ReservationSheet({
               <Field label="Guest" value={bar.guestName ?? '—'} />
               <Field label="Arrival" value={bar.from} />
               <Field label="Departure" value={bar.to} />
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-sm font-bold text-ink">Bill</h3>
+              {bar.bookingId && <FolioPanel bookingId={bar.bookingId} />}
             </div>
 
             <div>

@@ -290,3 +290,29 @@ DROP POLICY IF EXISTS tenant_isolation ON work_orders;
 CREATE POLICY tenant_isolation ON work_orders
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Folio, charges and transfers (Yanolja-parity Sprint 5).
+
+ALTER TABLE folios ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON folios;
+CREATE POLICY tenant_isolation ON folios
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE charge_particulars ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON charge_particulars;
+CREATE POLICY tenant_isolation ON charge_particulars
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE folio_charges ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON folio_charges;
+CREATE POLICY tenant_isolation ON folio_charges
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE folio_transfers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON folio_transfers;
+CREATE POLICY tenant_isolation ON folio_transfers
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

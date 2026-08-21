@@ -14,3 +14,4 @@ export * from './ota';
 export * from './profile';
 export * from './crm';
 export * from './housekeeping';
+export * from './folio';

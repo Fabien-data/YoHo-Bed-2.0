@@ -140,6 +140,13 @@ export const NAV: NavGroup[] = [
     label: 'Cashiering',
     items: [
       {
+        href: '/app/folios',
+        label: 'Unsettled folios',
+        icon: Receipt,
+        docsUrl: 'PLACEHOLDER',
+        feature: 'folio',
+      },
+      {
         href: '/app/finance',
         label: 'Finance & payouts',
         icon: Wallet,

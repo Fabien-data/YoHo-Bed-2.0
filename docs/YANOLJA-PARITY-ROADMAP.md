@@ -15,8 +15,8 @@
 | 2      | 1 Front desk    | Room units + live migration            | ✅ **Done**    |
 | 3      | 1 Front desk    | Stay View tape chart                   | ✅ **Done**    |
 | 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ✅ **Done**    |
-| 5      | 2 Money core    | Folio + charge posting                 | ⏳ Next        |
-| 6      | 2 Money core    | Cashiering, ledgers, POS               | ⬜ Not started |
+| 5      | 2 Money core    | Folio + charge posting                 | ✅ **Done**    |
+| 6      | 2 Money core    | Cashiering, ledgers, POS               | ⏳ Next        |
 | 7      | 2 Money core    | Night audit                            | ⬜ Not started |
 | 8      | 3 Rates & dist. | The 7-tab ARI grid                     | ⬜ Not started |
 | 9      | 3 Rates & dist. | Distribution + per-channel commission  | ⬜ Not started |
@@ -365,6 +365,37 @@ assigned_to_user_id, remarks)` and `work_orders(...priority, assign_to, deadline
 `folios`, `folio_charges`, `folio_payments`, `charge_particulars`, `folio_transfers`. Room charges
 post from the existing `booking_days` snapshot — no new money math. Unsettled-folios screen, folio
 window on the reservation slide-over, split/transfer bill.
+
+> **✅ Shipped 2026-08-21.** Migration `0023`. One deviation from the plan above: there is **no
+> `folio_payments` table**. `payments` already records what a guest paid — and the Stay View and
+> Room View balance badges already read it — so it gained a nullable `folio_id` instead. A second
+> payments table would have been a second answer to "is this settled?".
+>
+> **Room charges are copied from `booking_days`, never recomputed.** The snapshot is per room per
+> night, so each line is multiplied by `bookings.rooms`; the posted lines sum to `bookings.amount`
+> to the cent, which is asserted in a test. A folio that disagrees with settlement is the worst
+> class of bug this system can have, so that equality is the load-bearing guarantee of the sprint.
+>
+> Posting is idempotent through a partial unique index on `(folio_id, booking_date)` where
+> `source = 'room' AND voided_at IS NULL` — voided rows are excluded, so a wrongly-posted night can
+> be reversed and re-posted while a double-post stays impossible.
+>
+> Extras follow the room rate's convention: a tax-inclusive price has its tax decomposed out of the
+> total, so a bill never mixes tax-in and tax-on lines. Voiding stamps `voided_at` rather than
+> deleting. Closing a window refuses a non-zero balance unless forced.
+>
+> Screens: `/app/folios` (unsettled, in-house first — a balance on a guest still in the building
+> can be collected, one on a departed guest is already a debt) and a reusable `FolioPanel` that
+> the Stay View reservation slide-over embeds, so the bill is one component and cannot disagree
+> with itself.
+>
+> The harness gained a `taxed: true` fixture (10% service charge + 15% VAT, like the demo
+> property), which is what lets the folio's tax handling be tested against the real engine.
+>
+> **Not done here on purpose:** automatic nightly posting. Room charges post on demand; the
+> nightly roll belongs to night audit in Sprint 7, which is when the business date actually moves.
+>
+> Vitest 256 → **273** (API e2e 130 → 147).
 
 **Sprint 6 — Cashiering, ledgers, POS.** _Yanolja module A7 (all 8 sub-modules)._
 `ledger_accounts` unifying Travel Agent / Company / Sales Person, `business_sources(short_code, name,

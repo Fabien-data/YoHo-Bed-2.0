@@ -963,6 +963,162 @@ export function updateCustomer(
   return apiFetch(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+// --- Folio (the guest bill) --------------------------------------------------
+
+export interface FolioLine {
+  id: string;
+  source: 'room' | 'manual' | 'pos';
+  description: string;
+  postedFor: string;
+  bookingDate: string | null;
+  quantity: string;
+  unitPrice: string;
+  net: string;
+  tax: string;
+  total: string;
+  voidedAt: string | null;
+  voidReason: string | null;
+  particularCode: string | null;
+}
+
+export interface FolioPaymentRow {
+  id: string;
+  amount: string;
+  method: string;
+  reference: string | null;
+  createdAt: string;
+}
+
+export interface FolioWindow {
+  id: string;
+  window: number;
+  label: string;
+  status: 'open' | 'closed' | 'void';
+  currency: string;
+  lines: FolioLine[];
+  payments: FolioPaymentRow[];
+  totals: { charges: string; tax: string; paid: string; balance: string };
+}
+
+export interface BookingFolio {
+  bookingId: string;
+  reference: string;
+  guestName: string;
+  status: string;
+  currency: string;
+  checkin: string;
+  checkout: string;
+  rooms: number;
+  bookingAmount: string;
+  windows: FolioWindow[];
+  totals: { charges: string; paid: string; balance: string };
+}
+
+export function getBookingFolio(bookingId: string): Promise<BookingFolio> {
+  return apiFetch<BookingFolio>(`/bookings/${bookingId}/folio`);
+}
+
+export function postRoomCharges(
+  bookingId: string,
+): Promise<{ posted: number; skipped: number; folioId: string }> {
+  return apiFetch(`/bookings/${bookingId}/folio/post-room-charges`, { method: 'POST' });
+}
+
+export function openFolioWindow(bookingId: string, label?: string): Promise<FolioWindow> {
+  return apiFetch(`/bookings/${bookingId}/folio/windows`, {
+    method: 'POST',
+    body: JSON.stringify({ label }),
+  });
+}
+
+export function postFolioCharge(
+  folioId: string,
+  body: {
+    particularId?: string;
+    description?: string;
+    unitPrice?: number;
+    quantity?: number;
+    taxRatePct?: number;
+    taxInclusive?: boolean;
+  },
+): Promise<FolioLine> {
+  return apiFetch(`/folios/${folioId}/charges`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function voidFolioCharge(chargeId: string, reason?: string): Promise<FolioLine> {
+  return apiFetch(`/folio-charges/${chargeId}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function transferFolioCharges(body: {
+  chargeIds: string[];
+  toFolioId: string;
+  reason?: string;
+}): Promise<FolioWindow> {
+  return apiFetch('/folio-charges/transfer', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function recordFolioPayment(
+  folioId: string,
+  body: { amount: number; method?: string; reference?: string },
+): Promise<FolioPaymentRow> {
+  return apiFetch(`/folios/${folioId}/payments`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function closeFolioWindow(folioId: string, force = false): Promise<FolioWindow> {
+  return apiFetch(`/folios/${folioId}/close${force ? '?force=true' : ''}`, { method: 'POST' });
+}
+
+export interface UnsettledFolio {
+  folioId: string;
+  window: number;
+  label: string;
+  bookingId: string;
+  reference: string;
+  status: string;
+  checkin: string;
+  checkout: string;
+  currency: string;
+  guestName: string;
+  vip: boolean;
+  charges: string;
+  paid: string;
+  balance: string;
+  roomCodes: string[];
+}
+
+export function getUnsettledFolios(propertyId: string): Promise<UnsettledFolio[]> {
+  return apiFetch<UnsettledFolio[]>(`/folios/unsettled?propertyId=${propertyId}`);
+}
+
+export interface ChargeParticular {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  defaultPrice: string;
+  taxRatePct: string;
+  taxInclusive: boolean;
+  active: boolean;
+}
+
+export function listChargeParticulars(): Promise<ChargeParticular[]> {
+  return apiFetch<ChargeParticular[]>('/charge-particulars');
+}
+
+export function createChargeParticular(body: {
+  code: string;
+  name: string;
+  category?: string;
+  defaultPrice?: number;
+  taxRatePct?: number;
+  taxInclusive?: boolean;
+}): Promise<ChargeParticular> {
+  return apiFetch('/charge-particulars', { method: 'POST', body: JSON.stringify(body) });
+}
+
 // --- Subscription plan & entitlements ---------------------------------------
 
 export interface CataloguePlan {
