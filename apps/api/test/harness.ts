@@ -13,6 +13,11 @@ import {
   ratePlans,
   occupancies,
   exchangeRates,
+  plans,
+  subscriptions,
+  taxTypes,
+  taxDurations,
+  propertyTaxTypes,
   seedDefaultTemplates,
   type Database,
 } from '@yohobed/db';
@@ -79,6 +84,15 @@ export async function makeTenant(
     status?: 'pending' | 'active' | 'inactive' | 'suspended';
     roomQuantity?: number;
     commissionPercentage?: number;
+    /** `'none'` provisions no subscription at all — for asserting deny-by-default. */
+    plan?: 'starter' | 'pro' | 'enterprise' | 'none';
+    distributionMode?: 'yoho' | 'standalone';
+    /**
+     * Attach a 10% service charge and 15% VAT, like the "Ceylon Tax Villa" demo property, so a
+     * fixture can exercise the tax path. Untaxed by default: most suites do not care, and zero
+     * rates keep their arithmetic easy to read.
+     */
+    taxed?: boolean;
   } = {},
 ): Promise<TenantFixture> {
   const db = admin();
@@ -86,8 +100,28 @@ export async function makeTenant(
 
   const [tenant] = await db
     .insert(tenants)
-    .values({ name: `E2E ${email}`, email, status: opts.status ?? 'active' })
+    .values({
+      name: `E2E ${email}`,
+      email,
+      status: opts.status ?? 'active',
+      distributionMode: opts.distributionMode ?? 'yoho',
+    })
     .returning();
+
+  // Every tenant gets a subscription, because every tenant in production has one (migration
+  // 0022 grandfathers the existing ones, registration provisions new ones). Entitlements are
+  // deny-by-default, so a fixture without a subscription would 403 on every gated route and the
+  // failure would look like a bug in the route rather than in the fixture.
+  if (opts.plan !== 'none') {
+    // The catalogue is seeded once in global-setup; upserting it here would put every suite in
+    // contention over the same three global rows.
+    const code = opts.plan ?? 'enterprise';
+    const [p] = await db.select().from(plans).where(eq(plans.code, code));
+    await db
+      .insert(subscriptions)
+      .values({ tenantId: tenant!.id, planId: p!.id, status: 'active' })
+      .onConflictDoNothing({ target: subscriptions.tenantId });
+  }
   const [user] = await db
     .insert(users)
     .values({
@@ -110,6 +144,30 @@ export async function makeTenant(
       commissionPercentage: String(opts.commissionPercentage ?? 10),
     })
     .returning();
+
+  if (opts.taxed) {
+    // Two taxes at different priorities, matching the taxed demo property: the service charge
+    // applies first, then VAT on top of it.
+    for (const [name, rate, priority] of [
+      ['Service Charge', '10.0000', 1],
+      ['VAT', '15.0000', 2],
+    ] as const) {
+      const [type] = await db.insert(taxTypes).values({ tenantId: tenant!.id, name }).returning();
+      await db.insert(taxDurations).values({
+        tenantId: tenant!.id,
+        taxTypeId: type!.id,
+        startDate: '2000-01-01',
+        endDate: '2099-12-31',
+        ratePercent: rate,
+      });
+      await db.insert(propertyTaxTypes).values({
+        tenantId: tenant!.id,
+        propertyId: property!.id,
+        taxTypeId: type!.id,
+        priority,
+      });
+    }
+  }
   const [room] = await db
     .insert(rooms)
     .values({
@@ -268,12 +326,19 @@ export interface Res<T = any> {
 export async function request<T = any>(
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
-  opts: { token?: string; body?: unknown; headers?: Record<string, string> } = {},
+  opts: {
+    token?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+    /** Sets `x-tenant-id`. Only needed to pick between tenants, or to attempt another's. */
+    tenantId?: string;
+  } = {},
 ): Promise<Res<T>> {
   const server = (await startApp()).getHttpServer();
   const supertest = (await import('supertest')).default;
   let req = supertest(server)[method.toLowerCase() as 'get'](path);
   if (opts.token) req = req.set('Authorization', `Bearer ${opts.token}`);
+  if (opts.tenantId) req = req.set('x-tenant-id', opts.tenantId);
   for (const [k, v] of Object.entries(opts.headers ?? {})) req = req.set(k, v);
   if (opts.body !== undefined) req = req.send(opts.body as object);
   const res = await req;

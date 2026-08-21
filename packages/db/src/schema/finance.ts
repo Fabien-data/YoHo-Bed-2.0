@@ -28,6 +28,14 @@ export const payments = pgTable('payments', {
     .notNull()
     .references(() => tenants.id, { onDelete: 'cascade' }),
   bookingId: uuid('booking_id').references(() => bookings.id, { onDelete: 'set null' }),
+  /**
+   * The folio window this payment settles, when it was taken at the front desk.
+   *
+   * Deliberately added here rather than in a separate `folio_payments` table: this is already the
+   * record of what a guest paid, and a second one would be a second answer to "is this settled?".
+   * Null for payments that predate folios, and for the platform-side payout direction.
+   */
+  folioId: uuid('folio_id'),
   direction: paymentDirection('direction').notNull(),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   /**

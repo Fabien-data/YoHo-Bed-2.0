@@ -6,4 +6,5 @@ export * from './outbox';
 export * from './fx';
 export * from './tax';
 export * from './default-templates';
+export * from './default-plans';
 export * from './schema';

@@ -1,0 +1,556 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  bookingDays,
+  bookings,
+  chargeParticulars,
+  customers,
+  folioCharges,
+  folioTransfers,
+  folios,
+  payments,
+  type Tx,
+} from '@yohobed/db';
+import { DatabaseService } from '../database/database.service';
+import type {
+  CreateParticularDto,
+  OpenFolioDto,
+  PostChargeDto,
+  RecordFolioPaymentDto,
+  TransferChargesDto,
+  VoidChargeDto,
+} from './dto';
+
+/** Two decimal places, the way every money column in this system is stored. */
+function money(n: number): string {
+  return n.toFixed(2);
+}
+
+@Injectable()
+export class FolioService {
+  constructor(private readonly dbs: DatabaseService) {}
+
+  /**
+   * The bill for a booking: every window, its lines, its payments and its balance.
+   *
+   * Window 1 is created on demand rather than at booking time, so a reservation that never
+   * arrives leaves no empty bill behind.
+   */
+  async forBooking(tenantId: string, bookingId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const booking = await this.loadBooking(tx, bookingId);
+      await this.ensureWindow(tx, tenantId, booking, 1, 'Guest');
+
+      const windows = await tx
+        .select()
+        .from(folios)
+        .where(eq(folios.bookingId, bookingId))
+        .orderBy(asc(folios.window));
+
+      const detailed = await Promise.all(windows.map((f) => this.windowDetail(tx, f)));
+
+      const totals = detailed.reduce(
+        (acc, w) => ({
+          charges: acc.charges + Number(w.totals.charges),
+          paid: acc.paid + Number(w.totals.paid),
+          balance: acc.balance + Number(w.totals.balance),
+        }),
+        { charges: 0, paid: 0, balance: 0 },
+      );
+
+      return {
+        bookingId,
+        reference: booking.reference,
+        guestName: booking.guestName,
+        status: booking.status,
+        currency: booking.currency,
+        checkin: booking.checkin,
+        checkout: booking.checkout,
+        rooms: booking.rooms,
+        /** What the reservation itself is worth — the yardstick room charges must reproduce. */
+        bookingAmount: booking.amount,
+        windows: detailed,
+        totals: {
+          charges: money(totals.charges),
+          paid: money(totals.paid),
+          balance: money(totals.balance),
+        },
+      };
+    });
+  }
+
+  private async windowDetail(tx: Tx, folio: typeof folios.$inferSelect) {
+    const [lines, paid] = await Promise.all([
+      tx
+        .select({
+          id: folioCharges.id,
+          source: folioCharges.source,
+          description: folioCharges.description,
+          postedFor: folioCharges.postedFor,
+          bookingDate: folioCharges.bookingDate,
+          quantity: folioCharges.quantity,
+          unitPrice: folioCharges.unitPrice,
+          net: folioCharges.net,
+          tax: folioCharges.tax,
+          total: folioCharges.total,
+          voidedAt: folioCharges.voidedAt,
+          voidReason: folioCharges.voidReason,
+          particularCode: chargeParticulars.code,
+        })
+        .from(folioCharges)
+        .leftJoin(chargeParticulars, eq(chargeParticulars.id, folioCharges.particularId))
+        .where(eq(folioCharges.folioId, folio.id))
+        .orderBy(asc(folioCharges.postedFor), asc(folioCharges.createdAt)),
+      tx
+        .select({
+          id: payments.id,
+          amount: payments.amount,
+          method: payments.method,
+          reference: payments.reference,
+          createdAt: payments.createdAt,
+        })
+        .from(payments)
+        .where(and(eq(payments.folioId, folio.id), eq(payments.direction, 'received')))
+        .orderBy(desc(payments.createdAt)),
+    ]);
+
+    // Voided lines stay on the bill but carry no money.
+    const live = lines.filter((l) => !l.voidedAt);
+    const charges = live.reduce((s, l) => s + Number(l.total), 0);
+    const tax = live.reduce((s, l) => s + Number(l.tax), 0);
+    const paidTotal = paid.reduce((s, p) => s + Number(p.amount), 0);
+
+    return {
+      id: folio.id,
+      window: folio.window,
+      label: folio.label,
+      status: folio.status,
+      currency: folio.currency,
+      lines,
+      payments: paid,
+      totals: {
+        charges: money(charges),
+        tax: money(tax),
+        paid: money(paidTotal),
+        balance: money(charges - paidTotal),
+      },
+    };
+  }
+
+  /** Open an extra window — the company bill beside the guest's. */
+  async openWindow(tenantId: string, bookingId: string, dto: OpenFolioDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const booking = await this.loadBooking(tx, bookingId);
+      const [{ max }] = await tx
+        .select({ max: sql<number>`coalesce(max(${folios.window}), 0)::int` })
+        .from(folios)
+        .where(eq(folios.bookingId, bookingId));
+      const created = await this.ensureWindow(
+        tx,
+        tenantId,
+        booking,
+        (max ?? 0) + 1,
+        dto.label ?? 'Company',
+      );
+      return created;
+    });
+  }
+
+  /**
+   * Post the room charges for a stay, one line per night.
+   *
+   * Copied from the `booking_days` snapshot — the money engine already decided what each night
+   * costs, and recomputing would be a second answer waiting to disagree with settlement. The
+   * snapshot is **per room per night**, so each line is multiplied by the booking's room count;
+   * the sum of the posted lines therefore equals `bookings.amount` exactly.
+   *
+   * Idempotent: a unique index refuses a second live room charge for the same night, so calling
+   * this twice cannot double a guest's bill.
+   */
+  async postRoomCharges(tenantId: string, bookingId: string, userId: string | null) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const booking = await this.loadBooking(tx, bookingId);
+      if (booking.status === 'Cancelled' || booking.status === 'Rejected') {
+        throw new BadRequestException(`Cannot post charges to a ${booking.status} booking`);
+      }
+      const folio = await this.ensureWindow(tx, tenantId, booking, 1, 'Guest');
+
+      const nights = await tx
+        .select()
+        .from(bookingDays)
+        .where(eq(bookingDays.bookingId, bookingId))
+        .orderBy(asc(bookingDays.date));
+
+      const already = await tx
+        .select({ bookingDate: folioCharges.bookingDate })
+        .from(folioCharges)
+        .where(
+          and(
+            eq(folioCharges.folioId, folio.id),
+            eq(folioCharges.source, 'room'),
+            isNull(folioCharges.voidedAt),
+          ),
+        );
+      const posted = new Set(already.map((a) => a.bookingDate));
+
+      const rows = nights
+        .filter((n) => !posted.has(n.date))
+        .map((n) => {
+          const rooms = booking.rooms;
+          const total = Number(n.sellingPrice) * rooms;
+          const tax = Number(n.tax) * rooms;
+          return {
+            tenantId,
+            folioId: folio.id,
+            source: 'room' as const,
+            description:
+              rooms > 1 ? `Room charge — ${n.date} (${rooms} rooms)` : `Room charge — ${n.date}`,
+            postedFor: n.date,
+            bookingDate: n.date,
+            quantity: money(rooms),
+            unitPrice: n.sellingPrice,
+            net: money(total - tax),
+            tax: money(tax),
+            total: money(total),
+            postedByUserId: userId,
+          };
+        });
+
+      if (rows.length > 0) await tx.insert(folioCharges).values(rows);
+      return { posted: rows.length, skipped: nights.length - rows.length, folioId: folio.id };
+    });
+  }
+
+  /** Post an extra — a minibar, a laundry bag, an airport transfer. */
+  async postCharge(tenantId: string, folioId: string, userId: string | null, dto: PostChargeDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const folio = await this.loadOpenFolio(tx, folioId);
+
+      let description = dto.description;
+      let unitPrice = dto.unitPrice;
+      let taxRatePct = dto.taxRatePct ?? 0;
+      let taxInclusive = dto.taxInclusive ?? true;
+
+      if (dto.particularId) {
+        const [p] = await tx
+          .select()
+          .from(chargeParticulars)
+          .where(eq(chargeParticulars.id, dto.particularId));
+        if (!p) throw new NotFoundException('Charge particular not found');
+        if (!p.active) throw new BadRequestException(`"${p.name}" is no longer chargeable`);
+        description ??= p.name;
+        unitPrice ??= Number(p.defaultPrice);
+        if (dto.taxRatePct === undefined) taxRatePct = Number(p.taxRatePct);
+        if (dto.taxInclusive === undefined) taxInclusive = p.taxInclusive;
+      }
+
+      if (description === undefined || unitPrice === undefined) {
+        throw new BadRequestException('A charge needs a description and a price');
+      }
+
+      const gross = unitPrice * dto.quantity;
+      // Tax-inclusive prices are decomposed out of the total, the same convention the room rate
+      // uses, so a bill never mixes tax-in and tax-on lines.
+      const tax = taxInclusive
+        ? gross - gross / (1 + taxRatePct / 100)
+        : gross * (taxRatePct / 100);
+      const total = taxInclusive ? gross : gross + tax;
+
+      const [created] = await tx
+        .insert(folioCharges)
+        .values({
+          tenantId,
+          folioId: folio.id,
+          particularId: dto.particularId ?? null,
+          source: dto.source ?? 'manual',
+          description,
+          postedFor: dto.postedFor ?? new Date().toISOString().slice(0, 10),
+          quantity: money(dto.quantity),
+          unitPrice: money(unitPrice),
+          net: money(total - tax),
+          tax: money(tax),
+          total: money(total),
+          postedByUserId: userId,
+        })
+        .returning();
+      return created;
+    });
+  }
+
+  /**
+   * Reverse a line.
+   *
+   * Stamped, never deleted: a bill that silently loses a line is worse than one showing that a
+   * line was reversed, and the guest's copy may already be printed.
+   */
+  async voidCharge(tenantId: string, chargeId: string, dto: VoidChargeDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [charge] = await tx.select().from(folioCharges).where(eq(folioCharges.id, chargeId));
+      if (!charge) throw new NotFoundException('Charge not found');
+      if (charge.voidedAt) throw new ConflictException('That charge is already voided');
+      await this.assertFolioOpen(tx, charge.folioId);
+
+      const [updated] = await tx
+        .update(folioCharges)
+        .set({ voidedAt: new Date(), voidReason: dto.reason ?? null, updatedAt: new Date() })
+        .where(eq(folioCharges.id, chargeId))
+        .returning();
+      return updated;
+    });
+  }
+
+  /** Split the bill: move charges to another window of the same booking. */
+  async transfer(tenantId: string, userId: string | null, dto: TransferChargesDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const target = await this.loadOpenFolio(tx, dto.toFolioId);
+
+      const charges = await tx
+        .select()
+        .from(folioCharges)
+        .where(inArray(folioCharges.id, dto.chargeIds));
+      if (charges.length !== dto.chargeIds.length) {
+        throw new NotFoundException('One or more charges were not found');
+      }
+      if (charges.some((c) => c.voidedAt)) {
+        throw new BadRequestException('A voided charge cannot be transferred');
+      }
+
+      const sourceFolios = await tx
+        .select()
+        .from(folios)
+        .where(inArray(folios.id, [...new Set(charges.map((c) => c.folioId))]));
+      if (sourceFolios.some((f) => f.bookingId !== target.bookingId)) {
+        throw new BadRequestException('Charges can only move between windows of the same booking');
+      }
+      if (sourceFolios.some((f) => f.status !== 'open')) {
+        throw new BadRequestException('A closed window cannot be changed');
+      }
+
+      for (const c of charges) {
+        if (c.folioId === target.id) continue;
+        await tx
+          .update(folioCharges)
+          .set({ folioId: target.id, updatedAt: new Date() })
+          .where(eq(folioCharges.id, c.id));
+        await tx.insert(folioTransfers).values({
+          tenantId,
+          chargeId: c.id,
+          fromFolioId: c.folioId,
+          toFolioId: target.id,
+          reason: dto.reason ?? null,
+          movedByUserId: userId,
+        });
+      }
+
+      return this.windowDetail(tx, target);
+    });
+  }
+
+  /** Take money against a window. Recorded in `payments`, the one record of what a guest paid. */
+  async recordPayment(tenantId: string, folioId: string, dto: RecordFolioPaymentDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const folio = await this.loadOpenFolio(tx, folioId);
+      const [created] = await tx
+        .insert(payments)
+        .values({
+          tenantId,
+          bookingId: folio.bookingId,
+          folioId: folio.id,
+          direction: 'received',
+          amount: money(dto.amount),
+          currency: folio.currency,
+          method: dto.method,
+          reference: dto.reference ?? null,
+          note: dto.note ?? null,
+        })
+        .returning();
+      return created;
+    });
+  }
+
+  /**
+   * Close a window at check-out.
+   *
+   * Refuses while the balance is non-zero — closing a bill someone still owes money on is how a
+   * hotel loses revenue silently. `settleToZero` is the deliberate override for a written-off or
+   * externally-settled balance.
+   */
+  async closeWindow(tenantId: string, folioId: string, force = false) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const folio = await this.loadOpenFolio(tx, folioId);
+      const detail = await this.windowDetail(tx, folio);
+      if (Number(detail.totals.balance) !== 0 && !force) {
+        throw new ConflictException(
+          `Window ${folio.window} still has a balance of ${detail.totals.balance}. Settle it, or close it explicitly.`,
+        );
+      }
+      const [updated] = await tx
+        .update(folios)
+        .set({ status: 'closed', closedAt: new Date(), updatedAt: new Date() })
+        .where(eq(folios.id, folioId))
+        .returning();
+      return updated;
+    });
+  }
+
+  /**
+   * Every stay that still owes money — the screen a night manager works from.
+   *
+   * In-house first: an unsettled balance on a guest who is still in the building can be collected,
+   * while one on a departed guest is already a debt.
+   */
+  unsettled(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const rows = await tx
+        .select({
+          folioId: folios.id,
+          window: folios.window,
+          label: folios.label,
+          bookingId: bookings.id,
+          reference: bookings.reference,
+          status: bookings.status,
+          checkin: bookings.checkin,
+          checkout: bookings.checkout,
+          currency: folios.currency,
+          guestName: customers.name,
+          vip: customers.vip,
+          charges: sql<string>`coalesce((
+            select sum(c.total) from folio_charges c
+            where c.folio_id = ${folios.id} and c.voided_at is null
+          ), 0)::text`,
+          paid: sql<string>`coalesce((
+            select sum(p.amount) from payments p
+            where p.folio_id = ${folios.id} and p.direction = 'received'
+          ), 0)::text`,
+          roomCodes: sql<string[]>`coalesce((
+            select array_agg(ru.code order by ru.display_order)
+            from booking_rooms br
+            join room_units ru on ru.id = br.room_unit_id
+            where br.booking_id = ${bookings.id} and br.released_at is null
+          ), '{}')`,
+        })
+        .from(folios)
+        .innerJoin(bookings, eq(bookings.id, folios.bookingId))
+        .innerJoin(customers, eq(customers.id, bookings.customerId))
+        .where(and(eq(bookings.propertyId, propertyId), eq(folios.status, 'open')))
+        .orderBy(asc(bookings.checkout));
+
+      return rows
+        .map((r) => ({ ...r, balance: money(Number(r.charges) - Number(r.paid)) }))
+        .filter((r) => Number(r.balance) !== 0)
+        .sort((a, b) => {
+          const rank = (s: string) => (s === 'CheckedIn' ? 0 : s === 'CheckedOut' ? 1 : 2);
+          return rank(a.status) - rank(b.status) || a.checkout.localeCompare(b.checkout);
+        });
+    });
+  }
+
+  // --- Particulars -----------------------------------------------------------
+
+  listParticulars(tenantId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx.select().from(chargeParticulars).orderBy(asc(chargeParticulars.code)),
+    );
+  }
+
+  createParticular(tenantId: string, dto: CreateParticularDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      try {
+        const [created] = await tx
+          .insert(chargeParticulars)
+          .values({
+            tenantId,
+            propertyId: dto.propertyId ?? null,
+            code: dto.code,
+            name: dto.name,
+            category: dto.category,
+            defaultPrice: money(dto.defaultPrice),
+            taxRatePct: dto.taxRatePct.toFixed(3),
+            taxInclusive: dto.taxInclusive,
+          })
+          .returning();
+        return created;
+      } catch (e) {
+        if ((e as { code?: string })?.code === '23505') {
+          throw new ConflictException(`A charge with code "${dto.code}" already exists`);
+        }
+        throw e;
+      }
+    });
+  }
+
+  // --- helpers ---------------------------------------------------------------
+
+  private async loadBooking(tx: Tx, bookingId: string) {
+    const [b] = await tx
+      .select({
+        id: bookings.id,
+        propertyId: bookings.propertyId,
+        reference: bookings.reference,
+        status: bookings.status,
+        currency: bookings.currency,
+        amount: bookings.amount,
+        rooms: bookings.rooms,
+        checkin: bookings.checkin,
+        checkout: bookings.checkout,
+        guestName: customers.name,
+      })
+      .from(bookings)
+      .innerJoin(customers, eq(customers.id, bookings.customerId))
+      .where(eq(bookings.id, bookingId));
+    if (!b) throw new NotFoundException('Booking not found');
+    return b;
+  }
+
+  /** Get or create a window. Idempotent, so callers never have to check first. */
+  private async ensureWindow(
+    tx: Tx,
+    tenantId: string,
+    booking: { id: string; propertyId: string; currency: string },
+    window: number,
+    label: string,
+  ) {
+    const [existing] = await tx
+      .select()
+      .from(folios)
+      .where(and(eq(folios.bookingId, booking.id), eq(folios.window, window)));
+    if (existing) return existing;
+
+    const [created] = await tx
+      .insert(folios)
+      .values({
+        tenantId,
+        propertyId: booking.propertyId,
+        bookingId: booking.id,
+        window,
+        label,
+        currency: booking.currency,
+      })
+      .onConflictDoNothing({ target: [folios.bookingId, folios.window] })
+      .returning();
+    if (created) return created;
+
+    // Lost a race to create it; the other writer's row is the one to use.
+    const [raced] = await tx
+      .select()
+      .from(folios)
+      .where(and(eq(folios.bookingId, booking.id), eq(folios.window, window)));
+    return raced!;
+  }
+
+  private async loadOpenFolio(tx: Tx, folioId: string) {
+    const [f] = await tx.select().from(folios).where(eq(folios.id, folioId));
+    if (!f) throw new NotFoundException('Folio not found');
+    if (f.status !== 'open') throw new BadRequestException(`This window is ${f.status}`);
+    return f;
+  }
+
+  private async assertFolioOpen(tx: Tx, folioId: string) {
+    await this.loadOpenFolio(tx, folioId);
+  }
+}

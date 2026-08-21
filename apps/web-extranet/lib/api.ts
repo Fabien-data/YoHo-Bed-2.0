@@ -556,6 +556,640 @@ export function getFxRates(): Promise<FxRates> {
   return apiFetch<FxRates>('/fx/rates');
 }
 
+// --- Stay view (the tape chart) ---------------------------------------------
+
+export interface StayBar {
+  kind: 'booking' | 'block';
+  id: string;
+  from: string;
+  /** Exclusive — the guest is gone on this date. */
+  to: string;
+  bookingId?: string;
+  reference?: string;
+  guestName?: string;
+  status?: string;
+  source?: string;
+  channel?: string | null;
+  groupId?: string | null;
+  balanceDue?: boolean;
+  reason?: string;
+}
+
+export interface StayUnit {
+  id: string;
+  roomId: string;
+  code: string;
+  floor: string | null;
+  status: 'active' | 'inactive';
+  bars: StayBar[];
+}
+
+export interface StayRoomType {
+  roomId: string;
+  name: string;
+  quantity: number;
+  perDate: Array<{ date: string; available: number | null; closed: boolean; rate: string | null }>;
+  units: StayUnit[];
+}
+
+export interface StayFooter {
+  date: string;
+  soldRooms: number;
+  blocked: number;
+  availableInventory: number;
+  totalRooms: number;
+  occupancyPct: number;
+}
+
+export interface StayView {
+  property: { id: string; name: string; code: string | null; currency: string };
+  from: string;
+  to: string;
+  dates: string[];
+  roomTypes: StayRoomType[];
+  unassigned: Array<StayBar & { roomId: string }>;
+  footer: StayFooter[];
+  counts: {
+    all: number;
+    vacant: number;
+    occupied: number;
+    reserved: number;
+    blocked: number;
+    dueOut: number;
+  };
+}
+
+export function getStayView(propertyId: string, from: string, to: string): Promise<StayView> {
+  return apiFetch<StayView>(`/stayview?propertyId=${propertyId}&from=${from}&to=${to}`);
+}
+
+export interface BookingLeg {
+  id: string;
+  legIndex: number;
+  roomUnitId: string | null;
+  code: string | null;
+  checkin: string;
+  checkout: string;
+  adults: number;
+  children: number;
+  releasedAt: string | null;
+}
+
+export function getBookingLegs(bookingId: string): Promise<BookingLeg[]> {
+  return apiFetch<BookingLeg[]>(`/bookings/${bookingId}/rooms`);
+}
+
+export function assignRooms(
+  bookingId: string,
+  assignments: Array<{ legId: string; roomUnitId: string | null }>,
+): Promise<BookingLeg[]> {
+  return apiFetch<BookingLeg[]>(`/bookings/${bookingId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ assignments }),
+  });
+}
+
+export function autoAssignRooms(
+  bookingId: string,
+): Promise<{ assigned: number; unassigned: number; legs: BookingLeg[] }> {
+  return apiFetch(`/bookings/${bookingId}/auto-assign`, { method: 'POST' });
+}
+
+export interface RoomUnit {
+  id: string;
+  propertyId: string;
+  roomId: string;
+  roomName: string;
+  code: string;
+  displayOrder: number;
+  floor: string | null;
+  notes: string | null;
+  status: 'active' | 'inactive';
+}
+
+export function listRoomUnits(propertyId: string): Promise<RoomUnit[]> {
+  return apiFetch<RoomUnit[]>(`/properties/${propertyId}/room-units`);
+}
+
+export function createBlock(
+  propertyId: string,
+  body: { roomUnitId: string; blockFrom: string; blockTo: string; reason: string },
+): Promise<unknown> {
+  return apiFetch(`/properties/${propertyId}/blocks`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateBlock(
+  id: string,
+  body: { blockFrom?: string; blockTo?: string; reason?: string },
+): Promise<unknown> {
+  return apiFetch(`/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function releaseBlock(id: string): Promise<unknown> {
+  return apiFetch(`/blocks/${id}/release`, { method: 'POST' });
+}
+
+// --- Room View / housekeeping ------------------------------------------------
+
+export type RoomState = 'OutOfOrder' | 'Occupied' | 'PendingCheckout' | 'ArrivingToday' | 'Vacant';
+export type HousekeepingState = 'dirty' | 'clean' | 'inspected' | 'out_of_order';
+
+export interface RoomCard {
+  unitId: string;
+  code: string;
+  roomId: string;
+  roomName: string;
+  floor: string | null;
+  unitStatus: 'active' | 'inactive';
+  state: RoomState;
+  housekeeping: HousekeepingState;
+  remarks: string | null;
+  assignedTo: string | null;
+  guestName: string | null;
+  bookingId: string | null;
+  reference: string | null;
+  checkin: string | null;
+  checkout: string | null;
+  vip: boolean;
+  balanceDue: boolean;
+  adults: number | null;
+  children: number | null;
+  source: string | null;
+  blockReason: string | null;
+  openWorkOrders: number;
+}
+
+export interface HouseSummary {
+  all: number;
+  vacant: number;
+  occupied: number;
+  arriving: number;
+  pendingCheckout: number;
+  outOfOrder: number;
+  dirty: number;
+  clean: number;
+  inspected: number;
+}
+
+export function getRoomView(propertyId: string, date: string): Promise<RoomCard[]> {
+  return apiFetch<RoomCard[]>(`/room-view?propertyId=${propertyId}&date=${date}`);
+}
+
+export function getHouseSummary(propertyId: string, date: string): Promise<HouseSummary> {
+  return apiFetch<HouseSummary>(`/house-status/summary?propertyId=${propertyId}&date=${date}`);
+}
+
+export function setHousekeeping(
+  propertyId: string,
+  body: {
+    roomUnitId: string;
+    date: string;
+    status: HousekeepingState;
+    remarks?: string;
+  },
+): Promise<unknown> {
+  return apiFetch(`/properties/${propertyId}/housekeeping`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function markDeparturesDirty(propertyId: string, date: string): Promise<{ marked: number }> {
+  return apiFetch(`/properties/${propertyId}/housekeeping/mark-departures-dirty?date=${date}`, {
+    method: 'POST',
+  });
+}
+
+export interface WorkOrder {
+  id: string;
+  roomUnitId: string | null;
+  code: string | null;
+  title: string;
+  description: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'done' | 'cancelled';
+  assignedToName: string | null;
+  deadline: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export function listWorkOrders(propertyId: string): Promise<WorkOrder[]> {
+  return apiFetch<WorkOrder[]>(`/properties/${propertyId}/work-orders`);
+}
+
+export function createWorkOrder(
+  propertyId: string,
+  body: {
+    roomUnitId?: string;
+    title: string;
+    description?: string;
+    priority?: WorkOrder['priority'];
+    deadline?: string;
+  },
+): Promise<WorkOrder> {
+  return apiFetch(`/properties/${propertyId}/work-orders`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateWorkOrder(
+  id: string,
+  body: Partial<Pick<WorkOrder, 'title' | 'priority' | 'status'>>,
+): Promise<WorkOrder> {
+  return apiFetch(`/work-orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+// --- Reservations screen -----------------------------------------------------
+
+export type ReservationTab = 'all' | 'arrivals' | 'departures' | 'inhouse' | 'cancelled';
+
+export interface ReservationRow {
+  id: string;
+  reference: string;
+  status: string;
+  source: string;
+  channel: string | null;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  rooms: number;
+  amount: string;
+  currency: string;
+  groupId: string | null;
+  groupCode: string | null;
+  groupName: string | null;
+  customerId: string;
+  guestName: string;
+  guestEmail: string | null;
+  guestPhone: string | null;
+  vip: boolean;
+  roomCodes: string[];
+  balanceDue: boolean;
+  createdAt: string;
+}
+
+export interface ReservationList {
+  date: string;
+  tab: ReservationTab;
+  counts: Record<ReservationTab, number>;
+  rows: ReservationRow[];
+}
+
+export function getReservations(params: {
+  propertyId: string;
+  date: string;
+  tab?: ReservationTab;
+  q?: string;
+  groupsOnly?: boolean;
+}): Promise<ReservationList> {
+  const sp = new URLSearchParams({ propertyId: params.propertyId, date: params.date });
+  if (params.tab) sp.set('tab', params.tab);
+  if (params.q) sp.set('q', params.q);
+  if (params.groupsOnly) sp.set('groupsOnly', 'true');
+  return apiFetch<ReservationList>(`/reservations?${sp.toString()}`);
+}
+
+export interface BookingGroup {
+  id: string;
+  code: string;
+  name: string | null;
+  memberCount: number;
+  total: string;
+  members: Array<{
+    id: string;
+    reference: string;
+    status: string;
+    checkin: string;
+    checkout: string;
+    rooms: number;
+    amount: string;
+    currency: string;
+    guestName: string;
+  }>;
+}
+
+export function makeBookingGroup(
+  propertyId: string,
+  body: { bookingIds: string[]; name?: string; force?: boolean },
+): Promise<BookingGroup> {
+  return apiFetch(`/properties/${propertyId}/booking-groups`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getBookingGroup(id: string): Promise<BookingGroup> {
+  return apiFetch(`/booking-groups/${id}`);
+}
+
+export function mergeBookingGroup(id: string, bookingIds: string[]): Promise<BookingGroup> {
+  return apiFetch(`/booking-groups/${id}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ bookingIds }),
+  });
+}
+
+export function leaveBookingGroup(bookingId: string): Promise<unknown> {
+  return apiFetch(`/bookings/${bookingId}/group`, { method: 'DELETE' });
+}
+
+export interface RegistrationCard {
+  reference: string;
+  status: string;
+  source: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  rooms: number;
+  amount: string;
+  taxes: string;
+  currency: string;
+  guest: {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    nationality: string | null;
+    idType: string | null;
+    idNumber: string | null;
+    dateOfBirth: string | null;
+    address: string | null;
+    city: string | null;
+    country: string | null;
+    vip: boolean;
+  };
+  property: {
+    name: string;
+    code: string | null;
+    address: string | null;
+    city: string | null;
+    country: string | null;
+    phone: string | null;
+    email: string | null;
+    checkinTime: string | null;
+    checkoutTime: string | null;
+  };
+  legs: Array<{ legIndex: number; code: string | null; adults: number; children: number }>;
+}
+
+export function getRegistrationCard(bookingId: string): Promise<RegistrationCard> {
+  return apiFetch(`/bookings/${bookingId}/registration-card`);
+}
+
+export interface GuestProfile {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  nationality: string | null;
+  idType: string | null;
+  idNumber: string | null;
+  dateOfBirth: string | null;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  vip: boolean;
+  notes: string | null;
+}
+
+export function updateCustomer(
+  id: string,
+  body: Partial<Omit<GuestProfile, 'id'>>,
+): Promise<GuestProfile> {
+  return apiFetch(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+// --- Folio (the guest bill) --------------------------------------------------
+
+export interface FolioLine {
+  id: string;
+  source: 'room' | 'manual' | 'pos';
+  description: string;
+  postedFor: string;
+  bookingDate: string | null;
+  quantity: string;
+  unitPrice: string;
+  net: string;
+  tax: string;
+  total: string;
+  voidedAt: string | null;
+  voidReason: string | null;
+  particularCode: string | null;
+}
+
+export interface FolioPaymentRow {
+  id: string;
+  amount: string;
+  method: string;
+  reference: string | null;
+  createdAt: string;
+}
+
+export interface FolioWindow {
+  id: string;
+  window: number;
+  label: string;
+  status: 'open' | 'closed' | 'void';
+  currency: string;
+  lines: FolioLine[];
+  payments: FolioPaymentRow[];
+  totals: { charges: string; tax: string; paid: string; balance: string };
+}
+
+export interface BookingFolio {
+  bookingId: string;
+  reference: string;
+  guestName: string;
+  status: string;
+  currency: string;
+  checkin: string;
+  checkout: string;
+  rooms: number;
+  bookingAmount: string;
+  windows: FolioWindow[];
+  totals: { charges: string; paid: string; balance: string };
+}
+
+export function getBookingFolio(bookingId: string): Promise<BookingFolio> {
+  return apiFetch<BookingFolio>(`/bookings/${bookingId}/folio`);
+}
+
+export function postRoomCharges(
+  bookingId: string,
+): Promise<{ posted: number; skipped: number; folioId: string }> {
+  return apiFetch(`/bookings/${bookingId}/folio/post-room-charges`, { method: 'POST' });
+}
+
+export function openFolioWindow(bookingId: string, label?: string): Promise<FolioWindow> {
+  return apiFetch(`/bookings/${bookingId}/folio/windows`, {
+    method: 'POST',
+    body: JSON.stringify({ label }),
+  });
+}
+
+export function postFolioCharge(
+  folioId: string,
+  body: {
+    particularId?: string;
+    description?: string;
+    unitPrice?: number;
+    quantity?: number;
+    taxRatePct?: number;
+    taxInclusive?: boolean;
+  },
+): Promise<FolioLine> {
+  return apiFetch(`/folios/${folioId}/charges`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function voidFolioCharge(chargeId: string, reason?: string): Promise<FolioLine> {
+  return apiFetch(`/folio-charges/${chargeId}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function transferFolioCharges(body: {
+  chargeIds: string[];
+  toFolioId: string;
+  reason?: string;
+}): Promise<FolioWindow> {
+  return apiFetch('/folio-charges/transfer', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function recordFolioPayment(
+  folioId: string,
+  body: { amount: number; method?: string; reference?: string },
+): Promise<FolioPaymentRow> {
+  return apiFetch(`/folios/${folioId}/payments`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function closeFolioWindow(folioId: string, force = false): Promise<FolioWindow> {
+  return apiFetch(`/folios/${folioId}/close${force ? '?force=true' : ''}`, { method: 'POST' });
+}
+
+export interface UnsettledFolio {
+  folioId: string;
+  window: number;
+  label: string;
+  bookingId: string;
+  reference: string;
+  status: string;
+  checkin: string;
+  checkout: string;
+  currency: string;
+  guestName: string;
+  vip: boolean;
+  charges: string;
+  paid: string;
+  balance: string;
+  roomCodes: string[];
+}
+
+export function getUnsettledFolios(propertyId: string): Promise<UnsettledFolio[]> {
+  return apiFetch<UnsettledFolio[]>(`/folios/unsettled?propertyId=${propertyId}`);
+}
+
+export interface ChargeParticular {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  defaultPrice: string;
+  taxRatePct: string;
+  taxInclusive: boolean;
+  active: boolean;
+}
+
+export function listChargeParticulars(): Promise<ChargeParticular[]> {
+  return apiFetch<ChargeParticular[]>('/charge-particulars');
+}
+
+export function createChargeParticular(body: {
+  code: string;
+  name: string;
+  category?: string;
+  defaultPrice?: number;
+  taxRatePct?: number;
+  taxInclusive?: boolean;
+}): Promise<ChargeParticular> {
+  return apiFetch('/charge-particulars', { method: 'POST', body: JSON.stringify(body) });
+}
+
+// --- Subscription plan & entitlements ---------------------------------------
+
+export interface CataloguePlan {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  priceMonthly: string;
+  currency: string;
+  features: { features?: Record<string, boolean>; limits?: Record<string, number> };
+}
+
+export interface Entitlements {
+  features: Record<string, boolean>;
+  /** -1 means unlimited. */
+  limits: Record<string, number>;
+}
+
+export interface TenantPlan {
+  plan: {
+    code: string;
+    name: string;
+    description: string | null;
+    priceMonthly: string;
+    currency: string;
+  } | null;
+  subscription: {
+    status: 'trialing' | 'active' | 'past_due' | 'cancelled';
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    trialEndsAt: string | null;
+    seats: number;
+  } | null;
+  distributionMode: 'yoho' | 'standalone';
+  entitlements: Entitlements;
+}
+
+export function listPlans(): Promise<CataloguePlan[]> {
+  return apiFetch<CataloguePlan[]>('/billing/plans');
+}
+export function getTenantPlan(): Promise<TenantPlan> {
+  return apiFetch<TenantPlan>('/billing/plan');
+}
+export function getEntitlements(): Promise<Entitlements> {
+  return apiFetch<Entitlements>('/billing/entitlements');
+}
+
+/** Human labels for the feature keys in @yohobed/domain — keep in step with FEATURE_KEYS. */
+export const FEATURE_LABELS: Record<string, string> = {
+  stay_view: 'Stay View',
+  room_view: 'Room View',
+  housekeeping: 'Housekeeping',
+  work_orders: 'Work orders',
+  folio: 'Guest folio',
+  cashiering: 'Cashiering',
+  pos: 'Point of sale',
+  night_audit: 'Night audit',
+  channel_manager: 'Channel manager',
+  guest_messaging: 'Guest messaging',
+  reports_advanced: 'Advanced reports',
+  b2b_marketplace: 'B2B marketplace',
+  ai_copilot: 'AI copilot',
+  multi_property: 'Multiple properties',
+};
+
+export const LIMIT_LABELS: Record<string, string> = {
+  max_properties: 'Properties',
+  max_rooms: 'Rooms',
+  max_users: 'Users',
+};
+
 // --- Staff console ----------------------------------------------------------
 
 export function isStaff(user: SessionUser | null): boolean {
@@ -916,6 +1550,9 @@ export interface CustomerRow {
   name: string;
   email: string | null;
   phone: string | null;
+  nationality: string | null;
+  country: string | null;
+  vip: boolean;
   firstSeen: string;
   bookings: number;
   nights: number;

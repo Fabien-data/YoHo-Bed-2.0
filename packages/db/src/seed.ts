@@ -10,12 +10,16 @@ import {
 } from '@yohobed/domain';
 import { createDb } from './client';
 import { seedDefaultTemplates } from './default-templates';
+import { seedDefaultPlans } from './default-plans';
 import {
   tenants,
   users,
   memberships,
+  plans,
+  subscriptions,
   properties,
   rooms,
+  roomUnits,
   availabilityCalendar,
   rateCodes,
   ratePlans,
@@ -42,8 +46,29 @@ const OWNER_PASSWORD = 'password123';
 const TENANT_EMAIL = 'tenant@demo.yohobed.test';
 const ROOM_NAME = 'Deluxe Room';
 const QUANTITY = 5;
-const START = '2026-08-01';
-const LAST_ROOM_DATE = '2026-08-10'; // deliberately set to 1 room, for the concurrency demo
+/**
+ * The demo calendar is anchored to TODAY, not to a fixed date.
+ *
+ * A seed pinned to a literal month rots: run it a few weeks later and every screen that asks
+ * "what is happening today" — Stay View, Room View, Reservations, unsettled folios — comes up
+ * empty, which reads as a broken build rather than as stale data. Starting a week back gives the
+ * demo departed guests, in-house guests and future arrivals all at once.
+ */
+const SEED_DAYS = 45;
+const START = shiftDate(new Date().toISOString().slice(0, 10), -7);
+/**
+ * Deliberately squeezed to 1 room, for the overbooking-concurrency demo.
+ *
+ * Kept well clear of the current fortnight: sitting it in the demo week makes ordinary bookings
+ * fail with `insufficient_availability` and reads as a bug rather than as the demo it is.
+ */
+const LAST_ROOM_DATE = shiftDate(START, 25);
+
+function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function dateRange(start: string, days: number): string[] {
   const out: string[] = [];
@@ -119,7 +144,7 @@ try {
   // Availability calendar (reset deterministically): 14 days, 5 rooms/night, except the demo date.
   await db.delete(availabilityCalendar).where(eq(availabilityCalendar.roomId, roomId));
   await db.insert(availabilityCalendar).values(
-    dateRange(START, 14).map((date) => ({
+    dateRange(START, SEED_DAYS).map((date) => ({
       tenantId,
       propertyId,
       roomId,
@@ -166,7 +191,7 @@ try {
   const structure = { type: 'percentage' as const, percentage: 10 };
   await db.delete(rateCalendar).where(eq(rateCalendar.occupancyId, occ!.id));
   await db.insert(rateCalendar).values(
-    dateRange(START, 14).map((date) => {
+    dateRange(START, SEED_DAYS).map((date) => {
       const base = isWeekend(date) ? 25000 : 18000; // realistic LKR nightly base
       const priced = priceDay(base, structure, 18);
       return {
@@ -267,7 +292,7 @@ try {
   const taxRoomId = taxRoom!.id;
   await db.delete(availabilityCalendar).where(eq(availabilityCalendar.roomId, taxRoomId));
   await db.insert(availabilityCalendar).values(
-    dateRange(START, 14).map((date) => ({
+    dateRange(START, SEED_DAYS).map((date) => ({
       tenantId,
       propertyId: taxPropId,
       roomId: taxRoomId,
@@ -301,7 +326,7 @@ try {
   }
   await db.delete(rateCalendar).where(eq(rateCalendar.occupancyId, taxOcc!.id));
   await db.insert(rateCalendar).values(
-    dateRange(START, 14).map((date) => {
+    dateRange(START, SEED_DAYS).map((date) => {
       const base = isWeekend(date) ? 25000 : 18000;
       const commission = computeCommission(base, slabStructure);
       const commissionable = sellingPrice(base, commission, 18);
@@ -345,12 +370,50 @@ try {
   await db.delete(templates).where(eq(templates.tenantId, tenantId));
   await seedDefaultTemplates(db, tenantId);
 
+  // Physical rooms. Numbered across the whole property (01..NN) the way Yanolja numbers them,
+  // matching exactly what migration 0020 back-fills for existing data.
+  for (const pid of [propertyId, taxPropId]) {
+    const propRooms = await db
+      .select()
+      .from(rooms)
+      .where(eq(rooms.propertyId, pid))
+      .orderBy(rooms.createdAt, rooms.id);
+    let n = 0;
+    const units = propRooms.flatMap((r) =>
+      Array.from({ length: r.quantity }, () => {
+        n += 1;
+        return {
+          tenantId,
+          propertyId: pid,
+          roomId: r.id,
+          code: String(n).padStart(2, '0'),
+          displayOrder: n,
+        };
+      }),
+    );
+    if (units.length > 0) {
+      await db.insert(roomUnits).values(units).onConflictDoNothing();
+    }
+  }
+
   // Channel-manager room-code mappings (Compartment F) — routes webhook pushes to our rooms.
   await db.delete(cmRoomMappings).where(eq(cmRoomMappings.tenantId, tenantId));
   await db.insert(cmRoomMappings).values([
     { tenantId, propertyId, roomId, code: 'CM-DLX-001' },
     { tenantId, propertyId: taxPropId, roomId: taxRoomId, code: 'CM-OCN-101' },
   ]);
+
+  // Subscription catalogue (global) + put the demo tenant on Enterprise so every gated module is
+  // reachable in dev. Real tenants are placed on a plan by staff at approval time.
+  await seedDefaultPlans(db);
+  const [enterprise] = await db.select().from(plans).where(eq(plans.code, 'enterprise'));
+  await db
+    .insert(subscriptions)
+    .values({ tenantId, planId: enterprise!.id, status: 'active', seats: 10 })
+    .onConflictDoUpdate({
+      target: subscriptions.tenantId,
+      set: { planId: enterprise!.id, status: 'active', updatedAt: new Date() },
+    });
 
   // Cross-tenant YoHo staff user (tenantId null) for the staff console.
   const STAFF_EMAIL = 'staff@yohobed.test';

@@ -1,4 +1,5 @@
 export * from './identity';
+export * from './billing';
 export * from './inventory';
 export * from './rates';
 export * from './tax';
@@ -12,3 +13,5 @@ export * from './audit';
 export * from './ota';
 export * from './profile';
 export * from './crm';
+export * from './housekeeping';
+export * from './folio';

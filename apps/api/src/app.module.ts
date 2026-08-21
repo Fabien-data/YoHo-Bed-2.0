@@ -3,7 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
+import { BillingModule } from './billing/billing.module';
 import { PropertiesModule } from './properties/properties.module';
+import { StayViewModule } from './stayview/stayview.module';
+import { HousekeepingModule } from './housekeeping/housekeeping.module';
+import { FolioModule } from './folio/folio.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { RatesModule } from './rates/rates.module';
 import { BookingsModule } from './bookings/bookings.module';
@@ -27,8 +31,12 @@ import { HealthController } from './health/health.controller';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     DatabaseModule,
     AuthModule,
+    BillingModule,
     PropertiesModule,
     InventoryModule,
+    StayViewModule,
+    HousekeepingModule,
+    FolioModule,
     RatesModule,
     BookingsModule,
     DistributionModule,

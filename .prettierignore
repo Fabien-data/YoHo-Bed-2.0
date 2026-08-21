@@ -11,3 +11,6 @@ uploads-test/
 # Drizzle owns these: SQL migrations and journal/snapshot metadata are generated artifacts,
 # and reformatting them would churn the migration hashes.
 packages/db/drizzle/
+uploads-e2e/
+test-results/
+playwright-report/

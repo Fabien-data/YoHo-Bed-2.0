@@ -5,11 +5,13 @@ import {
   text,
   integer,
   numeric,
+  boolean,
   date,
   timestamp,
+  unique,
 } from 'drizzle-orm/pg-core';
 import { tenants, properties } from './identity';
-import { rooms } from './inventory';
+import { rooms, roomUnits } from './inventory';
 import { occupancies } from './rates';
 
 /**
@@ -49,6 +51,19 @@ export const customers = pgTable('customers', {
   name: text('name').notNull(),
   email: text('email'),
   phone: text('phone'),
+  // Guest depth — what a registration card and a police/immigration report need, and what the
+  // front desk fills in at check-in. All nullable: an OTA booking arrives with a name and little
+  // else, and demanding more would block the check-in it is meant to support.
+  nationality: text('nationality'),
+  idType: text('id_type'),
+  idNumber: text('id_number'),
+  dateOfBirth: date('date_of_birth'),
+  address: text('address'),
+  city: text('city'),
+  country: text('country'),
+  /** Flags the guest across every screen — Yanolja's crown badge on the room card. */
+  vip: boolean('vip').notNull().default(false),
+  notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -71,6 +86,8 @@ export const bookings = pgTable('bookings', {
   customerId: uuid('customer_id')
     .notNull()
     .references(() => customers.id),
+  /** Set when this booking is one leg of a multi-room group (Yanolja's Group ID). */
+  groupId: uuid('group_id'),
   reference: text('reference').notNull().unique(),
   checkin: date('checkin').notNull(),
   checkout: date('checkout').notNull(),
@@ -101,6 +118,66 @@ export const bookings = pgTable('bookings', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * A group of sibling reservations — Yanolja's "Group ID", the thing that makes `3359-1` and
+ * `3359-2` show up together in one Group Reservation List panel.
+ *
+ * Grouping is presentational: it never merges the money. Each member booking keeps its own
+ * amount, folio and lifecycle.
+ */
+export const bookingGroups = pgTable('booking_groups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  propertyId: uuid('property_id')
+    .notNull()
+    .references(() => properties.id, { onDelete: 'cascade' }),
+  /** Short human reference shown on the card, e.g. "414". */
+  code: text('code').notNull(),
+  name: text('name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One physical room on a booking — the thing a tape-chart bar actually represents.
+ *
+ * A booking with `rooms = 3` gets three legs. Money stays entirely on `bookings`/`booking_days`,
+ * so `@yohobed/domain` is untouched by any of this; a leg only carries where the guests sleep.
+ *
+ * `roomUnitId` is nullable: an OTA reservation arrives unassigned, and the front desk assigns it
+ * later (or `auto-assign` does). `releasedAt` is stamped when the booking is cancelled or
+ * rejected — that frees the unit for re-sale while preserving which unit it had been given, and
+ * it is what the double-booking exclusion constraint keys off.
+ */
+export const bookingRooms = pgTable(
+  'booking_rooms',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    bookingId: uuid('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'cascade' }),
+    roomUnitId: uuid('room_unit_id').references(() => roomUnits.id, { onDelete: 'set null' }),
+    /** 0-based position within the booking, so legs have a stable order. */
+    legIndex: integer('leg_index').notNull().default(0),
+    /** Denormalised from the booking so the exclusion constraint can be expressed on this row. */
+    checkin: date('checkin').notNull(),
+    checkout: date('checkout').notNull(),
+    adults: integer('adults').notNull().default(1),
+    children: integer('children').notNull().default(0),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    bookingLegUnique: unique('booking_rooms_booking_leg_uq').on(t.bookingId, t.legIndex),
+  }),
+);
 
 /** Day-wise price snapshot at the moment of booking (for audit + parity). */
 export const bookingDays = pgTable('booking_days', {

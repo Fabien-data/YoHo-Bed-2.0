@@ -234,3 +234,85 @@ DROP POLICY IF EXISTS tenant_isolation ON ari_history;
 CREATE POLICY tenant_isolation ON ari_history
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Subscriptions & entitlements (Yanolja-parity Sprint 0).
+-- `plans` deliberately has NO RLS: it is a global product catalogue, identical for every tenant
+-- and safe to read. Only staff may write it, which is enforced by RolesGuard in the API.
+
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON subscriptions;
+CREATE POLICY tenant_isolation ON subscriptions
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE tenant_features ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON tenant_features;
+CREATE POLICY tenant_isolation ON tenant_features
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Room units, booking legs, groups and maintenance blocks (Yanolja-parity Sprint 2).
+
+ALTER TABLE room_units ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON room_units;
+CREATE POLICY tenant_isolation ON room_units
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_rooms;
+CREATE POLICY tenant_isolation ON booking_rooms
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_groups ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_groups;
+CREATE POLICY tenant_isolation ON booking_groups
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE maintenance_blocks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON maintenance_blocks;
+CREATE POLICY tenant_isolation ON maintenance_blocks
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Housekeeping and work orders (Yanolja-parity Sprint 4).
+
+ALTER TABLE housekeeping_status ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON housekeeping_status;
+CREATE POLICY tenant_isolation ON housekeeping_status
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON work_orders;
+CREATE POLICY tenant_isolation ON work_orders
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Folio, charges and transfers (Yanolja-parity Sprint 5).
+
+ALTER TABLE folios ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON folios;
+CREATE POLICY tenant_isolation ON folios
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE charge_particulars ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON charge_particulars;
+CREATE POLICY tenant_isolation ON charge_particulars
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE folio_charges ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON folio_charges;
+CREATE POLICY tenant_isolation ON folio_charges
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE folio_transfers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON folio_transfers;
+CREATE POLICY tenant_isolation ON folio_transfers
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

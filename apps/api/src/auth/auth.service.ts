@@ -11,6 +11,8 @@ import bcrypt from 'bcryptjs';
 import {
   users,
   memberships,
+  plans,
+  subscriptions,
   passwordResets,
   tenants,
   seedDefaultTemplates,
@@ -120,6 +122,17 @@ export class AuthService {
       // `templates` is RLS-fenced, so adopt the just-created tenant's context for this insert.
       await setTenantContext(tx, t!.id);
       await seedDefaultTemplates(tx, t!.id);
+
+      // Every tenant needs a subscription row. Entitlements are deny-by-default, so a tenant
+      // without one is entitled to nothing — a signup that lands in that state can open the app
+      // and find every gated module refused. New sign-ups start on a trial of the entry plan.
+      const [starter] = await tx.select().from(plans).where(eq(plans.code, 'starter'));
+      if (starter) {
+        await tx
+          .insert(subscriptions)
+          .values({ tenantId: t!.id, planId: starter.id, status: 'trialing' })
+          .onConflictDoNothing();
+      }
       return t!;
     });
 

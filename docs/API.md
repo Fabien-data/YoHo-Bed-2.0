@@ -70,6 +70,133 @@
 | `GET /rooms/:id/ari-history`                                  | JWT+Tenant | Last 100 ARI changes (kind availability/price/drop/restriction, date range, detail, actor email).                                                                                |
 | `POST /rooms/:id/reserve` · `POST /rooms/:id/release`         | JWT+Tenant | Raw inventory adjust (the booking flow uses these internally). Reserve is atomic — `409 insufficient_availability` if any night can't supply. Release caps at physical quantity. |
 
+## Physical rooms & assignment
+
+`rooms` is the sellable bucket; `room_units` are the numbered rooms inside it. A booking gets one
+`booking_rooms` **leg** per physical room, created unassigned — an OTA reservation has no opinion
+about which room, and a walk-in is placed at the desk.
+
+| Method & path                                   | Auth       | Purpose                                                                                                                                                                                          |
+| ----------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /properties/:propertyId/room-units`        | JWT+Tenant | Every physical room, ordered by number, with the room type it belongs to.                                                                                                                        |
+| `GET /properties/:propertyId/room-units/counts` | JWT+Tenant | Per room type: sellable `quantity` vs `activeUnits`/`totalUnits`. A setup warning, not an error — a room out of service legitimately makes them differ.                                          |
+| `POST /properties/:propertyId/room-units`       | JWT+Tenant | Create one. **409** on a duplicate code within the property. `displayOrder` defaults to the numeric part of the code, so "07" sorts between 06 and 08.                                           |
+| `PATCH /room-units/:id`                         | JWT+Tenant | Rename/renumber, set floor/notes, or take out of service. **409** when deactivating a room that still has current or future reservations.                                                        |
+| `GET /bookings/:id/rooms`                       | JWT+Tenant | The booking's legs and the room each holds.                                                                                                                                                      |
+| `POST /bookings/:id/assign`                     | JWT+Tenant | `{ assignments: [{ legId, roomUnitId }] }`. `roomUnitId: null` un-assigns. **409** if the room is occupied or blocked for those dates, **400** if it is a different room type or out of service. |
+| `POST /bookings/:id/auto-assign`                | JWT+Tenant | Fill every unassigned leg with the lowest-numbered free room. Returns `{ assigned, unassigned, legs }` — **partial success is deliberate**, so three of four rooms still get placed.             |
+
+Conflicts are decided by the database, not by a pre-check: an exclusion constraint on
+`booking_rooms` makes an overlapping assignment impossible, closing the same race that
+`rooms_to_sell >= 0` closes for buckets. Two agents assigning the last free room at the same
+moment cannot both win. Half-open ranges mean a **same-day turnover is allowed**.
+
+Cancelling or rejecting a booking releases its rooms; `NoShow` deliberately does not. Amending a
+booking un-assigns its legs and re-shapes them to the new dates and room count, so the desk (or
+auto-assign) places the guest again — stretching a stay into dates its current room is not free
+for would otherwise fail the whole amendment.
+
+## Stay view (the tape chart)
+
+| Method & path                         | Auth       | Purpose                                                                                                                                                                                                         |
+| ------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /stayview?propertyId&from&to`    | JWT+Tenant | The whole chart for a date window in one request: room types -> rooms -> bars, per-date availability and rate, the metric footer, and the counted chips. `to` is exclusive; the window is capped at 120 nights. |
+| `GET /properties/:propertyId/blocks`  | JWT+Tenant | Maintenance blocks on the property, including released ones.                                                                                                                                                    |
+| `POST /properties/:propertyId/blocks` | JWT+Tenant | Take a room out of service. **409** if it overlaps another block, or if a guest is in the room over those dates.                                                                                                |
+| `PATCH /blocks/:id`                   | JWT+Tenant | Move or re-word a block. Same conflict rules.                                                                                                                                                                   |
+| `POST /blocks/:id/release`            | JWT+Tenant | "Unblock room" — puts it back in service without erasing that it was ever blocked.                                                                                                                              |
+
+The chart is assembled server-side rather than stitched together in the browser from six endpoints:
+Stay View is one dense screen and it has to feel instant. Everything is bounded by one property and
+the window, so the payload stays small even for a large hotel.
+
+**Occupancy is divided by SELLABLE rooms, not physical ones.** An eight-room property with one
+blocked and five sold reads **71%** (5/7), not 63% (5/8) — reproduced exactly from Yanolja, where
+the same arithmetic is visible in the screenshots. `availableInventory` follows the same rule:
+`(totalRooms - blocked) - soldRooms`.
+
+Legs with no room yet come back in a separate `unassigned` array rather than attached to a room —
+Yanolja's "Default Unmapped Room" strip. `counts` is computed for the **first date** in the
+window, which is the business date the user picked. There is no `dirty` count until housekeeping
+lands in Sprint 4; a chip permanently reading zero would be worse than no chip.
+
+## Reservations, groups & the registration card
+
+| Method & path                                 | Auth       | Purpose                                                                                                                                                        |
+| --------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /reservations?propertyId&date&tab&q`     | JWT+Tenant | One tab's rows **plus every tab's count**. Tabs: `all`, `arrivals`, `departures`, `inhouse`, `cancelled`. `q` searches reference, guest name, email and phone. |
+| `GET /bookings/:id/registration-card`         | JWT+Tenant | Everything a printed GR card needs — guest, property, rooms and charges.                                                                                       |
+| `POST /properties/:propertyId/booking-groups` | JWT+Tenant | Make a group from **two or more** bookings. **400** if any already belongs to a group, unless `force`.                                                         |
+| `GET /booking-groups/:id`                     | JWT+Tenant | The group and its members — the Group Reservation List panel.                                                                                                  |
+| `POST /booking-groups/:id/merge`              | JWT+Tenant | Add more bookings to an existing group.                                                                                                                        |
+| `DELETE /bookings/:id/group`                  | JWT+Tenant | Take one booking out of its group. The group survives even if it empties.                                                                                      |
+
+Counts come back on **every** request, not just for the active tab: the numbers are the
+navigation — staff pick a tab _because_ it says 4 — and a stale count sends them to an empty
+screen. One `tabFilter` defines each tab for both the counts and the rows, so the two cannot
+diverge.
+
+**Grouping never merges the money.** It writes `bookings.group_id` and nothing else; each member
+keeps its own amount, folio and lifecycle. The group `total` is a presentational sum of
+independent bookings, not a combined folio. That is what lets Yanolja's `3359-1` / `3359-2`
+presentation exist without changing how anything is priced or settled.
+
+`PATCH /customers/:id` records the guest depth the card and reporting need — nationality, ID type
+and number, date of birth, address and the VIP flag. Every field is optional: an OTA booking
+arrives with a name and little else, and demanding more would block the check-in this supports.
+
+## Room view & housekeeping
+
+| Method & path                                                     | Auth       | Purpose                                                                                                |
+| ----------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /room-view?propertyId&date`                                  | JWT+Tenant | Every room as a card: derived state, housekeeping flag, the stay in it, VIP/balance/work-order badges. |
+| `GET /house-status/summary?propertyId&date`                       | JWT+Tenant | Counts for the status chips.                                                                           |
+| `POST /properties/:propertyId/housekeeping`                       | JWT+Tenant | Set a room's housekeeping state for a date. Upserts — rows are created lazily.                         |
+| `POST /properties/:propertyId/housekeeping/mark-departures-dirty` | JWT+Tenant | The morning sweep: every room a guest left today becomes dirty, and no others.                         |
+| `GET` / `POST /properties/:propertyId/work-orders`                | JWT+Tenant | Maintenance jobs. **Pro and above.**                                                                   |
+| `PATCH /work-orders/:id`                                          | JWT+Tenant | Update or complete one. **409** on reopening a completed order. **Pro and above.**                     |
+
+Room View and the House Status grid share one code path — they are the same data rendered two
+ways, so the two screens cannot disagree about whether room 05 is dirty.
+
+**Entitlements.** Housekeeping is in every plan; even a one-property Starter hotel has to clean
+rooms. Work orders are Pro and above, so those three routes carry their own `@Feature` —
+method-level metadata overrides the controller default in `EntitlementGuard`.
+
+Every tenant has a subscription: migration `0022` grandfathers the pre-existing ones onto
+Enterprise, and registration provisions a Starter trial. That matters because entitlements are
+deny-by-default — a tenant with no subscription row is entitled to nothing, which was harmless
+only while nothing was gated.
+
+## Folio — the guest bill
+
+| Method & path                                | Auth       | Purpose                                                                                                      |
+| -------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| `GET /bookings/:id/folio`                    | JWT+Tenant | Every window, its lines, its payments and its balance. Window 1 is created on demand.                        |
+| `POST /bookings/:id/folio/post-room-charges` | JWT+Tenant | Copy the room charges off the `booking_days` snapshot. **Idempotent** — returns `{posted, skipped}`.         |
+| `POST /bookings/:id/folio/windows`           | JWT+Tenant | Open another window (the company bill beside the guest's).                                                   |
+| `POST /folios/:id/charges`                   | JWT+Tenant | Post an extra, from the catalogue or spelled out. Anything given explicitly overrides the catalogue default. |
+| `POST /folio-charges/:id/void`               | JWT+Tenant | Reverse a line. **409** if already voided.                                                                   |
+| `POST /folio-charges/transfer`               | JWT+Tenant | Split the bill. **400** across bookings or into a closed window.                                             |
+| `POST /folios/:id/payments`                  | JWT+Tenant | Take money against a window. Recorded in `payments`.                                                         |
+| `POST /folios/:id/close?force=`              | JWT+Tenant | Close a window. **409** on a non-zero balance unless `force=true`.                                           |
+| `GET /folios/unsettled?propertyId`           | JWT+Tenant | Every stay that still owes money, **in-house first**.                                                        |
+| `GET` / `POST /charge-particulars`           | JWT+Tenant | The chargeable-item catalogue. **409** on a duplicate code.                                                  |
+
+All of it is **Pro and above** — a Starter hotel gets the front desk, not the cashier.
+
+**Room charges are copied from `booking_days`, never recomputed**, and the snapshot is per room
+per night, so lines are multiplied by `bookings.rooms`. The posted lines therefore sum to
+`bookings.amount` to the cent — asserted in a test, because a folio that disagrees with settlement
+is the worst class of bug this system can have.
+
+Closing refuses a non-zero balance by default: closing a bill someone still owes money on is how a
+hotel loses revenue silently. `force=true` is the deliberate override for a write-off or an
+externally settled balance.
+
+Room charges are posted explicitly for now. Automatic nightly posting belongs to night audit
+(Sprint 7), which is when the business date actually rolls.
+
 ## Rates & pricing
 
 | Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |
@@ -219,6 +346,24 @@ All routes: **Roles** (`YOHO_STAFF` / `YOHO_ADMIN`). Every action is written to 
 | `GET /staff/tenants/:id/properties`                          | A tenant's properties with base `currency`, booking count, and `locked` (mirrors the rule below).                                                                                                                                         |
 | `POST /staff/tenants/:id/properties/:pid/currency`           | Set the property's base currency (`LKR`/`USD` only). **409 `currency_locked`** once the property has bookings — their amounts are denominated in the old currency, so a change would reinterpret history. Audited as `property.currency`. |
 | `GET /staff/audit`                                           | Recent audit entries (actor, action, entity, detail).                                                                                                                                                                                     |
+| `POST /staff/tenants/:tenantId/plan`                         | Move a tenant onto a subscription plan by `{ planCode }`, creating the subscription if absent. **404** on an unknown code. Takes effect on the next request.                                                                              |
+| `POST /staff/tenants/:tenantId/distribution-mode`            | Set `{ mode: 'yoho' \| 'standalone' }`. `standalone` zeroes the YoHo commission for that tenant's pricing.                                                                                                                                |
+
+## Subscription plan & entitlements (`/billing`)
+
+Yanolja's "Know Your Plan", plus the machine-readable entitlement set the web shell uses to decide
+which modules to render. Gated routes elsewhere use `@Feature('…')` + `EntitlementGuard`, which
+runs after `TenantGuard` and returns **403** listing the missing features.
+
+| Method & path               | Auth       | Purpose                                                                                                                                                   |
+| --------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /billing/plans`        | JWT        | The active catalogue, cheapest first (code, name, price, currency, feature document).                                                                     |
+| `GET /billing/plan`         | JWT+Tenant | This tenant's plan, subscription state, `distributionMode` and resolved `entitlements`. A tenant with no subscription returns `plan: null`, not an error. |
+| `GET /billing/entitlements` | JWT+Tenant | Just `{ features, limits }`. Every key is always present; `limits` uses `-1` for unlimited and `0` for not-included.                                      |
+
+Entitlements are **deny-by-default**, and a `cancelled` or `past_due` subscription grants nothing.
+Staff are not exempt — a YoHo staff member acting inside a tenant sees exactly what that tenant
+bought, so support never demonstrates a module the customer cannot use.
 
 ## Distribution health (dev/ops)
 

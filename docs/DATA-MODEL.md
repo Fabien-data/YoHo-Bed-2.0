@@ -42,17 +42,38 @@ erDiagram
 
 ## Identity & tenancy (`schema/identity.ts`)
 
-| Table             | RLS         | Purpose · key constraints                                                                                                                          |
-| ----------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants`         | ➖ registry | A property owner — the root of every ownership chain. Unique `email`; `status` enum `pending/active/inactive/suspended`; `agreement_accepted_at`.  |
-| `users`           | ➖ registry | Login identity. Unique `email`; nullable `tenant_id` (null = cross-tenant YoHo staff); bcrypt `password_hash`.                                     |
-| `memberships`     | ➖ registry | What a user may do, where. Role enum `OWNER/OWNER_STAFF/YOHO_STAFF/YOHO_ADMIN`; staff rows have `tenant_id = null`; unique `(user_id, tenant_id)`. |
-| `sessions`        | ➖ registry | Opaque token hashes (reserved for refresh flows).                                                                                                  |
-| `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                               |
-| `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived.                    |
+| Table             | RLS         | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants`         | ➖ registry | A property owner — the root of every ownership chain. Unique `email`; `status` enum `pending/active/inactive/suspended`; `agreement_accepted_at`.                                                                                                                                                                                                                                                                       |
+| `users`           | ➖ registry | Login identity. Unique `email`; nullable `tenant_id` (null = cross-tenant YoHo staff); bcrypt `password_hash`.                                                                                                                                                                                                                                                                                                          |
+| `memberships`     | ➖ registry | What a user may do, where. Role enum `OWNER/OWNER_STAFF/YOHO_STAFF/YOHO_ADMIN`; staff rows have `tenant_id = null`; unique `(user_id, tenant_id)`.                                                                                                                                                                                                                                                                      |
+| `sessions`        | ➖ registry | Opaque token hashes (reserved for refresh flows).                                                                                                                                                                                                                                                                                                                                                                       |
+| `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived. Plus its identity & operating parameters: `code` (the number shown beside the name), address block (`address/city/state/country/zip`), `phone`, `email`, `timezone` (what night audit rolls the business date against), `checkin_time`/`checkout_time`, `star_rating`, `logo_media_id`. |
 
 Identity tables are the tenancy _registry_ — they're what the guards consult to build the tenant
 context, so they can't themselves sit behind it. Access is confined to auth/staff code paths.
+
+`tenants.distribution_mode` (`yoho`\|`standalone`, default `yoho`) decides whether the platform
+commission and payout chain apply at all. A `standalone` tenant bought the PMS as a subscription
+and sells its own inventory, so `commissionStructureFor()` hands the pricing engine a
+zero-percentage structure — the flag selects the _input_, it never branches the maths.
+
+## Subscriptions & entitlements (`schema/billing.ts`)
+
+| Table             | RLS          | Purpose · key constraints                                                                                                                                         |
+| ----------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`           | ➖ catalogue | The sellable tiers. Unique `code`; `price_monthly` + `currency`; `features` jsonb holding a `PlanFeatures` document; `status` `active`\|`archived`; `sort_order`. |
+| `subscriptions`   | ✅           | One row per tenant (unique `tenant_id`) — the tier they are on. `status` `trialing/active/past_due/cancelled`; period dates; `seats`.                             |
+| `tenant_features` | ✅           | Per-tenant override on top of the plan, so support can grant one module off-plan. Unique `(tenant_id, key)`; `enabled`; `limit_value` for the numeric caps.       |
+
+`plans` is deliberately un-fenced: it is a global product catalogue, identical for every tenant and
+safe to read. Only staff may write it, which `RolesGuard` enforces at the API.
+
+Resolution lives in `resolveEntitlements()` in `@yohobed/domain` — plan grants first, tenant
+overrides on top, **deny-by-default** so a newly added feature key is never accidentally live for
+existing subscribers. A cancelled or past-due subscription grants nothing. The API and the web app
+share that one function so they cannot disagree about what a tenant bought.
 
 ## Inventory (`schema/inventory.ts`)
 
@@ -61,6 +82,92 @@ context, so they can't themselves sit behind it. Access is confined to auth/staf
 | `roomtypes`             | ✅  | Per-tenant room category (Deluxe, Suite…).                                                                                                                                                                                                                                                      |
 | `rooms`                 | ✅  | A sellable room type instance. `quantity` = physical count.                                                                                                                                                                                                                                     |
 | `availability_calendar` | ✅  | **The single source of truth for sellable inventory.** Unique `(room_id, date)`; `physical_quantity`; `rooms_to_sell` with **`CHECK (rooms_to_sell >= 0)`** (the overbooking backstop); `status` Open/Close; `min_stay` (default 1) / `max_stay` (0 = unlimited) for arrival-date restrictions. |
+
+### Buckets vs physical rooms
+
+`rooms` is the **sellable bucket** — one row per room-type-per-property with a `quantity`. It is
+what `availability_calendar`, `rate_plans`, `cm_room_mappings` and the outbox all speak, and none
+of that changed when physical rooms arrived.
+
+`room_units` sits beside it and answers what the bucket cannot: which actual room the guest is in.
+That is the prerequisite for Stay View, Room View, room assignment and every housekeeping screen.
+
+| Table                | RLS | Purpose · key constraints                                                                                                                                                    |
+| -------------------- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `room_units`         | ✅  | A physically identifiable room. Unique `(property_id, code)` — codes are property-wide, not per room type. `display_order`, `floor`, `notes`, `status` `active`\|`inactive`. |
+| `maintenance_blocks` | ✅  | A room out of service (the hatched bar on the tape chart). `block_from`/`block_to` half-open, `reason`, `released_at`. Overlapping live blocks on one room are refused.      |
+
+`SUM(active room_units) = rooms.quantity` is deliberately **not** a constraint — a unit taken out
+of service must be allowed to make the two diverge. `GET /properties/:id/room-units/counts`
+surfaces the difference as a setup warning instead.
+
+## Housekeeping (`schema/housekeeping.ts`)
+
+| Table                 | RLS | Purpose · key constraints                                                                                                                                                    |
+| --------------------- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `housekeeping_status` | ✅  | One row per room per **day**. Unique `(room_unit_id, date)`; status `dirty`/`clean`/`inspected`/`out_of_order`; `assigned_to_user_id`, `remarks`, `changed_at`/`changed_by`. |
+| `work_orders`         | ✅  | A maintenance job. Nullable `room_unit_id` — plenty of jobs are the lobby or the lift. `priority`, `status`, `assigned_to_user_id`, `deadline`, `completed_at`.              |
+
+The enum is named `housekeeping_state`, not `housekeeping_status`: Postgres gives every table an
+implicit composite type of the same name, so an enum cannot share its table's name.
+
+**A missing row means `clean`** — a room nobody has touched is not dirty. Rows are created lazily,
+so a 200-room hotel does not accrue 73,000 rows a year for rooms that were never occupied. Keying
+by date rather than holding one "current status" column keeps history, which is what "who cleaned
+05 on the 12th" needs, and what night audit will roll forward.
+
+`out_of_order` here and a `maintenance_blocks` row are deliberately separate. A block reserves
+**dates** — it is what stops the room being assigned next week. This is the state of the room
+**today**. A supervisor marking a room out of order at 9am must not silently cancel next month's
+reservations.
+
+### Room state is derived, never stored
+
+`Vacant / ArrivingToday / Occupied / PendingCheckout / OutOfOrder` is always a function of the
+reservations plus the housekeeping flag. Storing it would create a second source of truth that
+drifts the moment a booking is amended.
+
+One subtlety worth knowing: a guest departing **today** is excluded by the half-open stay overlap
+(`checkout` is exclusive) but is still physically in the room until they leave. That is exactly
+`PendingCheckout`, so it needs its own query rather than falling out of the overlap — the same
+reason Stay View's due-out count is computed separately from the bars it draws.
+
+## Folio — the guest bill (`schema/folio.ts`)
+
+| Table                | RLS | Purpose · key constraints                                                                                                                                    |
+| -------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `folios`             | ✅  | A billing window on a booking. Unique `(booking_id, window)`; `label`, `status` `open`/`closed`/`void`; currency inherited from the booking, never chosen.   |
+| `charge_particulars` | ✅  | The catalogue of chargeable items. Unique `(tenant_id, code)`; `default_price`, `tax_rate_pct`, `tax_inclusive`, `active`.                                   |
+| `folio_charges`      | ✅  | One line on the bill. `net + tax = total`, always. `source` `room`/`manual`/`pos`; `posted_for` is the business date; `voided_at` reverses without deleting. |
+| `folio_transfers`    | ✅  | An audit row per charge moved between windows — the split-bill trail.                                                                                        |
+
+`payments` gains a nullable `folio_id`. Deliberately **not** a separate `folio_payments` table:
+`payments` is already the record of what a guest paid, and a second one would be a second answer
+to "is this settled?".
+
+### Room charges are copied, never recomputed
+
+Posting room charges reads the `booking_days` snapshot and copies it. The money engine already
+decided what each night costs; a second calculation is a second answer waiting to disagree with
+settlement. **The snapshot is per room per night**, so each line is multiplied by
+`bookings.rooms` — which is why the posted lines sum to `bookings.amount` exactly. That equality
+is asserted in `folio.e2e.test.ts` and is the load-bearing guarantee of the folio.
+
+Posting is idempotent through a partial unique index:
+
+```sql
+CREATE UNIQUE INDEX folio_charges_room_night_uq
+  ON folio_charges (folio_id, booking_date)
+  WHERE (source = 'room' AND voided_at IS NULL);
+```
+
+Excluding voided rows is what lets a wrongly-posted night be reversed and re-posted, while still
+making a double-post impossible.
+
+Extras follow the room rate's convention: a **tax-inclusive** price has its tax decomposed out of
+the total, so a bill never mixes tax-in and tax-on lines. Voiding stamps `voided_at` rather than
+deleting — a bill that silently loses a line is worse than one showing a line was reversed, and
+the guest's copy may already be printed.
 
 ## Rates & tax (`schema/rates.ts`, `schema/tax.ts`)
 
@@ -85,6 +192,29 @@ context, so they can't themselves sit behind it. Access is confined to auth/staf
 | `booking_days`      | ✅        | **Per-night price snapshot at booking time** (base/selling/commission/tax) — the audit + settlement source, immune to later rate edits.                                                                                                                                                                                                               |
 | `booking_approvals` | ✅        | Lifecycle audit trail (created/approved/rejected/cancelled/no_show/checked_in/checked_out/amended + reason + actor).                                                                                                                                                                                                                                  |
 | `booking_counters`  | ➖ global | Per-day counter behind `nextBookingReference` — references are globally unique like legacy.                                                                                                                                                                                                                                                           |
+| `booking_rooms`     | ✅        | **One leg per physical room** — what a tape-chart bar actually is. Nullable `room_unit_id` (unassigned), `leg_index` unique per booking, denormalised `checkin`/`checkout`, `adults`/`children`, `released_at`.                                                                                                                                       |
+| `booking_groups`    | ✅        | Sibling reservations under one Group ID (Yanolja's `3359-1` / `3359-2`). Purely presentational — it never merges the money.                                                                                                                                                                                                                           |
+
+### Why legs, and why the money stays on the booking
+
+A booking with `rooms = 3` gets three `booking_rooms` legs. Money remains entirely on `bookings`
+and `booking_days`, so **`@yohobed/domain` is untouched** by physical rooms — a leg only records
+where the guests sleep. Yanolja instead splits a multi-room booking into sibling reservations
+under a Group ID; `booking_groups` reproduces that presentation without splitting the money.
+
+**Double-booking a physical room is structurally impossible**, the same way `rooms_to_sell >= 0`
+makes overselling a bucket impossible:
+
+```sql
+EXCLUDE USING gist (room_unit_id WITH =, daterange(checkin, checkout, '[)') WITH &&)
+  WHERE (room_unit_id IS NOT NULL AND released_at IS NULL)
+```
+
+Three consequences worth knowing. Ranges are **half-open**, so a same-day turnover (one guest out,
+the next in) is allowed rather than flagged as a clash. **Unassigned** legs hold no room, so any
+number may coexist. And cancelling stamps `released_at` rather than nulling `room_unit_id` — the
+room is freed for re-sale while "which room was that cancellation in?" stays answerable.
+`NoShow` deliberately does **not** release: the room was held for a guest who never arrived.
 
 ## Commercial (`schema/commercial.ts`)
 
@@ -175,6 +305,11 @@ context, so they can't themselves sit behind it. Access is confined to auth/staf
 | 0016 | Compartment I: availability min_stay/max_stay, ari_history, reviews, review_invites          |
 | 0017 | Multi-currency: properties.currency, bookings.fx_rate_to_lkr, exchange_rates                 |
 | 0018 | Multi-currency: payments.currency, payouts.currency                                          |
+| 0019 | SaaS: plans, subscriptions, tenant_features, tenants.distribution_mode, property detail cols |
+| 0020 | Room units: room_units, booking_rooms, booking_groups, maintenance_blocks + back-fill        |
+| 0021 | Housekeeping: housekeeping_status, work_orders + guest-depth columns on customers            |
+| 0022 | Data-only: grandfathers every existing tenant onto an enterprise subscription                |
+| 0023 | Folio: folios, charge_particulars, folio_charges, folio_transfers, payments.folio_id         |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

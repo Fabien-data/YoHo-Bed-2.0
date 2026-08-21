@@ -38,3 +38,9 @@ Thumbs.db
 
 # Local media storage (Compartment H photos)
 apps/api/uploads/
+
+# Playwright — browser E2E artifacts (traces, screenshots, HTML report)
+apps/web-extranet/test-results/
+apps/web-extranet/playwright-report/
+apps/web-extranet/blob-report/
+apps/api/uploads-e2e/
