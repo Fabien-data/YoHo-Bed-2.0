@@ -69,10 +69,18 @@ export const NAV: NavGroup[] = [
         docsUrl: 'PLACEHOLDER',
         feature: 'room_view',
       },
+      // Two screens on purpose: this one searches, groups and prints; the next one is where a
+      // booking is actually created and moved through its lifecycle.
       {
-        href: '/app/bookings',
+        href: '/app/reservations',
         label: 'Reservations',
         icon: CalendarRange,
+        docsUrl: 'PLACEHOLDER',
+      },
+      {
+        href: '/app/bookings',
+        label: 'Check-in & walk-ins',
+        icon: ClipboardList,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455817c99a4feb8f4ad73c3',
       },
     ],

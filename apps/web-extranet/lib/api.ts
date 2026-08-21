@@ -804,6 +804,165 @@ export function updateWorkOrder(
   return apiFetch(`/work-orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+// --- Reservations screen -----------------------------------------------------
+
+export type ReservationTab = 'all' | 'arrivals' | 'departures' | 'inhouse' | 'cancelled';
+
+export interface ReservationRow {
+  id: string;
+  reference: string;
+  status: string;
+  source: string;
+  channel: string | null;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  rooms: number;
+  amount: string;
+  currency: string;
+  groupId: string | null;
+  groupCode: string | null;
+  groupName: string | null;
+  customerId: string;
+  guestName: string;
+  guestEmail: string | null;
+  guestPhone: string | null;
+  vip: boolean;
+  roomCodes: string[];
+  balanceDue: boolean;
+  createdAt: string;
+}
+
+export interface ReservationList {
+  date: string;
+  tab: ReservationTab;
+  counts: Record<ReservationTab, number>;
+  rows: ReservationRow[];
+}
+
+export function getReservations(params: {
+  propertyId: string;
+  date: string;
+  tab?: ReservationTab;
+  q?: string;
+  groupsOnly?: boolean;
+}): Promise<ReservationList> {
+  const sp = new URLSearchParams({ propertyId: params.propertyId, date: params.date });
+  if (params.tab) sp.set('tab', params.tab);
+  if (params.q) sp.set('q', params.q);
+  if (params.groupsOnly) sp.set('groupsOnly', 'true');
+  return apiFetch<ReservationList>(`/reservations?${sp.toString()}`);
+}
+
+export interface BookingGroup {
+  id: string;
+  code: string;
+  name: string | null;
+  memberCount: number;
+  total: string;
+  members: Array<{
+    id: string;
+    reference: string;
+    status: string;
+    checkin: string;
+    checkout: string;
+    rooms: number;
+    amount: string;
+    currency: string;
+    guestName: string;
+  }>;
+}
+
+export function makeBookingGroup(
+  propertyId: string,
+  body: { bookingIds: string[]; name?: string; force?: boolean },
+): Promise<BookingGroup> {
+  return apiFetch(`/properties/${propertyId}/booking-groups`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getBookingGroup(id: string): Promise<BookingGroup> {
+  return apiFetch(`/booking-groups/${id}`);
+}
+
+export function mergeBookingGroup(id: string, bookingIds: string[]): Promise<BookingGroup> {
+  return apiFetch(`/booking-groups/${id}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ bookingIds }),
+  });
+}
+
+export function leaveBookingGroup(bookingId: string): Promise<unknown> {
+  return apiFetch(`/bookings/${bookingId}/group`, { method: 'DELETE' });
+}
+
+export interface RegistrationCard {
+  reference: string;
+  status: string;
+  source: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  rooms: number;
+  amount: string;
+  taxes: string;
+  currency: string;
+  guest: {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    nationality: string | null;
+    idType: string | null;
+    idNumber: string | null;
+    dateOfBirth: string | null;
+    address: string | null;
+    city: string | null;
+    country: string | null;
+    vip: boolean;
+  };
+  property: {
+    name: string;
+    code: string | null;
+    address: string | null;
+    city: string | null;
+    country: string | null;
+    phone: string | null;
+    email: string | null;
+    checkinTime: string | null;
+    checkoutTime: string | null;
+  };
+  legs: Array<{ legIndex: number; code: string | null; adults: number; children: number }>;
+}
+
+export function getRegistrationCard(bookingId: string): Promise<RegistrationCard> {
+  return apiFetch(`/bookings/${bookingId}/registration-card`);
+}
+
+export interface GuestProfile {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  nationality: string | null;
+  idType: string | null;
+  idNumber: string | null;
+  dateOfBirth: string | null;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  vip: boolean;
+  notes: string | null;
+}
+
+export function updateCustomer(
+  id: string,
+  body: Partial<Omit<GuestProfile, 'id'>>,
+): Promise<GuestProfile> {
+  return apiFetch(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
 // --- Subscription plan & entitlements ---------------------------------------
 
 export interface CataloguePlan {
@@ -1235,6 +1394,9 @@ export interface CustomerRow {
   name: string;
   email: string | null;
   phone: string | null;
+  nationality: string | null;
+  country: string | null;
+  vip: boolean;
   firstSeen: string;
   bookings: number;
   nights: number;

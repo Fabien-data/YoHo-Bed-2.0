@@ -120,6 +120,31 @@ Yanolja's "Default Unmapped Room" strip. `counts` is computed for the **first da
 window, which is the business date the user picked. There is no `dirty` count until housekeeping
 lands in Sprint 4; a chip permanently reading zero would be worse than no chip.
 
+## Reservations, groups & the registration card
+
+| Method & path                                 | Auth       | Purpose                                                                                                                                                        |
+| --------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /reservations?propertyId&date&tab&q`     | JWT+Tenant | One tab's rows **plus every tab's count**. Tabs: `all`, `arrivals`, `departures`, `inhouse`, `cancelled`. `q` searches reference, guest name, email and phone. |
+| `GET /bookings/:id/registration-card`         | JWT+Tenant | Everything a printed GR card needs — guest, property, rooms and charges.                                                                                       |
+| `POST /properties/:propertyId/booking-groups` | JWT+Tenant | Make a group from **two or more** bookings. **400** if any already belongs to a group, unless `force`.                                                         |
+| `GET /booking-groups/:id`                     | JWT+Tenant | The group and its members — the Group Reservation List panel.                                                                                                  |
+| `POST /booking-groups/:id/merge`              | JWT+Tenant | Add more bookings to an existing group.                                                                                                                        |
+| `DELETE /bookings/:id/group`                  | JWT+Tenant | Take one booking out of its group. The group survives even if it empties.                                                                                      |
+
+Counts come back on **every** request, not just for the active tab: the numbers are the
+navigation — staff pick a tab _because_ it says 4 — and a stale count sends them to an empty
+screen. One `tabFilter` defines each tab for both the counts and the rows, so the two cannot
+diverge.
+
+**Grouping never merges the money.** It writes `bookings.group_id` and nothing else; each member
+keeps its own amount, folio and lifecycle. The group `total` is a presentational sum of
+independent bookings, not a combined folio. That is what lets Yanolja's `3359-1` / `3359-2`
+presentation exist without changing how anything is priced or settled.
+
+`PATCH /customers/:id` records the guest depth the card and reporting need — nationality, ID type
+and number, date of birth, address and the VIP flag. Every field is optional: an OTA booking
+arrives with a name and little else, and demanding more would block the check-in this supports.
+
 ## Room view & housekeeping
 
 | Method & path                                                     | Auth       | Purpose                                                                                                |

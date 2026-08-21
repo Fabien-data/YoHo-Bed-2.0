@@ -14,8 +14,8 @@
 | 1      | 0 Foundations   | Design system + Yanolja app shell      | ✅ **Done**    |
 | 2      | 1 Front desk    | Room units + live migration            | ✅ **Done**    |
 | 3      | 1 Front desk    | Stay View tape chart                   | ✅ **Done**    |
-| 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | 🟡 Partial²    |
-| 5      | 2 Money core    | Folio + charge posting                 | ⬜ Not started |
+| 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ✅ **Done**    |
+| 5      | 2 Money core    | Folio + charge posting                 | ⏳ Next        |
 | 6      | 2 Money core    | Cashiering, ledgers, POS               | ⬜ Not started |
 | 7      | 2 Money core    | Night audit                            | ⬜ Not started |
 | 8      | 3 Rates & dist. | The 7-tab ARI grid                     | ⬜ Not started |
@@ -25,10 +25,6 @@
 | 14+    | 6 AI            | MCP, Copilot, Revenue Manager, Healer  | ⬜ Not started |
 
 ¹ Blocked on receiving Yanolja Snapshots Part 02 — see "Open items" below.
-
-² Housekeeping, work orders, Room View and guest-depth columns are done. The Reservations
-rebuild (Individual/Group toggle, card+list views, Make/Merge Group, GR registration card) and the
-Guest Database screen are still outstanding.
 
 ## Context
 
@@ -335,9 +331,33 @@ assigned_to_user_id, remarks)` and `work_orders(...priority, assign_to, deadline
 > Vitest 230 → **244** (API e2e 104 → 118: 14 housekeeping tests, and the deny-by-default billing
 > test now asks for a subscription-less tenant explicitly via the new `plan: 'none'` fixture).
 >
-> **Still outstanding in this sprint:** the Reservations rebuild (Individual/Group toggle,
-> card+list views, Export, advanced search, Make/Merge Group, printable GR registration card) and
-> the Guest Database screen that surfaces the new guest-depth columns.
+> **Completed 2026-08-21 — the Reservations rebuild.** `GET /reservations` returns one tab's rows
+> **plus every tab's count**, because the numbers are the navigation: staff pick a tab _because_ it
+> says 4, and a stale count sends them to an empty screen. A single `tabFilter` defines each tab
+> for both the counts and the rows so the two cannot diverge. Search spans reference, guest name,
+> email and phone — the four things a guest can actually quote at the desk.
+>
+> Groups write `bookings.group_id` and **nothing else**: each member keeps its own amount, folio
+> and lifecycle, and the group total is a presentational sum, not a combined folio. That is what
+> lets Yanolja's `3359-1` / `3359-2` presentation exist without touching pricing or settlement.
+>
+> Screens: `/app/reservations` (counted tabs, list ⇄ card views, debounced search, multi-select →
+> Make Group, CSV export of what is on screen) and a printable GR registration card that prints
+> through a scoped stylesheet rather than a PDF pipeline — it is one page of text, and
+> `window.print()` gives the hotel their own paper and margin controls for free. The Guest Database
+> screen gained a profile editor for the guest-depth fields and a VIP flag.
+>
+> One bug worth recording: `makeGroup` originally read its own work back through a fresh
+> `withTenant`, which takes a **different connection** outside the still-uncommitted transaction —
+> so the call 404'd on the group it had just created. Reads that follow a write in the same
+> transaction must take the `tx`, not re-enter the pool.
+>
+> Also fixed a test-infrastructure fault this sprint exposed: the fixture harness upserted the
+> global `plans` catalogue per tenant, so the parallel API suites contended over the same three
+> rows and unrelated tests failed intermittently. The catalogue is now seeded **once** in
+> `global-setup.ts`.
+>
+> Vitest 244 → **256** (API e2e 118 → 130).
 
 ### Phase 2 — Money core (Sprints 5–7)
 

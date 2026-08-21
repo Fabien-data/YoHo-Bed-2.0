@@ -16,7 +16,6 @@ import {
   plans,
   subscriptions,
   seedDefaultTemplates,
-  seedDefaultPlans,
   type Database,
 } from '@yohobed/db';
 import { AppModule } from '../src/app.module';
@@ -106,7 +105,8 @@ export async function makeTenant(
   // deny-by-default, so a fixture without a subscription would 403 on every gated route and the
   // failure would look like a bug in the route rather than in the fixture.
   if (opts.plan !== 'none') {
-    await seedDefaultPlans(db);
+    // The catalogue is seeded once in global-setup; upserting it here would put every suite in
+    // contention over the same three global rows.
     const code = opts.plan ?? 'enterprise';
     const [p] = await db.select().from(plans).where(eq(plans.code, code));
     await db
