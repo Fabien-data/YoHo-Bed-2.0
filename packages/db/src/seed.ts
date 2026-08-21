@@ -46,8 +46,29 @@ const OWNER_PASSWORD = 'password123';
 const TENANT_EMAIL = 'tenant@demo.yohobed.test';
 const ROOM_NAME = 'Deluxe Room';
 const QUANTITY = 5;
-const START = '2026-08-01';
-const LAST_ROOM_DATE = '2026-08-10'; // deliberately set to 1 room, for the concurrency demo
+/**
+ * The demo calendar is anchored to TODAY, not to a fixed date.
+ *
+ * A seed pinned to a literal month rots: run it a few weeks later and every screen that asks
+ * "what is happening today" — Stay View, Room View, Reservations, unsettled folios — comes up
+ * empty, which reads as a broken build rather than as stale data. Starting a week back gives the
+ * demo departed guests, in-house guests and future arrivals all at once.
+ */
+const SEED_DAYS = 45;
+const START = shiftDate(new Date().toISOString().slice(0, 10), -7);
+/**
+ * Deliberately squeezed to 1 room, for the overbooking-concurrency demo.
+ *
+ * Kept well clear of the current fortnight: sitting it in the demo week makes ordinary bookings
+ * fail with `insufficient_availability` and reads as a bug rather than as the demo it is.
+ */
+const LAST_ROOM_DATE = shiftDate(START, 25);
+
+function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function dateRange(start: string, days: number): string[] {
   const out: string[] = [];
@@ -123,7 +144,7 @@ try {
   // Availability calendar (reset deterministically): 14 days, 5 rooms/night, except the demo date.
   await db.delete(availabilityCalendar).where(eq(availabilityCalendar.roomId, roomId));
   await db.insert(availabilityCalendar).values(
-    dateRange(START, 14).map((date) => ({
+    dateRange(START, SEED_DAYS).map((date) => ({
       tenantId,
       propertyId,
       roomId,
@@ -170,7 +191,7 @@ try {
   const structure = { type: 'percentage' as const, percentage: 10 };
   await db.delete(rateCalendar).where(eq(rateCalendar.occupancyId, occ!.id));
   await db.insert(rateCalendar).values(
-    dateRange(START, 14).map((date) => {
+    dateRange(START, SEED_DAYS).map((date) => {
       const base = isWeekend(date) ? 25000 : 18000; // realistic LKR nightly base
       const priced = priceDay(base, structure, 18);
       return {
@@ -271,7 +292,7 @@ try {
   const taxRoomId = taxRoom!.id;
   await db.delete(availabilityCalendar).where(eq(availabilityCalendar.roomId, taxRoomId));
   await db.insert(availabilityCalendar).values(
-    dateRange(START, 14).map((date) => ({
+    dateRange(START, SEED_DAYS).map((date) => ({
       tenantId,
       propertyId: taxPropId,
       roomId: taxRoomId,
@@ -305,7 +326,7 @@ try {
   }
   await db.delete(rateCalendar).where(eq(rateCalendar.occupancyId, taxOcc!.id));
   await db.insert(rateCalendar).values(
-    dateRange(START, 14).map((date) => {
+    dateRange(START, SEED_DAYS).map((date) => {
       const base = isWeekend(date) ? 25000 : 18000;
       const commission = computeCommission(base, slabStructure);
       const commissionable = sellingPrice(base, commission, 18);
