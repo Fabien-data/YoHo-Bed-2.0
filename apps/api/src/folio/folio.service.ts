@@ -367,6 +367,7 @@ export class FolioService {
           method: dto.method,
           reference: dto.reference ?? null,
           note: dto.note ?? null,
+          drawerSessionId: dto.drawerSessionId ?? null,
         })
         .returning();
       return created;

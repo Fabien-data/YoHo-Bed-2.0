@@ -316,3 +316,41 @@ DROP POLICY IF EXISTS tenant_isolation ON folio_transfers;
 CREATE POLICY tenant_isolation ON folio_transfers
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Cashiering: ledgers, business sources, drawers, expenses (Yanolja-parity Sprint 6).
+
+ALTER TABLE ledger_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON ledger_accounts;
+CREATE POLICY tenant_isolation ON ledger_accounts
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE ledger_entries ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON ledger_entries;
+CREATE POLICY tenant_isolation ON ledger_entries
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE business_sources ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON business_sources;
+CREATE POLICY tenant_isolation ON business_sources
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE cash_drawers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON cash_drawers;
+CREATE POLICY tenant_isolation ON cash_drawers
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE drawer_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON drawer_sessions;
+CREATE POLICY tenant_isolation ON drawer_sessions
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE expense_vouchers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON expense_vouchers;
+CREATE POLICY tenant_isolation ON expense_vouchers
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

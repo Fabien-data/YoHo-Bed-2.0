@@ -44,6 +44,11 @@ export const recordFolioPaymentSchema = z.object({
   method: z.enum(['cash', 'card', 'bank', 'online']).default('cash'),
   reference: z.string().max(120).optional(),
   note: z.string().max(500).optional(),
+  /**
+   * The cashier shift this was taken on. Without it the payment is real but belongs to no till,
+   * so it can never appear on a Cashier Report — which is how a drawer ends up unexplainably short.
+   */
+  drawerSessionId: z.string().uuid().optional(),
 });
 export type RecordFolioPaymentDto = z.infer<typeof recordFolioPaymentSchema>;
 

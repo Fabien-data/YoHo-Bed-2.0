@@ -36,6 +36,17 @@ export const payments = pgTable('payments', {
    * Null for payments that predate folios, and for the platform-side payout direction.
    */
   folioId: uuid('folio_id'),
+  /**
+   * The cashier shift this payment was taken on, so the drawer can be reconciled at close.
+   * Null for anything not taken at a till — an OTA settlement, a bank transfer, a back-dated entry.
+   */
+  drawerSessionId: uuid('drawer_session_id'),
+  /**
+   * Set when the payment is a transfer to the city ledger rather than actual money: the folio is
+   * cleared and the debt moves to the travel agent or company, which is what "charge to company"
+   * means. A matching `ledger_entries` debit is written in the same transaction.
+   */
+  ledgerAccountId: uuid('ledger_account_id'),
   direction: paymentDirection('direction').notNull(),
   amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
   /**
