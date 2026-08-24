@@ -77,6 +77,18 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
+    // An expired or invalid token used to leave the user stranded: the app still considered them
+    // signed in because a token STRING was in localStorage, so every screen rendered its shell and
+    // then showed "Invalid or expired token" instead of sending them to the login page. Presence
+    // of a token is not the same as validity, and only the server can tell the difference — so the
+    // server's answer is what ends the session.
+    //
+    // Guarded on `token`: a 401 from the login endpoint itself means wrong credentials, and must
+    // surface as an error message rather than a redirect loop.
+    if (res.status === 401 && token && typeof window !== 'undefined') {
+      clearSession();
+      window.location.replace('/?expired=1');
+    }
     const message = (data && (data.message || data.reason)) || res.statusText || 'Request failed';
     throw new ApiError(res.status, Array.isArray(message) ? message.join(', ') : message, data);
   }
