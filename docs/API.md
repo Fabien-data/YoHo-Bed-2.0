@@ -197,6 +197,47 @@ externally settled balance.
 Room charges are posted explicitly for now. Automatic nightly posting belongs to night audit
 (Sprint 7), which is when the business date actually rolls.
 
+## Cashiering — city ledger, tills, expenses
+
+| Method & path                                                | Auth       | Purpose                                                                                              |
+| ------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `GET` / `POST /ledger-accounts`                              | JWT+Tenant | Travel agents, companies, sales people, each with its computed balance. **409** on a duplicate code. |
+| `GET /ledger-accounts/:id/statement`                         | JWT+Tenant | Every entry with a running balance.                                                                  |
+| `POST /ledger-accounts/:id/settle`                           | JWT+Tenant | The account pays us — a credit.                                                                      |
+| `POST /folios/:id/charge-to-ledger`                          | JWT+Tenant | "Charge to company": clears the folio, moves the debt. **409** over the credit limit.                |
+| `GET` / `POST /business-sources`                             | JWT+Tenant | Colour-coded sources. The hex colours Stay View's bars.                                              |
+| `GET` / `POST /properties/:id/drawers`                       | JWT+Tenant | Tills.                                                                                               |
+| `POST /drawers/:id/open`                                     | JWT+Tenant | Start a shift. **409** if that till already has one open.                                            |
+| `GET /drawer-sessions/:id/report`                            | JWT+Tenant | The Cashier Report — live while open, frozen once closed.                                            |
+| `POST /drawer-sessions/:id/close`                            | JWT+Tenant | Declare the count; the variance is computed and frozen.                                              |
+| `GET /expenses?propertyId` · `POST /properties/:id/expenses` | JWT+Tenant | Expense vouchers. Auto-numbered `EV-00001`.                                                          |
+
+All Pro and above. **Charging to a ledger writes both sides in one transaction** — the
+folio-clearing payment and the matching debit; recording only one would lose the debt or
+double-count it.
+
+**Only cash counts toward what should be in a drawer.** A card payment never entered it. Including
+card takings would make every shift look short by the day's card revenue.
+
+## Night audit
+
+| Method & path                                     | Auth       | Purpose                                                                |
+| ------------------------------------------------- | ---------- | ---------------------------------------------------------------------- |
+| `GET /properties/:id/business-date`               | JWT+Tenant | The property's business date, created on demand at today.              |
+| `GET /properties/:id/night-audit/preview`         | JWT+Tenant | What the run would do, without doing it.                               |
+| `POST /properties/:id/night-audit/run`            | JWT+Tenant | Run it. **409** if that date was already audited.                      |
+| `GET /properties/:id/night-audit/log`             | JWT+Tenant | Every run, with the user and IP that triggered it.                     |
+| `GET /properties/:id/night-audit/revenue?from&to` | JWT+Tenant | Room revenue actually posted — what the payout must reconcile against. |
+
+All Pro and above. The run is **one transaction**: post the night's room charges, no-show what
+never arrived, force-close any open till, roll the date. A half-run audit would double-post next
+time.
+
+Room charges post automatically here. The on-demand `POST /bookings/:id/folio/post-room-charges`
+remains for a desk that wants to bill up front; the audit **looks up and skips** nights already
+billed rather than inserting and catching the violation — in Postgres an error aborts the whole
+transaction, so a "handled" duplicate would still break the rest of the run.
+
 ## Rates & pricing
 
 | Method & path                                                          | Auth       | Purpose                                                                                                                                                                                                          |

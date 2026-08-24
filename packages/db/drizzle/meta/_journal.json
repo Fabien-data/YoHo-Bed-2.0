@@ -176,6 +176,13 @@
       "when": 1787312168551,
       "tag": "0024_cashiering",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787546426912,
+      "tag": "0025_night_audit",
+      "breakpoints": true
     }
   ]
 }

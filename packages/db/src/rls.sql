@@ -354,3 +354,17 @@ DROP POLICY IF EXISTS tenant_isolation ON expense_vouchers;
 CREATE POLICY tenant_isolation ON expense_vouchers
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Business date + night audit log (Yanolja-parity Sprint 7).
+
+ALTER TABLE business_dates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON business_dates;
+CREATE POLICY tenant_isolation ON business_dates
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE night_audit_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON night_audit_runs;
+CREATE POLICY tenant_isolation ON night_audit_runs
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

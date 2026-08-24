@@ -1,0 +1,324 @@
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { and, desc, eq, isNull, lte, sql } from 'drizzle-orm';
+import {
+  bookingDays,
+  bookings,
+  businessDates,
+  folioCharges,
+  folios,
+  nightAuditRuns,
+  properties,
+  users,
+  type Tx,
+} from '@yohobed/db';
+import { DatabaseService } from '../database/database.service';
+import { CashieringService } from '../cashiering/cashiering.service';
+
+const money = (n: number) => n.toFixed(2);
+
+function nextDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+@Injectable()
+export class NightAuditService {
+  constructor(private readonly dbs: DatabaseService) {}
+
+  /** The property's current business date, seeded to today the first time it is asked for. */
+  businessDate(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, (tx) => this.ensureBusinessDate(tx, tenantId, propertyId));
+  }
+
+  private async ensureBusinessDate(tx: Tx, tenantId: string, propertyId: string) {
+    const [existing] = await tx
+      .select()
+      .from(businessDates)
+      .where(eq(businessDates.propertyId, propertyId));
+    if (existing) return existing;
+
+    const [property] = await tx.select().from(properties).where(eq(properties.id, propertyId));
+    if (!property) throw new NotFoundException('Property not found');
+
+    const [created] = await tx
+      .insert(businessDates)
+      .values({ tenantId, propertyId, currentDate: new Date().toISOString().slice(0, 10) })
+      .onConflictDoNothing({ target: businessDates.propertyId })
+      .returning();
+    if (created) return created;
+
+    const [raced] = await tx
+      .select()
+      .from(businessDates)
+      .where(eq(businessDates.propertyId, propertyId));
+    return raced!;
+  }
+
+  /**
+   * What the audit *would* do, without doing it.
+   *
+   * A night auditor should be able to see the damage before committing to it — this is the one
+   * action in the product that cannot be undone by clicking something else.
+   */
+  preview(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const bd = await this.ensureBusinessDate(tx, tenantId, propertyId);
+      return this.plan(tx, propertyId, bd.currentDate);
+    });
+  }
+
+  /** The work the run will do on `date`, gathered once so preview and run cannot disagree. */
+  private async plan(tx: Tx, propertyId: string, date: string) {
+    // In-house stays owe a room charge for the night just ending.
+    const dueCharges = await tx
+      .select({
+        bookingId: bookings.id,
+        reference: bookings.reference,
+        rooms: bookings.rooms,
+        sellingPrice: bookingDays.sellingPrice,
+        tax: bookingDays.tax,
+      })
+      .from(bookings)
+      .innerJoin(
+        bookingDays,
+        and(eq(bookingDays.bookingId, bookings.id), eq(bookingDays.date, date)),
+      )
+      .where(
+        and(
+          eq(bookings.propertyId, propertyId),
+          sql`${bookings.status} in ('Approved', 'CheckedIn')`,
+          lte(bookings.checkin, date),
+          sql`${bookings.checkout} > ${date}`,
+        ),
+      );
+
+    // Reservations that were due in today and never arrived.
+    const noShows = await tx
+      .select({ id: bookings.id, reference: bookings.reference })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.propertyId, propertyId),
+          eq(bookings.checkin, date),
+          eq(bookings.status, 'Approved'),
+        ),
+      );
+
+    const charges = dueCharges.reduce((s, c) => s + Number(c.sellingPrice) * c.rooms, 0);
+    const taxes = dueCharges.reduce((s, c) => s + Number(c.tax) * c.rooms, 0);
+
+    return {
+      date,
+      nextDate: nextDay(date),
+      roomsToCharge: dueCharges.length,
+      chargesToPost: money(charges),
+      taxesToPost: money(taxes),
+      noShows: noShows.map((n) => n.reference),
+      dueCharges,
+      noShowIds: noShows.map((n) => n.id),
+    };
+  }
+
+  /**
+   * Run the audit and roll the business date.
+   *
+   * Everything happens in one transaction: post the night's room charges, no-show what never
+   * arrived, force-close any till still open, then move the date. A half-run audit — charges
+   * posted but the date not moved — would double-post on the next attempt, so the all-or-nothing
+   * matters more here than anywhere else in the system.
+   */
+  async run(tenantId: string, propertyId: string, userId: string | null, ip: string | null) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const bd = await this.ensureBusinessDate(tx, tenantId, propertyId);
+      const date = bd.currentDate;
+
+      // The date is the lock: an audit for a date already closed cannot run twice, because the
+      // property is no longer on that date.
+      const [already] = await tx
+        .select({ id: nightAuditRuns.id })
+        .from(nightAuditRuns)
+        .where(and(eq(nightAuditRuns.propertyId, propertyId), eq(nightAuditRuns.fromDate, date)));
+      if (already) {
+        throw new ConflictException(`The audit for ${date} has already been run`);
+      }
+
+      const p = await this.plan(tx, propertyId, date);
+
+      // 1. Post the night's room charges onto each stay's folio.
+      //
+      // The desk may already have billed this night by hand, and the unique index would refuse a
+      // second one. It is NOT enough to insert and catch the violation: in Postgres an error
+      // aborts the whole transaction, so every later statement — the no-shows, the drawer close,
+      // the date roll — would fail even though the error was "handled". So the already-posted
+      // nights are looked up first and skipped, and no violation is ever provoked.
+      let posted = 0;
+      let skipped = 0;
+      for (const c of p.dueCharges) {
+        const folio = await this.ensureFolio(tx, tenantId, propertyId, c.bookingId);
+
+        const [existing] = await tx
+          .select({ id: folioCharges.id })
+          .from(folioCharges)
+          .where(
+            and(
+              eq(folioCharges.folioId, folio.id),
+              eq(folioCharges.source, 'room'),
+              eq(folioCharges.bookingDate, date),
+              isNull(folioCharges.voidedAt),
+            ),
+          );
+        if (existing) {
+          skipped += 1;
+          continue;
+        }
+
+        const total = Number(c.sellingPrice) * c.rooms;
+        const tax = Number(c.tax) * c.rooms;
+        await tx.insert(folioCharges).values({
+          tenantId,
+          folioId: folio.id,
+          source: 'room',
+          description:
+            c.rooms > 1 ? `Room charge — ${date} (${c.rooms} rooms)` : `Room charge — ${date}`,
+          postedFor: date,
+          bookingDate: date,
+          quantity: money(c.rooms),
+          unitPrice: c.sellingPrice,
+          net: money(total - tax),
+          tax: money(tax),
+          total: money(total),
+          postedByUserId: userId,
+        });
+        posted += 1;
+      }
+
+      // 2. No-show anything that was due to arrive and did not.
+      if (p.noShowIds.length > 0) {
+        await tx
+          .update(bookings)
+          .set({ status: 'NoShow', updatedAt: new Date() })
+          .where(sql`${bookings.id} in ${p.noShowIds}`);
+      }
+
+      // 3. Close any till left open — the date cannot roll under a live shift.
+      const drawersClosed = await CashieringService.forceCloseOpenSessions(tx, propertyId, userId);
+
+      // 4. Roll the business date.
+      await tx
+        .update(businessDates)
+        .set({ currentDate: p.nextDate, updatedAt: new Date() })
+        .where(eq(businessDates.propertyId, propertyId));
+
+      const [run] = await tx
+        .insert(nightAuditRuns)
+        .values({
+          tenantId,
+          propertyId,
+          fromDate: date,
+          toDate: p.nextDate,
+          roomsCharged: posted,
+          chargesPosted: p.chargesToPost,
+          taxesPosted: p.taxesToPost,
+          noShows: p.noShowIds.length,
+          drawersClosed,
+          summary: {
+            roomsDue: p.roomsToCharge,
+            roomsPosted: posted,
+            roomsSkipped: skipped,
+            noShowReferences: p.noShows,
+          },
+          runByUserId: userId,
+          runFromIp: ip,
+        })
+        .returning();
+
+      return run;
+    });
+  }
+
+  /** The Night Audit Log. */
+  history(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select({
+          id: nightAuditRuns.id,
+          fromDate: nightAuditRuns.fromDate,
+          toDate: nightAuditRuns.toDate,
+          roomsCharged: nightAuditRuns.roomsCharged,
+          chargesPosted: nightAuditRuns.chargesPosted,
+          taxesPosted: nightAuditRuns.taxesPosted,
+          noShows: nightAuditRuns.noShows,
+          drawersClosed: nightAuditRuns.drawersClosed,
+          summary: nightAuditRuns.summary,
+          runFromIp: nightAuditRuns.runFromIp,
+          runBy: users.name,
+          createdAt: nightAuditRuns.createdAt,
+        })
+        .from(nightAuditRuns)
+        .leftJoin(users, eq(users.id, nightAuditRuns.runByUserId))
+        .where(eq(nightAuditRuns.propertyId, propertyId))
+        .orderBy(desc(nightAuditRuns.fromDate)),
+    );
+  }
+
+  /**
+   * Revenue posted over a period, straight off the folio lines.
+   *
+   * This is the number that has to agree with the payout statement. It reads `folio_charges`
+   * rather than recomputing from rates, because the folio is what the guest was actually billed.
+   */
+  revenue(tenantId: string, propertyId: string, from: string, to: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [row] = await tx
+        .select({
+          nights: sql<number>`count(*)::int`,
+          net: sql<string>`coalesce(sum(${folioCharges.net}), 0)::text`,
+          tax: sql<string>`coalesce(sum(${folioCharges.tax}), 0)::text`,
+          total: sql<string>`coalesce(sum(${folioCharges.total}), 0)::text`,
+        })
+        .from(folioCharges)
+        .innerJoin(folios, eq(folios.id, folioCharges.folioId))
+        .where(
+          and(
+            eq(folios.propertyId, propertyId),
+            eq(folioCharges.source, 'room'),
+            isNull(folioCharges.voidedAt),
+            sql`${folioCharges.postedFor} >= ${from}`,
+            sql`${folioCharges.postedFor} <= ${to}`,
+          ),
+        );
+      return { from, to, ...row };
+    });
+  }
+
+  /** Get or create window 1 for a booking, so the audit always has somewhere to post. */
+  private async ensureFolio(tx: Tx, tenantId: string, propertyId: string, bookingId: string) {
+    const [existing] = await tx
+      .select()
+      .from(folios)
+      .where(and(eq(folios.bookingId, bookingId), eq(folios.window, 1)));
+    if (existing) return existing;
+
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId));
+    const [created] = await tx
+      .insert(folios)
+      .values({
+        tenantId,
+        propertyId,
+        bookingId,
+        window: 1,
+        label: 'Guest',
+        currency: booking!.currency,
+      })
+      .onConflictDoNothing({ target: [folios.bookingId, folios.window] })
+      .returning();
+    if (created) return created;
+
+    const [raced] = await tx
+      .select()
+      .from(folios)
+      .where(and(eq(folios.bookingId, bookingId), eq(folios.window, 1)));
+    return raced!;
+  }
+}

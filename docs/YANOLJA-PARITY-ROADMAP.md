@@ -16,9 +16,9 @@
 | 3      | 1 Front desk    | Stay View tape chart                   | ✅ **Done**    |
 | 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ✅ **Done**    |
 | 5      | 2 Money core    | Folio + charge posting                 | ✅ **Done**    |
-| 6      | 2 Money core    | Cashiering, ledgers, POS               | ⏳ Next        |
-| 7      | 2 Money core    | Night audit                            | ⬜ Not started |
-| 8      | 3 Rates & dist. | The 7-tab ARI grid                     | ⬜ Not started |
+| 6      | 2 Money core    | Cashiering, ledgers, POS               | ✅ **Done**    |
+| 7      | 2 Money core    | Night audit                            | ✅ **Done**    |
+| 8      | 3 Rates & dist. | The 7-tab ARI grid                     | ⏳ Next        |
 | 9      | 3 Rates & dist. | Distribution + per-channel commission  | ⬜ Not started |
 | 10–11  | 4 Reports       | Analytics + async export queue         | ⬜ Blocked¹    |
 | 12–13  | 5 Growth        | Guest portal, booking engine, payments | ⬜ Not started |

@@ -1318,6 +1318,66 @@ export function createExpense(
   });
 }
 
+// --- Night audit -------------------------------------------------------------
+
+export interface BusinessDate {
+  propertyId: string;
+  currentDate: string;
+}
+
+export interface AuditPreview {
+  date: string;
+  nextDate: string;
+  roomsToCharge: number;
+  chargesToPost: string;
+  taxesToPost: string;
+  noShows: string[];
+}
+
+export interface AuditRun {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  roomsCharged: number;
+  chargesPosted: string;
+  taxesPosted: string;
+  noShows: number;
+  drawersClosed: number;
+  summary: {
+    roomsDue?: number;
+    roomsPosted?: number;
+    roomsSkipped?: number;
+    noShowReferences?: string[];
+  };
+  runFromIp: string | null;
+  runBy?: string | null;
+  createdAt: string;
+}
+
+export function getBusinessDate(propertyId: string): Promise<BusinessDate> {
+  return apiFetch(`/properties/${propertyId}/business-date`);
+}
+
+export function previewNightAudit(propertyId: string): Promise<AuditPreview> {
+  return apiFetch(`/properties/${propertyId}/night-audit/preview`);
+}
+
+export function runNightAudit(propertyId: string): Promise<AuditRun> {
+  return apiFetch(`/properties/${propertyId}/night-audit/run`, { method: 'POST' });
+}
+
+export function getNightAuditLog(propertyId: string): Promise<AuditRun[]> {
+  return apiFetch(`/properties/${propertyId}/night-audit/log`);
+}
+
+export function getPostedRevenue(
+  propertyId: string,
+  from: string,
+  to: string,
+): Promise<{ from: string; to: string; nights: number; net: string; tax: string; total: string }> {
+  return apiFetch(`/properties/${propertyId}/night-audit/revenue?from=${from}&to=${to}`);
+}
+
 // --- Subscription plan & entitlements ---------------------------------------
 
 export interface CataloguePlan {

@@ -11,6 +11,7 @@ import {
   Grid3x3,
   Receipt,
   Banknote,
+  Moon,
   Settings,
   Star,
   Tag,
@@ -146,6 +147,13 @@ export const NAV: NavGroup[] = [
         icon: Banknote,
         docsUrl: 'PLACEHOLDER',
         feature: 'cashiering',
+      },
+      {
+        href: '/app/night-audit',
+        label: 'Night audit',
+        icon: Moon,
+        docsUrl: 'PLACEHOLDER',
+        feature: 'night_audit',
       },
       {
         href: '/app/folios',

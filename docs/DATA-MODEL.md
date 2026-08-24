@@ -169,6 +169,53 @@ the total, so a bill never mixes tax-in and tax-on lines. Voiding stamps `voided
 deleting — a bill that silently loses a line is worse than one showing a line was reversed, and
 the guest's copy may already be printed.
 
+## Cashiering (`schema/cashiering.ts`)
+
+| Table              | RLS | Purpose · key constraints                                                                                                                                         |
+| ------------------ | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ledger_accounts`  | ✅  | Travel agents, companies and sales people in **one** table — they differ only in what they are called. Unique `(tenant_id, code)`; `credit_limit` (0 = no limit). |
+| `ledger_entries`   | ✅  | The running account. `debit` increases what they owe us, `credit` is money received.                                                                              |
+| `business_sources` | ✅  | Colour-coded source of business; the hex is used directly as the Stay View bar colour.                                                                            |
+| `cash_drawers`     | ✅  | A physical till. A property may run several.                                                                                                                      |
+| `drawer_sessions`  | ✅  | One cashier's shift. Partial unique index allows only **one open shift per drawer**.                                                                              |
+| `expense_vouchers` | ✅  | Money out of the till. Unique `(property_id, voucher_no)`.                                                                                                        |
+
+`payments` gains `drawer_session_id` (which shift took it) and `ledger_account_id` (set when the
+payment is a transfer to the city ledger rather than money arriving). `bookings` gains
+`business_source_id` and `ledger_account_id`.
+
+**Balances are never stored.** A stored balance and its entries are two answers to the same
+question, and they drift the first time anything is back-dated.
+
+**Only cash counts toward a drawer.** A card payment never entered the till, so including card
+takings would make every shift look short by the day's card revenue. The variance is computed at
+close and **frozen** on the row — recomputing it later would quietly rewrite history the moment a
+back-dated payment landed on the shift.
+
+`ledger_accounts` is not `referral_partners`: a referrer _earns_ commission from us, a ledger
+account _owes_ us money.
+
+## Night audit (`schema/nightaudit.ts`)
+
+| Table              | RLS | Purpose · key constraints                                                                                  |
+| ------------------ | --- | ---------------------------------------------------------------------------------------------------------- |
+| `business_dates`   | ✅  | The property's business date. Unique per property — a chain across time zones legitimately differs.        |
+| `night_audit_runs` | ✅  | One run: dates closed and rolled to, counts, totals, `summary` jsonb, and the user **and IP** that ran it. |
+
+**The business date is not today's date.** A hotel's day ends when the night auditor says it does,
+often at 3am, so a charge posted at 01:30 belongs to the previous business day. Every posting and
+report keys off `business_dates` rather than `current_date` — that is the difference between a
+report that reconciles and one that does not.
+
+The run is one transaction: post the night's room charges, no-show what never arrived, force-close
+any open till, roll the date. A half-run audit — charges posted but the date not moved — would
+double-post on the next attempt.
+
+**Nights already billed by hand are looked up and skipped, not caught.** Inserting and catching the
+unique violation does not work: in Postgres an error aborts the whole transaction, so every later
+statement fails even though the error was "handled". The totals are frozen in `summary` for the
+same reason the drawer variance is.
+
 ## Rates & tax (`schema/rates.ts`, `schema/tax.ts`)
 
 | Table                | RLS       | Purpose · key constraints                                                                                                                                   |
@@ -310,6 +357,8 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 | 0021 | Housekeeping: housekeeping_status, work_orders + guest-depth columns on customers            |
 | 0022 | Data-only: grandfathers every existing tenant onto an enterprise subscription                |
 | 0023 | Folio: folios, charge_particulars, folio_charges, folio_transfers, payments.folio_id         |
+| 0024 | Cashiering: ledger accounts/entries, business sources, drawers, expenses                     |
+| 0025 | Night audit: business_dates, night_audit_runs                                                |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

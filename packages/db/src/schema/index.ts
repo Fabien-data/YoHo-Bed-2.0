@@ -16,3 +16,4 @@ export * from './crm';
 export * from './housekeeping';
 export * from './folio';
 export * from './cashiering';
+export * from './nightaudit';
