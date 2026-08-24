@@ -77,6 +77,18 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
+    // An expired or invalid token used to leave the user stranded: the app still considered them
+    // signed in because a token STRING was in localStorage, so every screen rendered its shell and
+    // then showed "Invalid or expired token" instead of sending them to the login page. Presence
+    // of a token is not the same as validity, and only the server can tell the difference — so the
+    // server's answer is what ends the session.
+    //
+    // Guarded on `token`: a 401 from the login endpoint itself means wrong credentials, and must
+    // surface as an error message rather than a redirect loop.
+    if (res.status === 401 && token && typeof window !== 'undefined') {
+      clearSession();
+      window.location.replace('/?expired=1');
+    }
     const message = (data && (data.message || data.reason)) || res.statusText || 'Request failed';
     throw new ApiError(res.status, Array.isArray(message) ? message.join(', ') : message, data);
   }
@@ -1117,6 +1129,265 @@ export function createChargeParticular(body: {
   taxInclusive?: boolean;
 }): Promise<ChargeParticular> {
   return apiFetch('/charge-particulars', { method: 'POST', body: JSON.stringify(body) });
+}
+
+// --- Cashiering: city ledger, tills, expenses --------------------------------
+
+export type LedgerAccountType = 'travel_agent' | 'company' | 'sales_person' | 'other';
+
+export interface LedgerAccount {
+  id: string;
+  type: LedgerAccountType;
+  code: string;
+  name: string;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  creditLimit: string;
+  currency: string;
+  active: boolean;
+  balance: string;
+}
+
+export interface LedgerStatement {
+  account: LedgerAccount;
+  balance: string;
+  entries: Array<{
+    id: string;
+    direction: 'debit' | 'credit';
+    amount: string;
+    description: string;
+    reference: string | null;
+    bookingId: string | null;
+    createdAt: string;
+    balance: string;
+  }>;
+}
+
+export function listLedgerAccounts(): Promise<LedgerAccount[]> {
+  return apiFetch<LedgerAccount[]>('/ledger-accounts');
+}
+
+export function createLedgerAccount(body: {
+  type?: LedgerAccountType;
+  code: string;
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  creditLimit?: number;
+  currency?: string;
+}): Promise<LedgerAccount> {
+  return apiFetch('/ledger-accounts', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function getLedgerStatement(id: string): Promise<LedgerStatement> {
+  return apiFetch(`/ledger-accounts/${id}/statement`);
+}
+
+export function settleLedgerAccount(
+  id: string,
+  body: { amount: number; description?: string; reference?: string },
+): Promise<unknown> {
+  return apiFetch(`/ledger-accounts/${id}/settle`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function chargeFolioToLedger(
+  folioId: string,
+  body: { ledgerAccountId: string; amount: number; description?: string; reference?: string },
+): Promise<unknown> {
+  return apiFetch(`/folios/${folioId}/charge-to-ledger`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export interface BusinessSource {
+  id: string;
+  shortCode: string;
+  name: string;
+  color: string;
+  active: boolean;
+}
+
+export function listBusinessSources(): Promise<BusinessSource[]> {
+  return apiFetch<BusinessSource[]>('/business-sources');
+}
+
+export function createBusinessSource(body: {
+  shortCode: string;
+  name: string;
+  color?: string;
+}): Promise<BusinessSource> {
+  return apiFetch('/business-sources', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface CashDrawer {
+  id: string;
+  name: string;
+  active: boolean;
+  openSessionId: string | null;
+}
+
+export interface DrawerReport {
+  session: {
+    id: string;
+    status: 'open' | 'closed';
+    openingFloat: string;
+    openedAt: string;
+    declaredTotal: string | null;
+    expectedTotal: string | null;
+    variance: string | null;
+    closedAt: string | null;
+    notes: string | null;
+  };
+  totals: {
+    openingFloat: string;
+    cashTaken: string;
+    cashPaidOut: string;
+    expected: string;
+    allPaymentsTaken: string;
+    paymentCount: number;
+    expenseCount: number;
+    declared?: string | null;
+    variance?: string | null;
+  };
+  byMethod: Array<{ method: string; total: string; n: number }>;
+  expenses: Array<{
+    id: string;
+    voucherNo: string;
+    category: string;
+    payee: string;
+    amount: string;
+    createdAt: string;
+  }>;
+}
+
+export function listDrawers(propertyId: string): Promise<CashDrawer[]> {
+  return apiFetch<CashDrawer[]>(`/properties/${propertyId}/drawers`);
+}
+
+export function createDrawer(propertyId: string, name: string): Promise<CashDrawer> {
+  return apiFetch(`/properties/${propertyId}/drawers`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function openDrawerSession(drawerId: string, openingFloat: number): Promise<unknown> {
+  return apiFetch(`/drawers/${drawerId}/open`, {
+    method: 'POST',
+    body: JSON.stringify({ openingFloat }),
+  });
+}
+
+export function getDrawerReport(sessionId: string): Promise<DrawerReport> {
+  return apiFetch(`/drawer-sessions/${sessionId}/report`);
+}
+
+export function closeDrawerSession(
+  sessionId: string,
+  body: { declaredTotal: number; notes?: string },
+): Promise<unknown> {
+  return apiFetch(`/drawer-sessions/${sessionId}/close`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export interface ExpenseVoucher {
+  id: string;
+  voucherNo: string;
+  category: string;
+  payee: string;
+  amount: string;
+  currency: string;
+  reference: string | null;
+  note: string | null;
+  drawerSessionId: string | null;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export function listExpenses(propertyId: string): Promise<ExpenseVoucher[]> {
+  return apiFetch<ExpenseVoucher[]>(`/expenses?propertyId=${propertyId}`);
+}
+
+export function createExpense(
+  propertyId: string,
+  body: {
+    drawerSessionId?: string;
+    category?: string;
+    payee: string;
+    amount: number;
+    reference?: string;
+    note?: string;
+  },
+): Promise<ExpenseVoucher> {
+  return apiFetch(`/properties/${propertyId}/expenses`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+// --- Night audit -------------------------------------------------------------
+
+export interface BusinessDate {
+  propertyId: string;
+  currentDate: string;
+}
+
+export interface AuditPreview {
+  date: string;
+  nextDate: string;
+  roomsToCharge: number;
+  chargesToPost: string;
+  taxesToPost: string;
+  noShows: string[];
+}
+
+export interface AuditRun {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  roomsCharged: number;
+  chargesPosted: string;
+  taxesPosted: string;
+  noShows: number;
+  drawersClosed: number;
+  summary: {
+    roomsDue?: number;
+    roomsPosted?: number;
+    roomsSkipped?: number;
+    noShowReferences?: string[];
+  };
+  runFromIp: string | null;
+  runBy?: string | null;
+  createdAt: string;
+}
+
+export function getBusinessDate(propertyId: string): Promise<BusinessDate> {
+  return apiFetch(`/properties/${propertyId}/business-date`);
+}
+
+export function previewNightAudit(propertyId: string): Promise<AuditPreview> {
+  return apiFetch(`/properties/${propertyId}/night-audit/preview`);
+}
+
+export function runNightAudit(propertyId: string): Promise<AuditRun> {
+  return apiFetch(`/properties/${propertyId}/night-audit/run`, { method: 'POST' });
+}
+
+export function getNightAuditLog(propertyId: string): Promise<AuditRun[]> {
+  return apiFetch(`/properties/${propertyId}/night-audit/log`);
+}
+
+export function getPostedRevenue(
+  propertyId: string,
+  from: string,
+  to: string,
+): Promise<{ from: string; to: string; nights: number; net: string; tax: string; total: string }> {
+  return apiFetch(`/properties/${propertyId}/night-audit/revenue?from=${from}&to=${to}`);
 }
 
 // --- Subscription plan & entitlements ---------------------------------------

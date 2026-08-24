@@ -88,6 +88,10 @@ export const bookings = pgTable('bookings', {
     .references(() => customers.id),
   /** Set when this booking is one leg of a multi-room group (Yanolja's Group ID). */
   groupId: uuid('group_id'),
+  /** Where the business came from — colours the bar on Stay View. */
+  businessSourceId: uuid('business_source_id'),
+  /** The travel agent or company this stay is billed to, when it is not the guest. */
+  ledgerAccountId: uuid('ledger_account_id'),
   reference: text('reference').notNull().unique(),
   checkin: date('checkin').notNull(),
   checkout: date('checkout').notNull(),

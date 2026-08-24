@@ -7,6 +7,10 @@ import { Button, Card, Field, Logo } from '@/components/ui';
 import { ThemeToggle } from '@/components/theme';
 
 export default function LoginPage() {
+  // Read straight off the URL rather than useSearchParams: that hook forces the whole page into
+  // a Suspense boundary, which is a lot of ceremony for one flag.
+  const expired =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('expired');
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,6 +48,14 @@ export default function LoginPage() {
           <p className="mb-6 mt-1 text-sm text-ink-2">
             Manage your property&rsquo;s rates &amp; availability.
           </p>
+          {expired && (
+            <p
+              className="mb-4 rounded-lg px-3 py-2 text-sm"
+              style={{ color: 'var(--low-ink)', background: 'var(--low-soft)' }}
+            >
+              Your session expired. Please sign in again.
+            </p>
+          )}
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
             <Field
               label="Email"

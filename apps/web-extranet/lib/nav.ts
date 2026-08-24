@@ -10,6 +10,8 @@ import {
   MessageSquare,
   Grid3x3,
   Receipt,
+  Banknote,
+  Moon,
   Settings,
   Star,
   Tag,
@@ -139,6 +141,20 @@ export const NAV: NavGroup[] = [
   {
     label: 'Cashiering',
     items: [
+      {
+        href: '/app/cashiering',
+        label: 'Cashiering centre',
+        icon: Banknote,
+        docsUrl: 'PLACEHOLDER',
+        feature: 'cashiering',
+      },
+      {
+        href: '/app/night-audit',
+        label: 'Night audit',
+        icon: Moon,
+        docsUrl: 'PLACEHOLDER',
+        feature: 'night_audit',
+      },
       {
         href: '/app/folios',
         label: 'Unsettled folios',

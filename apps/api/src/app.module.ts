@@ -8,6 +8,8 @@ import { PropertiesModule } from './properties/properties.module';
 import { StayViewModule } from './stayview/stayview.module';
 import { HousekeepingModule } from './housekeeping/housekeeping.module';
 import { FolioModule } from './folio/folio.module';
+import { CashieringModule } from './cashiering/cashiering.module';
+import { NightAuditModule } from './nightaudit/nightaudit.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { RatesModule } from './rates/rates.module';
 import { BookingsModule } from './bookings/bookings.module';
@@ -37,6 +39,8 @@ import { HealthController } from './health/health.controller';
     StayViewModule,
     HousekeepingModule,
     FolioModule,
+    CashieringModule,
+    NightAuditModule,
     RatesModule,
     BookingsModule,
     DistributionModule,
