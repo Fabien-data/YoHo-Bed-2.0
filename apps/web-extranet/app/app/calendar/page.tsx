@@ -21,7 +21,19 @@ import {
   type Occupancy,
   type AriHistoryEntry,
 } from '@/lib/api';
-import { Button, Card, Pill } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  Input,
+  PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@yohobed/ui';
+import { CaretLeft, CaretRight } from '@phosphor-icons/react';
 import {
   dom,
   monthDays,
@@ -39,22 +51,17 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 type OccRow = Occupancy & { code: string };
 type Editing = { kind: 'price'; date: string } | { kind: 'avail'; date: string } | null;
 
-const selectClass =
-  'rounded-xl border border-line-strong bg-surface-2 px-4 py-2.5 text-sm font-semibold text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
-
 /** Monday-first weekday index (Mon=0 … Sun=6). */
 function mondayIndex(d: string): number {
   return (new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7;
 }
 
-function availTone(a: AvailabilityDay | undefined): { ink: string; soft: string; label: string } {
-  if (!a) return { ink: 'var(--ink-3)', soft: 'transparent', label: '' };
-  if (a.status === 'Close')
-    return { ink: 'var(--closed-ink)', soft: 'var(--closed-soft)', label: 'Closed' };
-  if (a.roomsToSell === 0)
-    return { ink: 'var(--closed-ink)', soft: 'var(--closed-soft)', label: 'Sold out' };
-  if (a.roomsToSell <= 2) return { ink: 'var(--low-ink)', soft: 'var(--low-soft)', label: 'Low' };
-  return { ink: 'var(--avail-ink)', soft: 'var(--avail-soft)', label: 'Open' };
+function availTone(a: AvailabilityDay | undefined): { cls: string; label: string } {
+  if (!a) return { cls: '', label: '' };
+  if (a.status === 'Close') return { cls: 'bg-closed-soft text-closed-ink', label: 'Closed' };
+  if (a.roomsToSell === 0) return { cls: 'bg-closed-soft text-closed-ink', label: 'Sold out' };
+  if (a.roomsToSell <= 2) return { cls: 'bg-low-soft text-low-ink', label: 'Low' };
+  return { cls: 'bg-avail-soft text-avail-ink', label: 'Open' };
 }
 
 export default function CalendarPage() {
@@ -304,77 +311,78 @@ export default function CalendarPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
-        Rates &amp; Availability
-      </div>
-      <div className="flex flex-wrap items-center gap-4">
-        <h1 className="text-3xl font-bold tracking-tight text-ink">Calendar</h1>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => shiftMonth(-1)}
-            className="!px-4 !py-2.5 text-base"
-          >
-            ◀
-          </Button>
-          <span className="min-w-[170px] text-center text-xl font-bold text-ink">
-            {monthYear(month)}
-          </span>
-          <Button
-            variant="secondary"
-            onClick={() => shiftMonth(1)}
-            className="!px-4 !py-2.5 text-base"
-          >
-            ▶
-          </Button>
-          <input
-            type="month"
-            className={`${selectClass} ml-1`}
-            value={month.slice(0, 7)}
-            onChange={(e) => jumpMonth(e.target.value)}
-          />
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Rates & availability"
+        title="Calendar"
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Previous month"
+              onClick={() => shiftMonth(-1)}
+            >
+              <CaretLeft size={14} />
+            </Button>
+            <span className="min-w-[170px] text-center text-xl font-bold text-ink">
+              {monthYear(month)}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Next month"
+              onClick={() => shiftMonth(1)}
+            >
+              <CaretRight size={14} />
+            </Button>
+            <Input
+              type="month"
+              className="ml-1 w-44"
+              value={month.slice(0, 7)}
+              onChange={(e) => jumpMonth(e.target.value)}
+            />
+          </div>
+        }
+      />
 
       {/* selectors */}
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <select
-          className={selectClass}
-          value={propertyId ?? ''}
-          onChange={(e) => selectProperty(e.target.value)}
-        >
-          {properties.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className={selectClass}
-          value={roomId ?? ''}
-          onChange={(e) => selectRoom(e.target.value)}
-          disabled={noRooms}
-        >
-          {noRooms && <option>No rooms yet</option>}
-          {propertyRooms.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name} · ×{r.quantity}
-            </option>
-          ))}
-        </select>
-        <select
-          className={selectClass}
-          value={occId}
-          onChange={(e) => setOccId(e.target.value)}
-          disabled={occs.length === 0}
-        >
-          {occs.length === 0 && <option>No occupancies</option>}
-          {occs.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.code} · {o.label} (×{o.accommodates})
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={propertyId ?? ''} onValueChange={selectProperty}>
+          <SelectTrigger className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {properties.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={roomId ?? ''} onValueChange={selectRoom} disabled={noRooms}>
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="No rooms yet" />
+          </SelectTrigger>
+          <SelectContent>
+            {propertyRooms.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.name} · ×{r.quantity}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={occId} onValueChange={setOccId} disabled={occs.length === 0}>
+          <SelectTrigger className="w-64">
+            <SelectValue placeholder="No occupancies" />
+          </SelectTrigger>
+          <SelectContent>
+            {occs.map((o) => (
+              <SelectItem key={o.id} value={o.id}>
+                {o.code} · {o.label} (×{o.accommodates})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* bulk toolbar */}
@@ -383,18 +391,18 @@ export default function CalendarPage() {
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">From</span>
-              <input
+              <Input
                 type="date"
-                className={`${selectClass} w-40`}
+                className="w-40"
                 value={bulkFrom}
                 onChange={(e) => setRangeFrom(e.target.value)}
               />
             </label>
             <label className="flex flex-col gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">To</span>
-              <input
+              <Input
                 type="date"
-                className={`${selectClass} w-40`}
+                className="w-40"
                 value={bulkTo}
                 min={bulkFrom}
                 onChange={(e) => setRangeTo(e.target.value)}
@@ -402,7 +410,6 @@ export default function CalendarPage() {
             </label>
             <Button
               variant="ghost"
-              className="!py-2.5"
               onClick={() => {
                 setRangeFrom('');
                 setRangeTo('');
@@ -416,19 +423,15 @@ export default function CalendarPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Base / night
               </span>
-              <input
+              <Input
                 type="number"
                 min={1}
-                className={`${selectClass} w-36`}
+                className="w-36"
                 value={bulkBase}
                 onChange={(e) => setBulkBase(Number(e.target.value) || 0)}
               />
             </label>
-            <Button
-              onClick={applyBulkPrice}
-              disabled={busy || !occId || !bulkRangeValid}
-              className="!py-2.5"
-            >
+            <Button onClick={applyBulkPrice} disabled={busy || !occId || !bulkRangeValid}>
               Set price
             </Button>
           </div>
@@ -437,11 +440,11 @@ export default function CalendarPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Drop %
               </span>
-              <input
+              <Input
                 type="number"
                 min={0}
                 max={90}
-                className={`${selectClass} w-24`}
+                className="w-24"
                 value={bulkDrop}
                 onChange={(e) => setBulkDrop(Number(e.target.value) || 0)}
               />
@@ -450,7 +453,6 @@ export default function CalendarPage() {
               variant="ghost"
               onClick={applyBulkDrop}
               disabled={busy || !occId || !bulkRangeValid}
-              className="!py-2.5"
             >
               Last-minute drop
             </Button>
@@ -460,10 +462,10 @@ export default function CalendarPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Rooms to sell
               </span>
-              <input
+              <Input
                 type="number"
                 min={0}
-                className={`${selectClass} w-28`}
+                className="w-28"
                 value={bulkRooms}
                 onChange={(e) => setBulkRooms(Number(e.target.value) || 0)}
               />
@@ -472,7 +474,6 @@ export default function CalendarPage() {
               variant="secondary"
               onClick={() => applyBulkAvail('Open')}
               disabled={busy || !bulkRangeValid}
-              className="!py-2.5"
             >
               Open
             </Button>
@@ -480,7 +481,6 @@ export default function CalendarPage() {
               variant="secondary"
               onClick={() => applyBulkAvail('Close')}
               disabled={busy || !bulkRangeValid}
-              className="!py-2.5"
             >
               Close
             </Button>
@@ -490,11 +490,11 @@ export default function CalendarPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Min stay
               </span>
-              <input
+              <Input
                 type="number"
                 min={1}
                 max={60}
-                className={`${selectClass} w-20`}
+                className="w-20"
                 value={bulkMin}
                 onChange={(e) => setBulkMin(Number(e.target.value) || 1)}
               />
@@ -503,11 +503,11 @@ export default function CalendarPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Max (0 = ∞)
               </span>
-              <input
+              <Input
                 type="number"
                 min={0}
                 max={365}
-                className={`${selectClass} w-20`}
+                className="w-20"
                 value={bulkMax}
                 onChange={(e) => setBulkMax(Number(e.target.value) || 0)}
               />
@@ -516,14 +516,12 @@ export default function CalendarPage() {
               variant="ghost"
               onClick={applyBulkRestrictions}
               disabled={busy || !selectedRoom || !bulkRangeValid}
-              className="!py-2.5"
             >
               Restrictions
             </Button>
           </div>
           <span
-            className="pb-2 text-xs font-medium"
-            style={{ color: bulkRangeValid ? 'var(--ink-3)' : 'var(--closed-ink)' }}
+            className={`pb-2 text-xs font-medium ${bulkRangeValid ? 'text-ink-3' : 'text-closed-ink'}`}
           >
             {bulkRangeValid
               ? `applies to ${bulkRangeLabel} · ${bulkNights} night${bulkNights === 1 ? '' : 's'}`
@@ -534,11 +532,9 @@ export default function CalendarPage() {
 
       {msg && (
         <div
-          className="mt-5 rounded-xl px-4 py-3 text-sm font-semibold"
-          style={{
-            color: msg.tone === 'avail' ? 'var(--avail-ink)' : 'var(--closed-ink)',
-            background: msg.tone === 'avail' ? 'var(--avail-soft)' : 'var(--closed-soft)',
-          }}
+          className={`mt-5 rounded-xl px-4 py-3 text-sm font-semibold ${
+            msg.tone === 'avail' ? 'bg-avail-soft text-avail-ink' : 'bg-closed-soft text-closed-ink'
+          }`}
         >
           {msg.text}
         </div>
@@ -564,8 +560,9 @@ export default function CalendarPage() {
               {WEEKDAYS.map((w, i) => (
                 <div
                   key={w}
-                  className="px-3 py-3 text-center font-mono text-xs font-bold uppercase tracking-widest text-ink-3"
-                  style={i >= 5 ? { background: 'var(--surface-2)' } : undefined}
+                  className={`px-3 py-3 text-center font-mono text-xs font-bold uppercase tracking-widest text-ink-3 ${
+                    i >= 5 ? 'bg-surface-2' : ''
+                  }`}
                 >
                   {w}
                 </div>
@@ -580,8 +577,7 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={idx}
-                      className="min-h-[128px] border-b border-r border-line last:border-r-0"
-                      style={{ background: 'var(--surface-2)', opacity: 0.5 }}
+                      className="min-h-[128px] border-b border-r border-line bg-surface-2 opacity-50 last:border-r-0"
                     />
                   );
                 }
@@ -594,16 +590,16 @@ export default function CalendarPage() {
                 return (
                   <div
                     key={cell}
-                    className={`min-h-[128px] border-b border-line p-2.5 ${col < 6 ? 'border-r' : ''}`}
-                    style={weekend ? { background: 'var(--surface-2)' } : undefined}
+                    className={`min-h-[128px] border-b border-line p-2.5 ${col < 6 ? 'border-r' : ''} ${
+                      weekend ? 'bg-surface-2' : ''
+                    }`}
                   >
                     {/* day number + status */}
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-lg font-bold text-ink">{dom(cell)}</span>
                       {t.label && (
                         <span
-                          className="rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide"
-                          style={{ color: t.ink, background: t.soft }}
+                          className={`rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide ${t.cls}`}
                         >
                           {t.label}
                         </span>
@@ -613,11 +609,11 @@ export default function CalendarPage() {
                     {/* price */}
                     <div className="mt-2">
                       {editP ? (
-                        <input
+                        <Input
                           type="number"
                           autoFocus
                           min={0}
-                          className="w-full rounded-lg border-2 border-brand bg-surface px-2 py-1.5 text-center font-mono text-base font-bold text-ink outline-none"
+                          className="px-2 text-center font-mono text-base font-bold"
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => {
@@ -632,7 +628,7 @@ export default function CalendarPage() {
                       ) : (
                         <button
                           onClick={() => startPrice(cell)}
-                          className="flex w-full flex-col items-start rounded-lg px-1 py-1 text-left transition hover:bg-black/5"
+                          className="flex w-full flex-col items-start rounded-lg px-1 py-1 text-left transition hover:bg-surface-2"
                           title="Click to set the base price"
                         >
                           {r ? (
@@ -645,13 +641,7 @@ export default function CalendarPage() {
                                   <span className="font-mono text-xs text-ink-3 line-through">
                                     {moneyShort(r.sellingPrice, propCurrency)}
                                   </span>
-                                  <span
-                                    className="rounded px-1 text-[0.6rem] font-bold"
-                                    style={{
-                                      color: 'var(--closed-ink)',
-                                      background: 'var(--closed-soft)',
-                                    }}
-                                  >
+                                  <span className="rounded bg-closed-soft px-1 text-[0.6rem] font-bold text-closed-ink">
                                     −{Math.round(drop)}%
                                   </span>
                                 </span>
@@ -668,11 +658,11 @@ export default function CalendarPage() {
                     <div className="mt-1.5">
                       {editA ? (
                         <div className="flex items-center gap-1.5">
-                          <input
+                          <Input
                             type="number"
                             autoFocus
                             min={0}
-                            className="w-14 rounded-lg border-2 border-brand bg-surface px-1 py-1 text-center font-mono text-sm font-bold text-ink outline-none"
+                            className="w-14 px-1 text-center font-mono font-bold"
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
                             onKeyDown={(e) => {
@@ -682,15 +672,13 @@ export default function CalendarPage() {
                           />
                           <button
                             onClick={() => commitAvail(cell, 'Open')}
-                            className="rounded-md px-1.5 py-1 text-[0.65rem] font-bold"
-                            style={{ color: 'var(--avail-ink)', background: 'var(--avail-soft)' }}
+                            className="rounded-md bg-avail-soft px-1.5 py-1 text-[0.65rem] font-bold text-avail-ink"
                           >
                             Open
                           </button>
                           <button
                             onClick={() => commitAvail(cell, 'Close')}
-                            className="rounded-md px-1.5 py-1 text-[0.65rem] font-bold"
-                            style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
+                            className="rounded-md bg-closed-soft px-1.5 py-1 text-[0.65rem] font-bold text-closed-ink"
                           >
                             Close
                           </button>
@@ -698,7 +686,7 @@ export default function CalendarPage() {
                       ) : (
                         <button
                           onClick={() => startAvail(cell)}
-                          className="rounded-lg px-1 py-0.5 font-mono text-xs font-semibold text-ink-2 transition hover:bg-black/5"
+                          className="rounded-lg px-1 py-0.5 font-mono text-xs font-semibold text-ink-2 transition hover:bg-surface-2"
                           title="Click to edit rooms-to-sell / open-close"
                         >
                           {a ? (
@@ -748,7 +736,7 @@ export default function CalendarPage() {
                     key={h.id}
                     className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5 text-sm last:border-0"
                   >
-                    <Pill
+                    <Badge
                       tone={
                         h.kind === 'price'
                           ? 'brand'
@@ -760,7 +748,7 @@ export default function CalendarPage() {
                       }
                     >
                       {h.kind}
-                    </Pill>
+                    </Badge>
                     <span className="whitespace-nowrap text-ink-2">
                       {longDate(h.fromDate)}
                       {h.toDate !== h.fromDate ? ` → ${longDate(h.toDate)}` : ''}

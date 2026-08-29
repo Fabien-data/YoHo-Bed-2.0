@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Ban, Wrench } from 'lucide-react';
+import { Prohibit, Wrench } from '@phosphor-icons/react';
 import { Tooltip, cn } from '@yohobed/ui';
 import type { StayBar, StayRoomType, StayView } from '@/lib/api';
 
@@ -11,19 +11,19 @@ export const LABEL_W = 200;
 
 /** Colour a bar by what the front desk needs to see at a glance, the way Yanolja does. */
 function barTone(bar: StayBar): string {
-  if (bar.kind === 'block') return 'bg-[var(--ink-3)] text-white';
+  if (bar.kind === 'block') return 'bg-ink-3 text-white';
   switch (bar.status) {
     case 'CheckedIn':
-      return 'bg-[var(--avail-ink)] text-white';
+      return 'bg-avail text-white';
     case 'CheckedOut':
-      return 'bg-[var(--ink-3)] text-white';
+      return 'bg-ink-3 text-white';
     case 'Pending':
-      return 'bg-[var(--low-ink)] text-white';
+      return 'bg-low text-white';
     case 'NoShow':
     case 'Cancelled':
-      return 'bg-[var(--closed-ink)] text-white';
+      return 'bg-closed text-white';
     default:
-      return 'bg-[var(--brand)] text-white';
+      return 'bg-brand text-white';
   }
 }
 
@@ -90,7 +90,7 @@ function Bar({
           left: g.left + 2,
           width: g.width,
           // The hatched navy bar Yanolja uses for out-of-service rooms.
-          backgroundColor: '#1e2a5a',
+          backgroundColor: 'var(--brand)',
           backgroundImage:
             'repeating-linear-gradient(45deg, rgba(255,255,255,.16) 0 6px, transparent 6px 12px)',
         }}
@@ -103,6 +103,7 @@ function Bar({
 
   return (
     <Tooltip
+      variant="panel"
       label={
         <div className="space-y-0.5">
           <div className="font-semibold text-ink">{bar.guestName}</div>
@@ -112,7 +113,7 @@ function Bar({
           <div className="text-ink-3">
             {bar.from} → {bar.to}
           </div>
-          {bar.balanceDue && <div className="text-[var(--closed-ink)]">Payment pending</div>}
+          {bar.balanceDue && <div className="font-semibold text-closed-ink">Payment pending</div>}
         </div>
       }
     >
@@ -168,7 +169,7 @@ function RoomTypeRow({ rt, dates }: { rt: StayRoomType; dates: string[] }) {
             <span
               className={cn(
                 'text-xs font-bold tabular-nums',
-                d.closed || d.available === 0 ? 'text-[var(--closed-ink)]' : 'text-ink-2',
+                d.closed || d.available === 0 ? 'text-closed-ink' : 'text-ink-2',
               )}
             >
               {d.closed ? 'Closed' : (d.available ?? '—')}
@@ -244,7 +245,7 @@ export function TapeChart({
                   {u.floor && <span className="text-[11px] text-ink-3">fl {u.floor}</span>}
                   {u.status === 'inactive' && (
                     <Tooltip label="Out of service">
-                      <Ban size={13} className="ml-auto text-[var(--closed-ink)]" />
+                      <Prohibit size={13} className="ml-auto text-closed-ink" />
                     </Tooltip>
                   )}
                 </div>
@@ -273,12 +274,12 @@ export function TapeChart({
 
         {/* Unassigned — Yanolja's "Default Unmapped Room" row */}
         {data.unassigned.length > 0 && (
-          <div className="flex border-b border-line bg-[var(--low-soft)]">
+          <div className="flex border-b border-line bg-low-soft">
             <div
-              className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-[var(--low-soft)] px-3"
+              className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-low-soft px-3"
               style={{ width: LABEL_W, height: ROW_H }}
             >
-              <span className="text-xs font-bold text-[var(--low-ink)]">
+              <span className="text-xs font-bold text-low-ink">
                 Unassigned ({data.unassigned.length})
               </span>
             </div>

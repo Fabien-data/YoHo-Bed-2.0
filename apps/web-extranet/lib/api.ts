@@ -57,7 +57,14 @@ export function getToken(): string | null {
 export function getUser(): SessionUser | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem(USER_KEY);
-  return raw ? (JSON.parse(raw) as SessionUser) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SessionUser;
+  } catch {
+    // A corrupt stored user must not white-screen the app forever — end the session and re-login.
+    clearSession();
+    return null;
+  }
 }
 export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
@@ -85,14 +92,19 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
     //
     // Guarded on `token`: a 401 from the login endpoint itself means wrong credentials, and must
     // surface as an error message rather than a redirect loop.
-    if (res.status === 401 && token && typeof window !== 'undefined') {
-      clearSession();
-      window.location.replace('/?expired=1');
-    }
+    endSessionIfTokenRejected(res.status, token);
     const message = (data && (data.message || data.reason)) || res.statusText || 'Request failed';
     throw new ApiError(res.status, Array.isArray(message) ? message.join(', ') : message, data);
   }
   return data as T;
+}
+
+/** The one place the "server said our token is dead" rule lives — see the comment above. */
+function endSessionIfTokenRejected(status: number, token: string | null): void {
+  if (status === 401 && token && typeof window !== 'undefined') {
+    clearSession();
+    window.location.replace('/?expired=1');
+  }
 }
 
 export async function login(email: string, password: string): Promise<SessionUser> {
@@ -202,6 +214,9 @@ async function apiUpload<T>(path: string, file: File): Promise<T> {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    // Uploads must end a dead session exactly like every other call — this was the one path that
+    // left the user "signed in" showing a raw token error.
+    endSessionIfTokenRejected(res.status, token);
     throw new ApiError(res.status, (data && data.message) || res.statusText, data);
   }
   return data as T;

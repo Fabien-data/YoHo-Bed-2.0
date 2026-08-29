@@ -212,13 +212,17 @@ unguessable key with immutable cache headers; uploads/deletes are tenant-fenced.
 
 ### Design system
 
-Indigo brand (`#4b45c6`) + teal accent; a **reserved status palette** used only for state —
+**"Ink Navy & Brass"** (2026-08-24 overhaul) — the full contract lives in
+[DESIGN-SYSTEM.md](DESIGN-SYSTEM.md). In brief: light-first theme (`data-theme='dark'` opt-in
+toggle, stamped pre-paint), deep ink-navy brand `#16243D` with a restrained brass accent
+`#A8823C` for focus/active markers, and a **reserved status palette** used only for state —
 green `avail` (open/approved/paid), amber `low` (pending/low/warning), red `closed`
 (closed/sold-out/failed), blue `info` — each with `-ink` (text) and `-soft` (background)
-variants, wired as CSS variables into Tailwind. Money is always displayed as **LKR**
-(`Rs 24,390.25` — `lib/format.ts money()`); dates are `YYYY-MM-DD` UTC internally, `16 Jul 2026`
-for display. Dark mode follows the OS (`prefers-color-scheme`), no in-app toggle. Numbers and
-references render in a mono stack with tabular numerals.
+variants. All tokens are CSS custom properties in `globals.css`, mapped to Tailwind by the
+shared preset `@yohobed/ui/tailwind-preset`. Typography is IBM Plex Sans/Mono via `next/font`;
+icons are Phosphor (duotone marks the active nav item); every component comes from
+`@yohobed/ui` (the legacy `components/ui.tsx` kit is gone). Dates are `YYYY-MM-DD` UTC
+internally, `16 Jul 2026` for display; numbers and references render `font-mono tabular-nums`.
 
 ## 8. Testing strategy
 

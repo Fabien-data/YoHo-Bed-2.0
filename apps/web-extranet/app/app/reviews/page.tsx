@@ -1,19 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Star } from '@phosphor-icons/react';
+import { Badge, Card, EmptyState, PageHeader } from '@yohobed/ui';
 import { listReviews, type Review, type ReviewSummary } from '@/lib/api';
 import { longDate } from '@/lib/format';
-import { Card, Pill } from '@/components/ui';
 
 function Stars({ rating }: { rating: number }) {
   return (
     <span
-      className="font-mono text-sm tracking-tight"
-      style={{ color: 'var(--amber-ink, #b45309)' }}
+      role="img"
+      className="inline-flex items-center gap-0.5 text-low-ink"
       aria-label={`${rating} out of 5`}
     >
-      {'★'.repeat(rating)}
-      <span className="text-ink-3">{'★'.repeat(5 - rating)}</span>
+      {Array.from({ length: 5 }, (_, i) => (
+        <Star
+          key={i}
+          size={14}
+          weight="fill"
+          aria-hidden
+          className={i < rating ? undefined : 'text-ink-3'}
+        />
+      ))}
     </span>
   );
 }
@@ -33,14 +41,11 @@ export default function ReviewsPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
-        Reputation
-      </div>
-      <h1 className="text-3xl font-bold tracking-tight text-ink">Guest reviews</h1>
-      <p className="mt-2 max-w-2xl text-base text-ink-2">
-        Guests are invited to review their stay when you check them out. Reviews are collected
-        through a single-use link in the check-out email.
-      </p>
+      <PageHeader
+        eyebrow="Guest"
+        title="Guest reviews"
+        description="Guests are invited to review their stay when you check them out. Reviews are collected through a single-use link in the check-out email."
+      />
 
       {/* Per-property averages */}
       {summary.length > 0 && (
@@ -49,7 +54,7 @@ export default function ReviewsPage() {
             <Card key={s.propertyId} className="min-w-[220px] p-5">
               <div className="text-sm font-semibold text-ink-2">{s.propertyName}</div>
               <div className="mt-1 flex items-baseline gap-2">
-                <span className="text-3xl font-bold tabular-nums text-ink">
+                <span className="text-2xl font-semibold tracking-tight tabular-nums text-ink">
                   {s.average.toFixed(1)}
                 </span>
                 <Stars rating={Math.round(s.average)} />
@@ -64,9 +69,7 @@ export default function ReviewsPage() {
 
       <Card className="mt-6 overflow-hidden">
         {reviews.length === 0 ? (
-          <p className="p-8 text-center text-sm text-ink-3">
-            No reviews yet — they arrive after guests check out.
-          </p>
+          <EmptyState title="No reviews yet" description="They arrive after guests check out." />
         ) : (
           <div className="flex flex-col">
             {reviews.map((r) => (
@@ -74,7 +77,7 @@ export default function ReviewsPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <Stars rating={r.rating} />
                   <span className="font-semibold text-ink">{r.guestName}</span>
-                  <Pill tone="muted">{r.propertyName}</Pill>
+                  <Badge tone="muted">{r.propertyName}</Badge>
                   <span className="font-mono text-xs text-ink-3">{r.bookingReference}</span>
                   <span className="ml-auto font-mono text-xs text-ink-3">
                     {longDate(r.createdAt.slice(0, 10))}

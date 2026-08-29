@@ -1,25 +1,24 @@
 import {
-  CalendarDays,
-  CalendarRange,
-  ClipboardList,
-  Coins,
+  CalendarBlank,
+  CalendarCheck,
+  CalendarDots,
+  ChatText,
+  ClipboardText,
+  CreditCard,
   Gauge,
-  Gift,
-  Inbox,
-  LayoutGrid,
-  MessageSquare,
-  Grid3x3,
+  GearSix,
+  Money,
+  MoonStars,
   Receipt,
-  Banknote,
-  Moon,
-  Settings,
+  SquaresFour,
   Star,
   Tag,
-  UserRound,
+  Tray,
+  UserCircle,
   Users,
   Wallet,
-  type LucideIcon,
-} from 'lucide-react';
+  type Icon,
+} from '@phosphor-icons/react';
 
 /**
  * The product navigation, grouped the way Yanolja Cloud Solution groups it.
@@ -35,7 +34,7 @@ import {
 export interface NavItem {
   href: string;
   label: string;
-  icon: LucideIcon;
+  icon: Icon;
   /** Public feature-guide page. Hidden while it still carries the PLACEHOLDER marker. */
   docsUrl: string;
   /** Subscription feature key from @yohobed/domain. Omit for always-available items. */
@@ -60,14 +59,14 @@ export const NAV: NavGroup[] = [
       {
         href: '/app/stayview',
         label: 'Stay view',
-        icon: LayoutGrid,
+        icon: CalendarCheck,
         docsUrl: 'PLACEHOLDER',
         feature: 'stay_view',
       },
       {
         href: '/app/roomview',
         label: 'Room view',
-        icon: Grid3x3,
+        icon: SquaresFour,
         docsUrl: 'PLACEHOLDER',
         feature: 'room_view',
       },
@@ -76,13 +75,13 @@ export const NAV: NavGroup[] = [
       {
         href: '/app/reservations',
         label: 'Reservations',
-        icon: CalendarRange,
+        icon: CalendarBlank,
         docsUrl: 'PLACEHOLDER',
       },
       {
         href: '/app/bookings',
         label: 'Check-in & walk-ins',
-        icon: ClipboardList,
+        icon: ClipboardText,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455817c99a4feb8f4ad73c3',
       },
     ],
@@ -93,7 +92,7 @@ export const NAV: NavGroup[] = [
       {
         href: '/app/calendar',
         label: 'Rates & inventory',
-        icon: CalendarDays,
+        icon: CalendarDots,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455810c944bcefa0e3ef17c',
       },
       {
@@ -110,13 +109,13 @@ export const NAV: NavGroup[] = [
       {
         href: '/app/inbox',
         label: 'Channel inbox',
-        icon: Inbox,
+        icon: Tray,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455811d89e8cc29ab9a0711',
       },
       {
         href: '/app/comms',
         label: 'Guest messages',
-        icon: MessageSquare,
+        icon: ChatText,
         docsUrl: 'https://app.notion.com/p/3aa8dc2224558169bb2ef8e2b0e5cb62',
       },
     ],
@@ -144,14 +143,14 @@ export const NAV: NavGroup[] = [
       {
         href: '/app/cashiering',
         label: 'Cashiering centre',
-        icon: Banknote,
+        icon: Money,
         docsUrl: 'PLACEHOLDER',
         feature: 'cashiering',
       },
       {
         href: '/app/night-audit',
         label: 'Night audit',
-        icon: Moon,
+        icon: MoonStars,
         docsUrl: 'PLACEHOLDER',
         feature: 'night_audit',
       },
@@ -176,19 +175,19 @@ export const NAV: NavGroup[] = [
       {
         href: '/app/setup',
         label: 'Property setup',
-        icon: Settings,
+        icon: GearSix,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455815c978eecf181bd1b52',
       },
       {
         href: '/app/profile',
         label: 'Profile',
-        icon: UserRound,
+        icon: UserCircle,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455817c95fef79a2ef42304',
       },
       {
         href: '/app/plan',
         label: 'Your plan',
-        icon: Receipt,
+        icon: CreditCard,
         docsUrl: 'PLACEHOLDER',
       },
     ],
@@ -210,13 +209,14 @@ export function activeNavItem(pathname: string): NavItem | undefined {
 
 /**
  * Yanolja's Quick Menu grid — the shortcuts that are not part of the main tree.
- * Kept small and honest: only destinations that exist today.
+ * Kept small and honest: only destinations that exist today. Icons deliberately match the
+ * sidebar's for the same destination, so the two never disagree about what a place looks like.
  */
-export const QUICK_MENU: Array<{ href: string; label: string; icon: LucideIcon }> = [
+export const QUICK_MENU: Array<{ href: string; label: string; icon: Icon }> = [
   { href: '/app', label: 'Dashboard', icon: Gauge },
-  { href: '/app/finance', label: 'Revenue', icon: Coins },
+  { href: '/app/finance', label: 'Revenue', icon: Wallet },
   { href: '/app/customers', label: 'Guest statistics', icon: Users },
-  { href: '/app/deals', label: 'Promotions', icon: Gift },
-  { href: '/app/inbox', label: 'Channel inbox', icon: Inbox },
-  { href: '/app/plan', label: 'Know your plan', icon: ClipboardList },
+  { href: '/app/deals', label: 'Promotions', icon: Tag },
+  { href: '/app/inbox', label: 'Channel inbox', icon: Tray },
+  { href: '/app/plan', label: 'Know your plan', icon: CreditCard },
 ];

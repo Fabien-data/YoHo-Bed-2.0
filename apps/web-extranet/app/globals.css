@@ -2,67 +2,122 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Dark is the product default. ThemeScript sets data-theme on <html> before
-   first paint; light mode is the explicit override below. */
+/* ---------------------------------------------------------------------------
+   YoHoBed design tokens — "Ink Navy & Brass".
+   Light is the product default; ThemeScript stamps data-theme on <html> before
+   first paint and dark mode is the explicit override below. Every color in the
+   product must resolve to one of these custom properties — hex values are
+   allowed in this file only.
+   Status families follow one shape: base (fills, bars), -ink (text on light
+   surfaces or on the matching -soft), -soft (tinted background).
+--------------------------------------------------------------------------- */
 :root {
-  color-scheme: dark;
-  --brand: #8c85ff;
-  --brand-ink: #b7b2ff;
-  --brand-soft: rgba(140, 133, 255, 0.15);
-  --teal: #2fd3c0;
-  --avail: #43c88e;
-  --avail-ink: #86e3ba;
-  --avail-soft: rgba(67, 200, 142, 0.16);
-  --low: #e0a24a;
-  --low-ink: #f1c88f;
-  --low-soft: rgba(224, 162, 74, 0.17);
-  --closed: #ea746c;
-  --closed-ink: #f3a8a2;
-  --closed-soft: rgba(234, 116, 108, 0.16);
-  --info: #6ba1e8;
-  --bg: #090b10;
-  --surface: #12151d;
-  --surface-2: #171b25;
-  --ink: #e9ecf4;
-  --ink-2: #9aa3b5;
-  --ink-3: #6d7688;
-  --line: #232838;
-  --line-strong: #333a4d;
-  --font-sans: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: light;
+
+  /* canvas & structure */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f3f7;
+  --ink: #101b2d;
+  --ink-2: #46536b;
+  --ink-3: #6f7a8f;
+  --line: #e5e8ef;
+  --line-strong: #cfd6e2;
+
+  /* brand — deep ink navy: primary actions, active states */
+  --brand: #16243d;
+  --brand-ink: #253e66;
+  --brand-soft: rgba(22, 36, 61, 0.07);
+
+  /* brass — the signature accent: focus rings, active-nav marker, highlights */
+  --brass: #a8823c;
+  --brass-ink: #7d6023;
+  --brass-soft: rgba(168, 130, 60, 0.12);
+
+  /* status: available / confirmed */
+  --avail: #2e7d5b;
+  --avail-ink: #1f6647;
+  --avail-soft: rgba(46, 125, 91, 0.11);
+
+  /* status: low stock / attention */
+  --low: #b97f24;
+  --low-ink: #7e5714;
+  --low-soft: rgba(185, 127, 36, 0.13);
+
+  /* status: closed / due-out / danger */
+  --closed: #b54834;
+  --closed-ink: #a03a28;
+  --closed-soft: rgba(181, 72, 52, 0.11);
+
+  /* status: informational */
+  --info: #3e6db5;
+  --info-ink: #2f5793;
+  --info-soft: rgba(62, 109, 181, 0.11);
+
+  /* elevation */
+  --shadow-1: 0 1px 2px rgba(16, 27, 45, 0.06);
+  --shadow-2: 0 1px 2px rgba(16, 27, 45, 0.05), 0 4px 12px rgba(16, 27, 45, 0.08);
+  --shadow-3: 0 8px 16px rgba(16, 27, 45, 0.08), 0 24px 48px rgba(16, 27, 45, 0.16);
+
+  /* geometry */
+  --radius-control: 8px;
+  --radius-surface: 10px;
+  --radius-overlay: 14px;
+
+  /* motion */
+  --ease-smooth: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 260ms;
 }
 
-:root[data-theme='light'] {
-  color-scheme: light;
-  --brand: #4b45c6;
-  --brand-ink: #3833a6;
-  --brand-soft: rgba(75, 69, 198, 0.1);
-  --teal: #0c6e66;
-  --avail: #1e9e63;
-  --avail-ink: #177a4d;
-  --avail-soft: rgba(30, 158, 99, 0.12);
-  --low: #c67e12;
-  --low-ink: #8a5a0f;
-  --low-soft: rgba(214, 138, 31, 0.16);
-  --closed: #ce463e;
-  --closed-ink: #a5372f;
-  --closed-soft: rgba(206, 70, 62, 0.12);
-  --info: #3b72c4;
-  --bg: #f3f4fa;
-  --surface: #ffffff;
-  --surface-2: #f6f8fc;
-  --ink: #14161f;
-  --ink-2: #4c5468;
-  --ink-3: #767e90;
-  --line: #e4e7f0;
-  --line-strong: #d2d7e4;
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0b111e;
+  --surface: #121a2b;
+  --surface-2: #1a2438;
+  --ink: #e7ecf4;
+  --ink-2: #a3afc4;
+  --ink-3: #7787a0;
+  --line: #22304a;
+  --line-strong: #34435f;
+
+  --brand: #3c5a8f;
+  --brand-ink: #a9c0e8;
+  --brand-soft: rgba(120, 150, 200, 0.14);
+
+  --brass: #c9a45c;
+  --brass-ink: #d9bc7e;
+  --brass-soft: rgba(201, 164, 92, 0.14);
+
+  --avail: #3a9a72;
+  --avail-ink: #7fd3ab;
+  --avail-soft: rgba(74, 190, 140, 0.14);
+
+  --low: #c98f35;
+  --low-ink: #e4b86d;
+  --low-soft: rgba(224, 162, 74, 0.15);
+
+  --closed: #c75b45;
+  --closed-ink: #f0a192;
+  --closed-soft: rgba(230, 115, 95, 0.14);
+
+  --info: #4f83ce;
+  --info-ink: #92b8ec;
+  --info-soft: rgba(107, 161, 232, 0.15);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 8px 16px rgba(0, 0, 0, 0.4), 0 24px 48px rgba(0, 0, 0, 0.55);
 }
 
 /* Theme-conditional visibility — used by the sun/moon icons in ThemeToggle. */
-:root[data-theme='light'] .when-dark {
+:root[data-theme='dark'] .when-light {
   display: none;
 }
-:root:not([data-theme='light']) .when-light {
+:root:not([data-theme='dark']) .when-dark {
   display: none;
 }
 
@@ -77,7 +132,47 @@ body {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-sans);
+  /* next/font sets --font-sans/--font-mono on <html>; the fallback stack only
+     matters if the font variables are missing (e.g. isolated component tests). */
+  font-family: var(--font-sans, 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--brass) 28%, transparent);
+}
+
+/* Thin, theme-aware scrollbars — dense PMS grids scroll constantly. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ink-3);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

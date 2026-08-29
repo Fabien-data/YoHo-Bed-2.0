@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { History } from 'lucide-react';
+import { ClockCounterClockwise } from '@phosphor-icons/react';
 import { Button } from '../primitives/button';
 import { Sheet, SheetContent, SheetTrigger } from '../primitives/sheet';
 import { Input } from '../primitives/form';
@@ -56,7 +56,7 @@ export function AuditTrailDrawer({
     >
       <SheetTrigger asChild>
         <Button variant="secondary" size="sm">
-          <History size={14} />
+          <ClockCounterClockwise size={14} />
           {triggerLabel}
         </Button>
       </SheetTrigger>

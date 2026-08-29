@@ -10,11 +10,7 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
     return (
       <div
         ref={ref}
-        className={cn(
-          'rounded-xl border border-line bg-surface',
-          'shadow-[0_1px_2px_rgba(20,22,31,0.05),0_8px_24px_rgba(20,22,31,0.06)]',
-          className,
-        )}
+        className={cn('rounded-xl border border-line bg-surface shadow-card', className)}
         {...props}
       />
     );
@@ -23,15 +19,16 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
 
 // --- Badge -------------------------------------------------------------------
 
-export type Tone = 'avail' | 'low' | 'closed' | 'brand' | 'info' | 'muted';
+export type Tone = 'avail' | 'low' | 'closed' | 'brand' | 'brass' | 'info' | 'muted';
 
-const TONES: Record<Tone, { color: string; bg: string }> = {
-  avail: { color: 'var(--avail-ink)', bg: 'var(--avail-soft)' },
-  low: { color: 'var(--low-ink)', bg: 'var(--low-soft)' },
-  closed: { color: 'var(--closed-ink)', bg: 'var(--closed-soft)' },
-  brand: { color: 'var(--brand-ink)', bg: 'var(--brand-soft)' },
-  info: { color: 'var(--info)', bg: 'var(--surface-2)' },
-  muted: { color: 'var(--ink-2)', bg: 'var(--surface-2)' },
+const TONES: Record<Tone, string> = {
+  avail: 'bg-avail-soft text-avail-ink',
+  low: 'bg-low-soft text-low-ink',
+  closed: 'bg-closed-soft text-closed-ink',
+  brand: 'bg-brand-soft text-brand-ink',
+  brass: 'bg-brass-soft text-brass-ink',
+  info: 'bg-info-soft text-info-ink',
+  muted: 'bg-surface-2 text-ink-2',
 };
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -44,30 +41,80 @@ export const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(function Badg
   { tone = 'muted', dot = true, className, children, ...props },
   ref,
 ) {
-  const s = TONES[tone];
   return (
     <span
       ref={ref}
       className={cn(
         'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold',
+        TONES[tone],
         className,
       )}
-      style={{ color: s.color, background: s.bg }}
       {...props}
     >
-      {dot && <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />}
+      {dot && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
       {children}
     </span>
   );
 });
 
+// --- Kbd ---------------------------------------------------------------------
+
+/** A keyboard hint chip — command palette, tooltips, shortcut affordances. */
+export function Kbd({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
+  return (
+    <kbd
+      className={cn(
+        'inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-line-strong',
+        'bg-surface-2 px-1.5 font-mono text-[11px] font-medium text-ink-2',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 // --- Skeleton ----------------------------------------------------------------
 
-export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('animate-pulse rounded-lg bg-surface-2', className)} {...props} />;
+export function Skeleton({
+  className,
+  shimmer = false,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { shimmer?: boolean }) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg bg-surface-2',
+        shimmer
+          ? 'animate-shimmer bg-gradient-to-r from-surface-2 via-line to-surface-2 bg-[length:200%_100%]'
+          : 'animate-pulse',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 // --- EmptyState --------------------------------------------------------------
+
+/** The default "empty tray" glyph — one drawing everywhere, so empty never reads as broken. */
+function TrayGlyph() {
+  return (
+    <svg
+      width="44"
+      height="44"
+      viewBox="0 0 48 48"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 14h30l3 14v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-8l3-14Z" />
+      <path d="M6 28h10l3 5h10l3-5h10" />
+    </svg>
+  );
+}
 
 /**
  * Yanolja shows the same "No data" illustration + primary CTA on every empty list. Consistency
@@ -90,7 +137,7 @@ export function EmptyState({
     <div
       className={cn('flex flex-col items-center justify-center px-6 py-16 text-center', className)}
     >
-      {icon && <div className="mb-3 text-ink-3 opacity-60">{icon}</div>}
+      <div className="mb-3 text-ink-3 opacity-60">{icon ?? <TrayGlyph />}</div>
       <p className="text-sm font-semibold text-ink-2">{title}</p>
       {description && <p className="mt-1 max-w-sm text-sm text-ink-3">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
@@ -100,6 +147,10 @@ export function EmptyState({
 
 // --- PageHeader --------------------------------------------------------------
 
+/**
+ * The one page header. Every screen uses this — a single H1 scale is a large part of what makes
+ * the product read as one system instead of many pages.
+ */
 export function PageHeader({
   eyebrow,
   title,
@@ -115,12 +166,12 @@ export function PageHeader({
     <div className="mb-6 flex flex-wrap items-start gap-4">
       <div className="min-w-0 flex-1">
         {eyebrow && (
-          <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
+          <div className="mb-1 font-mono text-[11px] font-medium uppercase tracking-widest text-ink-3">
             {eyebrow}
           </div>
         )}
-        <h1 className="text-3xl font-bold tracking-tight text-ink">{title}</h1>
-        {description && <div className="mt-2 max-w-2xl text-base text-ink-2">{description}</div>}
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
+        {description && <div className="mt-1.5 max-w-2xl text-sm text-ink-2">{description}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

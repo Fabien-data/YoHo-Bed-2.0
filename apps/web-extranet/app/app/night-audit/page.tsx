@@ -2,10 +2,10 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, Moon, TriangleAlert } from 'lucide-react';
+import { CalendarDots, MoonStars, Warning } from '@phosphor-icons/react';
 import { Badge, Button, Card, Skeleton, cn } from '@yohobed/ui';
 import { getBusinessDate, getNightAuditLog, previewNightAudit, runNightAudit } from '@/lib/api';
-import { useProperties } from '@/lib/queries';
+import { useActiveProperty } from '@/components/active-property';
 
 /**
  * The day-end.
@@ -16,8 +16,7 @@ import { useProperties } from '@/lib/queries';
  */
 export default function NightAuditPage() {
   const qc = useQueryClient();
-  const { data: properties } = useProperties();
-  const propertyId = properties?.[0]?.id;
+  const { propertyId } = useActiveProperty();
   const [confirming, setConfirming] = React.useState(false);
 
   const businessDate = useQuery({
@@ -68,7 +67,7 @@ export default function NightAuditPage() {
           <h1 className="text-2xl font-bold tracking-tight text-ink">Night audit</h1>
           {businessDate.data && (
             <Badge tone="brand">
-              <CalendarClock size={12} />
+              <CalendarDots size={12} />
               Business date {businessDate.data.currentDate}
             </Badge>
           )}
@@ -97,8 +96,8 @@ export default function NightAuditPage() {
             </dl>
 
             {p.noShows.length > 0 && (
-              <p className="mb-3 flex items-start gap-2 rounded-lg bg-[var(--low-soft)] px-3 py-2 text-sm text-[var(--low-ink)]">
-                <TriangleAlert size={15} className="mt-0.5 shrink-0" />
+              <p className="mb-3 flex items-start gap-2 rounded-lg bg-low-soft px-3 py-2 text-sm text-low-ink">
+                <Warning size={15} className="mt-0.5 shrink-0" />
                 <span>
                   These reservations were due to arrive and never did. The audit will mark them as
                   no-shows: {p.noShows.join(', ')}
@@ -126,14 +125,12 @@ export default function NightAuditPage() {
               </div>
             ) : (
               <Button onClick={() => setConfirming(true)} disabled={!propertyId}>
-                <Moon size={15} />
+                <MoonStars size={15} />
                 Run night audit
               </Button>
             )}
             {run.isError && (
-              <p className="mt-2 text-sm text-[var(--closed-ink)]">
-                {(run.error as Error).message}
-              </p>
+              <p className="mt-2 text-sm text-closed-ink">{(run.error as Error).message}</p>
             )}
           </>
         )}
@@ -179,7 +176,7 @@ export default function NightAuditPage() {
                   <td
                     className={cn(
                       'px-4 py-3 text-right font-mono tabular-nums',
-                      r.noShows > 0 ? 'text-[var(--closed-ink)]' : 'text-ink-3',
+                      r.noShows > 0 ? 'text-closed-ink' : 'text-ink-3',
                     )}
                   >
                     {r.noShows}
@@ -218,7 +215,7 @@ function Stat({
       <dd
         className={cn(
           'mt-1 font-mono text-lg font-bold tabular-nums',
-          alert ? 'text-[var(--closed-ink)]' : muted ? 'text-ink-3' : 'text-ink',
+          alert ? 'text-closed-ink' : muted ? 'text-ink-3' : 'text-ink',
         )}
       >
         {value}

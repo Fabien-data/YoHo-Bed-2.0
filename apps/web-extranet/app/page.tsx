@@ -1,16 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { login, isStaff, ApiError } from '@/lib/api';
-import { Button, Card, Field, Logo } from '@/components/ui';
-import { ThemeToggle } from '@/components/theme';
+import { Button, Field, Input } from '@yohobed/ui';
+import { AuthShell, AuthError, AuthNotice } from '@/components/auth-shell';
 
 export default function LoginPage() {
   // Read straight off the URL rather than useSearchParams: that hook forces the whole page into
-  // a Suspense boundary, which is a lot of ceremony for one flag.
-  const expired =
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('expired');
+  // a Suspense boundary, which is a lot of ceremony for one flag. Read in an effect, not during
+  // render — the server prerenders `false`, and a first-render `true` is a hydration mismatch
+  // React may resolve by discarding exactly the notice this flag exists to show.
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    setExpired(new URLSearchParams(window.location.search).has('expired'));
+  }, []);
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,62 +35,9 @@ export default function LoginPage() {
   }
 
   return (
-    <main
-      className="flex min-h-screen items-center justify-center p-6"
-      style={{
-        backgroundImage:
-          'radial-gradient(120% 100% at 85% -10%, var(--brand-soft), transparent 55%), radial-gradient(100% 90% at 10% 120%, rgba(12,110,102,0.10), transparent 50%)',
-      }}
-    >
-      <ThemeToggle floating />
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex justify-center">
-          <Logo size={30} />
-        </div>
-        <Card className="p-7">
-          <h1 className="text-xl font-bold tracking-tight text-ink">Sign in</h1>
-          <p className="mb-6 mt-1 text-sm text-ink-2">
-            Manage your property&rsquo;s rates &amp; availability.
-          </p>
-          {expired && (
-            <p
-              className="mb-4 rounded-lg px-3 py-2 text-sm"
-              style={{ color: 'var(--low-ink)', background: 'var(--low-soft)' }}
-            >
-              Your session expired. Please sign in again.
-            </p>
-          )}
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <Field
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="username"
-              required
-            />
-            <Field
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-            {error && (
-              <p
-                className="rounded-lg px-3 py-2 text-sm font-medium"
-                style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
-              >
-                {error}
-              </p>
-            )}
-            <Button type="submit" disabled={busy} className="mt-1 w-full">
-              {busy ? 'Signing in…' : 'Sign in'}
-            </Button>
-          </form>
-        </Card>
-        <p className="mt-4 text-center text-xs text-ink-3">
+    <AuthShell
+      footer={
+        <>
           New to YoHoBed?{' '}
           <a href="/register" className="font-semibold text-brand-ink">
             Create an account
@@ -95,8 +46,42 @@ export default function LoginPage() {
           <a href="/forgot" className="font-semibold text-brand-ink">
             Forgot password
           </a>
-        </p>
-      </div>
-    </main>
+        </>
+      }
+    >
+      <h1 className="text-xl font-semibold tracking-tight text-ink">Sign in</h1>
+      <p className="mb-6 mt-1 text-sm text-ink-2">
+        Manage your property&rsquo;s rates &amp; availability.
+      </p>
+      {expired && (
+        <div className="mb-4">
+          <AuthNotice>Your session expired. Please sign in again.</AuthNotice>
+        </div>
+      )}
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <Field label="Email" required>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            required
+          />
+        </Field>
+        <Field label="Password" required>
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </Field>
+        {error && <AuthError>{error}</AuthError>}
+        <Button type="submit" loading={busy} className="mt-1 w-full">
+          {busy ? 'Signing in…' : 'Sign in'}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

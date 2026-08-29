@@ -103,9 +103,9 @@ export function GuestProfileForm({
         <Button type="submit" disabled={save.isPending}>
           {save.isPending ? 'Saving…' : 'Save profile'}
         </Button>
-        {save.isSuccess && <span className="text-sm text-[var(--avail-ink)]">Saved.</span>}
+        {save.isSuccess && <span className="text-sm text-avail-ink">Saved.</span>}
         {save.isError && (
-          <span className="text-sm text-[var(--closed-ink)]">{(save.error as Error).message}</span>
+          <span className="text-sm text-closed-ink">{(save.error as Error).message}</span>
         )}
       </div>
     </form>

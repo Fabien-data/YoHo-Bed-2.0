@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Badge, Button, Card, Field, Input, PageHeader, toast } from '@yohobed/ui';
 import {
   getProfile,
   setPayoutAccount,
@@ -9,7 +10,6 @@ import {
   ApiError,
   type Profile,
 } from '@/lib/api';
-import { Button, Card, Field, Pill } from '@/components/ui';
 
 function statusTone(s: string): 'avail' | 'low' | 'closed' | 'muted' {
   if (s === 'active') return 'avail';
@@ -19,7 +19,7 @@ function statusTone(s: string): 'avail' | 'low' | 'closed' | 'muted' {
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [msg, setMsg] = useState<{ tone: 'avail' | 'closed'; text: string } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [bank, setBank] = useState({
@@ -45,44 +45,60 @@ export default function ProfilePage() {
     }
   }, []);
   useEffect(() => {
-    load().catch(() => {});
+    // A non-401 failure must not leave a permanently blank page with no message or retry.
+    load()
+      .then(() => setLoadError(null))
+      .catch((e) =>
+        setLoadError(e instanceof Error ? e.message : 'Your profile could not be loaded'),
+      );
   }, [load]);
 
   async function run(fn: () => Promise<void>, okText: string) {
     setBusy(true);
-    setMsg(null);
     try {
       await fn();
       await load();
-      setMsg({ tone: 'avail', text: okText });
+      toast.success(okText);
     } catch (e) {
-      setMsg({ tone: 'closed', text: e instanceof ApiError ? e.message : 'Something went wrong' });
+      toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
     } finally {
       setBusy(false);
     }
   }
 
-  if (!profile) return null;
+  if (!profile) {
+    if (!loadError) return null;
+    return (
+      <div>
+        <PageHeader eyebrow="Configuration" title="Profile" />
+        <Card className="mt-6 p-8">
+          <h2 className="text-lg font-bold text-ink">Your profile could not be loaded</h2>
+          <p className="mt-2 max-w-xl text-sm text-ink-2">{loadError}.</p>
+          <Button
+            variant="secondary"
+            className="mt-4"
+            onClick={() =>
+              void load()
+                .then(() => setLoadError(null))
+                .catch((e) =>
+                  setLoadError(e instanceof Error ? e.message : 'Your profile could not be loaded'),
+                )
+            }
+          >
+            Try again
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">Account</div>
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-ink">Profile</h1>
-        <Pill tone={statusTone(profile.tenant.status)}>{profile.tenant.status}</Pill>
-      </div>
-
-      {msg && (
-        <div
-          className="mt-4 rounded-lg px-3 py-2 text-sm font-medium"
-          style={{
-            color: msg.tone === 'avail' ? 'var(--avail-ink)' : 'var(--closed-ink)',
-            background: msg.tone === 'avail' ? 'var(--avail-soft)' : 'var(--closed-soft)',
-          }}
-        >
-          {msg.text}
-        </div>
-      )}
+      <PageHeader
+        eyebrow="Configuration"
+        title="Profile"
+        actions={<Badge tone={statusTone(profile.tenant.status)}>{profile.tenant.status}</Badge>}
+      />
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
@@ -114,9 +130,9 @@ export default function ProfilePage() {
                 schedule, and cancellation handling.
               </p>
               <Button
-                disabled={busy}
+                loading={busy}
                 onClick={() =>
-                  run(async () => void (await acceptAgreement()), 'Agreement accepted.')
+                  void run(async () => void (await acceptAgreement()), 'Agreement accepted.')
                 }
               >
                 Accept agreement
@@ -131,30 +147,32 @@ export default function ProfilePage() {
             className="flex flex-col gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              run(async () => {
+              void run(async () => {
                 await changePassword(pw.current, pw.next);
                 setPw({ current: '', next: '' });
               }, 'Password updated.');
             }}
           >
-            <Field
-              label="Current password"
-              type="password"
-              value={pw.current}
-              onChange={(e) => setPw((v) => ({ ...v, current: e.target.value }))}
-              autoComplete="current-password"
-              required
-            />
-            <Field
-              label="New password (min 8 characters)"
-              type="password"
-              value={pw.next}
-              onChange={(e) => setPw((v) => ({ ...v, next: e.target.value }))}
-              autoComplete="new-password"
-              minLength={8}
-              required
-            />
-            <Button type="submit" variant="secondary" disabled={busy} className="self-start">
+            <Field label="Current password" required>
+              <Input
+                type="password"
+                value={pw.current}
+                onChange={(e) => setPw((v) => ({ ...v, current: e.target.value }))}
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+            <Field label="New password (min 8 characters)" required>
+              <Input
+                type="password"
+                value={pw.next}
+                onChange={(e) => setPw((v) => ({ ...v, next: e.target.value }))}
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+            </Field>
+            <Button type="submit" variant="secondary" loading={busy} className="self-start">
               Update password
             </Button>
           </form>
@@ -171,7 +189,7 @@ export default function ProfilePage() {
             className="flex flex-col gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              run(
+              void run(
                 async () =>
                   void (await setPayoutAccount({
                     bankName: bank.bankName.trim(),
@@ -184,38 +202,45 @@ export default function ProfilePage() {
               );
             }}
           >
-            <Field
-              label="Bank"
-              value={bank.bankName}
-              onChange={(e) => setBank((v) => ({ ...v, bankName: e.target.value }))}
-              placeholder="e.g. Commercial Bank of Ceylon"
-              required
-            />
-            <Field
-              label="Branch (optional)"
-              value={bank.branchName}
-              onChange={(e) => setBank((v) => ({ ...v, branchName: e.target.value }))}
-              placeholder="e.g. Kollupitiya"
-            />
-            <Field
-              label="Account holder name"
-              value={bank.accountName}
-              onChange={(e) => setBank((v) => ({ ...v, accountName: e.target.value }))}
-              required
-            />
-            <Field
-              label="Account number"
-              value={bank.accountNumber}
-              onChange={(e) => setBank((v) => ({ ...v, accountNumber: e.target.value }))}
-              required
-            />
-            <Field
-              label="SWIFT code (optional)"
-              value={bank.swiftCode}
-              onChange={(e) => setBank((v) => ({ ...v, swiftCode: e.target.value.toUpperCase() }))}
-              placeholder="CCEYLKLX"
-            />
-            <Button type="submit" disabled={busy} className="self-start">
+            <Field label="Bank" required>
+              <Input
+                value={bank.bankName}
+                onChange={(e) => setBank((v) => ({ ...v, bankName: e.target.value }))}
+                placeholder="e.g. Commercial Bank of Ceylon"
+                required
+              />
+            </Field>
+            <Field label="Branch (optional)">
+              <Input
+                value={bank.branchName}
+                onChange={(e) => setBank((v) => ({ ...v, branchName: e.target.value }))}
+                placeholder="e.g. Kollupitiya"
+              />
+            </Field>
+            <Field label="Account holder name" required>
+              <Input
+                value={bank.accountName}
+                onChange={(e) => setBank((v) => ({ ...v, accountName: e.target.value }))}
+                required
+              />
+            </Field>
+            <Field label="Account number" required>
+              <Input
+                value={bank.accountNumber}
+                onChange={(e) => setBank((v) => ({ ...v, accountNumber: e.target.value }))}
+                required
+              />
+            </Field>
+            <Field label="SWIFT code (optional)">
+              <Input
+                value={bank.swiftCode}
+                onChange={(e) =>
+                  setBank((v) => ({ ...v, swiftCode: e.target.value.toUpperCase() }))
+                }
+                placeholder="CCEYLKLX"
+              />
+            </Field>
+            <Button type="submit" loading={busy} className="self-start">
               {profile.payoutAccount ? 'Update payout account' : 'Save payout account'}
             </Button>
           </form>
