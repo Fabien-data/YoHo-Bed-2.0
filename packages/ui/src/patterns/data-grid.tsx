@@ -9,7 +9,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { CaretDown, CaretUp, CaretUpDown } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { EmptyState, Skeleton } from '../primitives/surfaces';
 
@@ -31,6 +31,7 @@ export function DataGrid<T>({
   emptyAction,
   onRowClick,
   rowKey,
+  stickyHeader = false,
   className,
 }: {
   data: T[];
@@ -41,6 +42,7 @@ export function DataGrid<T>({
   emptyAction?: React.ReactNode;
   onRowClick?: (row: T) => void;
   rowKey?: (row: T) => string;
+  stickyHeader?: boolean;
   className?: string;
 }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -59,7 +61,7 @@ export function DataGrid<T>({
     return (
       <div className={cn('flex flex-col gap-2 p-4', className)}>
         {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} className="h-10 w-full" />
+          <Skeleton key={i} shimmer className="h-10 w-full" />
         ))}
       </div>
     );
@@ -79,9 +81,9 @@ export function DataGrid<T>({
   return (
     <div className={cn('overflow-x-auto', className)}>
       <table className="w-full border-collapse text-sm">
-        <thead>
+        <thead className={cn(stickyHeader && 'sticky top-0 z-10')}>
           {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-line">
+            <tr key={hg.id} className="border-b border-line bg-surface-2">
               {hg.headers.map((header) => {
                 const sortable = header.column.getCanSort();
                 const dir = header.column.getIsSorted();
@@ -90,21 +92,21 @@ export function DataGrid<T>({
                     key={header.id}
                     scope="col"
                     aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : 'none'}
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-ink-3"
+                    className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2 first:rounded-l-lg last:rounded-r-lg"
                   >
                     {header.isPlaceholder ? null : sortable ? (
                       <button
                         type="button"
                         onClick={header.column.getToggleSortingHandler()}
-                        className="inline-flex items-center gap-1 transition hover:text-ink"
+                        className="inline-flex items-center gap-1 transition duration-1 hover:text-ink"
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {dir === 'asc' ? (
-                          <ChevronUp size={12} />
+                          <CaretUp size={12} weight="bold" />
                         ) : dir === 'desc' ? (
-                          <ChevronDown size={12} />
+                          <CaretDown size={12} weight="bold" />
                         ) : (
-                          <ChevronsUpDown size={12} className="opacity-40" />
+                          <CaretUpDown size={12} className="opacity-40" />
                         )}
                       </button>
                     ) : (
@@ -123,7 +125,7 @@ export function DataGrid<T>({
               onClick={onRowClick ? () => onRowClick(row.original) : undefined}
               className={cn(
                 'border-b border-line last:border-0',
-                onRowClick && 'cursor-pointer transition hover:bg-surface-2',
+                onRowClick && 'cursor-pointer transition duration-1 hover:bg-surface-2',
               )}
             >
               {row.getVisibleCells().map((cell) => (

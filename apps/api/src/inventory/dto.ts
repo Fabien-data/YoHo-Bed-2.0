@@ -2,6 +2,20 @@ import { z } from 'zod';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 
+/**
+ * Ceiling on writable date ranges. These endpoints upsert one row per day inside a transaction,
+ * so an uncapped range ("2020-01-01".."2999-12-31") is ~357k sequential writes holding a pool
+ * connection — a one-request denial of service. Two years covers any real ARI horizon.
+ */
+export const MAX_RANGE_DAYS = 731;
+export const rangeWithinCap = (v: { from: string; to: string }) =>
+  (Date.parse(`${v.to}T00:00:00Z`) - Date.parse(`${v.from}T00:00:00Z`)) / 86_400_000 <
+  MAX_RANGE_DAYS;
+export const rangeCapMessage = {
+  message: `date range must be under ${MAX_RANGE_DAYS} days`,
+  path: ['to'] as ['to'],
+};
+
 export const reserveSchema = z
   .object({
     checkin: isoDate,
@@ -43,6 +57,7 @@ export const restrictionsSchema = z
     maxStay: z.number().int().min(0).max(365).default(0),
   })
   .refine((v) => v.to >= v.from, { message: 'to must be on or after from', path: ['to'] })
+  .refine(rangeWithinCap, rangeCapMessage)
   .refine((v) => v.maxStay === 0 || v.maxStay >= v.minStay, {
     message: 'maxStay must be 0 (unlimited) or at least minStay',
     path: ['maxStay'],
@@ -56,7 +71,8 @@ export const openAvailabilitySchema = z
     roomsToSell: z.number().int().min(0),
     status: z.enum(['Open', 'Close']).default('Open'),
   })
-  .refine((v) => v.to >= v.from, { message: 'to must be on or after from', path: ['to'] });
+  .refine((v) => v.to >= v.from, { message: 'to must be on or after from', path: ['to'] })
+  .refine(rangeWithinCap, rangeCapMessage);
 export type OpenAvailabilityDto = z.infer<typeof openAvailabilitySchema>;
 
 // --- Room units (physical rooms) ---------------------------------------------

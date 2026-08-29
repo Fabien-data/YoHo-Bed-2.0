@@ -14,6 +14,7 @@ import {
   ledgerAccounts,
   ledgerEntries,
   payments,
+  properties,
   users,
   type Tx,
 } from '@yohobed/db';
@@ -74,6 +75,11 @@ export class CashieringService {
 
   createAccount(tenantId: string, dto: CreateLedgerAccountDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
+      // Default the account's currency to the property it belongs to. A hardcoded 'LKR' default
+      // made every account on a USD-base property un-billable — chargeToLedger refuses a
+      // currency mismatch, correctly.
+      const property = dto.propertyId ? await this.loadProperty(tx, dto.propertyId) : null;
+      const currency = dto.currency ?? property?.currency ?? 'LKR';
       try {
         const [created] = await tx
           .insert(ledgerAccounts)
@@ -89,7 +95,7 @@ export class CashieringService {
             address: dto.address ?? null,
             taxId: dto.taxId ?? null,
             creditLimit: money(dto.creditLimit),
-            currency: dto.currency,
+            currency,
           })
           .returning();
         return created;
@@ -270,6 +276,10 @@ export class CashieringService {
 
   createDrawer(tenantId: string, propertyId: string, dto: CreateDrawerDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
+      // The URL propertyId must be one of OURS: RLS's WITH CHECK only tests tenant_id and FK
+      // validation bypasses RLS, so an unchecked insert would happily hang a drawer off another
+      // tenant's property.
+      await this.loadProperty(tx, propertyId);
       try {
         const [created] = await tx
           .insert(cashDrawers)
@@ -472,8 +482,18 @@ export class CashieringService {
     dto: CreateExpenseDto,
   ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
+      const property = await this.loadProperty(tx, propertyId);
       if (dto.drawerSessionId) {
-        await this.loadSession(tx, dto.drawerSessionId, { mustBeOpen: true });
+        const session = await this.loadSession(tx, dto.drawerSessionId, { mustBeOpen: true });
+        // The till must belong to THIS property — otherwise property A's expense silently
+        // drains property B's drawer and neither cashier report reconciles.
+        const [drawer] = await tx
+          .select({ propertyId: cashDrawers.propertyId })
+          .from(cashDrawers)
+          .where(eq(cashDrawers.id, session.drawerId));
+        if (drawer?.propertyId !== propertyId) {
+          throw new BadRequestException('That drawer shift belongs to a different property');
+        }
       }
       const voucherNo = dto.voucherNo ?? (await this.nextVoucherNo(tx, propertyId));
       try {
@@ -487,7 +507,7 @@ export class CashieringService {
             category: dto.category,
             payee: dto.payee,
             amount: money(dto.amount),
-            currency: dto.currency,
+            currency: dto.currency ?? property.currency,
             reference: dto.reference ?? null,
             note: dto.note ?? null,
             createdByUserId: userId,
@@ -509,6 +529,13 @@ export class CashieringService {
     const [a] = await tx.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, id));
     if (!a) throw new NotFoundException('Ledger account not found');
     return a;
+  }
+
+  /** RLS makes a foreign property invisible, so this lookup doubles as the ownership check. */
+  private async loadProperty(tx: Tx, id: string) {
+    const [p] = await tx.select().from(properties).where(eq(properties.id, id));
+    if (!p) throw new NotFoundException('Property not found');
+    return p;
   }
 
   private async balanceOf(tx: Tx, accountId: string): Promise<number> {

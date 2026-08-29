@@ -86,10 +86,27 @@ export function markOutboxFailed(
     .where(eq(outbox.id, id));
 }
 
-/** Return rows stuck in 'processing' (e.g. a crashed worker) back to 'pending'. */
-export function requeueStaleOutbox(db: Database, olderThanSeconds = 120): Promise<unknown> {
+/**
+ * Return rows stuck in 'processing' (e.g. a crashed worker) back to 'pending'.
+ *
+ * Only rows that still have attempts left are requeued; a row whose attempts are exhausted (the
+ * worker died between the last attempt and the failed-listener bookkeeping) is dead-lettered
+ * instead — without the ceiling it would loop pending → processing forever, looking "in progress"
+ * while pushing nothing.
+ */
+export async function requeueStaleOutbox(db: Database, olderThanSeconds = 120): Promise<unknown> {
+  await db.execute(sql`
+    UPDATE outbox SET status = 'failed',
+           last_error = coalesce(last_error, 'worker died with attempts exhausted'),
+           updated_at = now()
+    WHERE status = 'processing'
+      AND attempts >= max_attempts
+      AND updated_at < now() - make_interval(secs => ${olderThanSeconds})
+  `);
   return db.execute(sql`
     UPDATE outbox SET status = 'pending', updated_at = now()
-    WHERE status = 'processing' AND updated_at < now() - make_interval(secs => ${olderThanSeconds})
+    WHERE status = 'processing'
+      AND attempts < max_attempts
+      AND updated_at < now() - make_interval(secs => ${olderThanSeconds})
   `);
 }

@@ -77,5 +77,16 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # The 21 Playwright specs are the ONLY coverage the browser layer has — without this step
+      # nothing but `tsc` gates changes to the web app. The config boots its own API (dist) and
+      # web server (next start), so build + migrate + seed above are exactly its prerequisites.
+      - name: Install Playwright browsers
+        run: pnpm --filter @yohobed/web-extranet exec playwright install --with-deps chromium
+
+      - name: Browser E2E
+        run: pnpm --filter @yohobed/web-extranet e2e
+        env:
+          APP_DATABASE_URL: postgres://yoho_app:yoho_app_pw@localhost:5432/yohobed
+
       - name: Format check
         run: pnpm format:check

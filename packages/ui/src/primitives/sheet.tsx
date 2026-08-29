@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { X } from 'lucide-react';
+import { X } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 
 /**
@@ -21,9 +21,14 @@ export type SheetSide = 'right' | 'left' | 'bottom';
 
 const SIDES: Record<SheetSide, string> = {
   right:
-    'inset-y-0 right-0 h-full w-full border-l data-[state=closed]:translate-x-full sm:max-w-xl',
-  left: 'inset-y-0 left-0 h-full w-full border-r data-[state=closed]:-translate-x-full sm:max-w-xl',
-  bottom: 'inset-x-0 bottom-0 max-h-[85vh] border-t data-[state=closed]:translate-y-full',
+    'inset-y-0 right-0 h-full w-full border-l sm:max-w-xl sm:rounded-l-2xl ' +
+    'data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
+  left:
+    'inset-y-0 left-0 h-full w-full border-r sm:max-w-xl sm:rounded-r-2xl ' +
+    'data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
+  bottom:
+    'inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl border-t ' +
+    'data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
 };
 
 export interface SheetContentProps extends React.ComponentPropsWithoutRef<
@@ -64,15 +69,17 @@ export const SheetContent = React.forwardRef<
       <DialogPrimitive.Overlay
         className={cn(
           'fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]',
-          'data-[state=open]:animate-in data-[state=closed]:animate-out',
-          'data-[state=open]:fade-in data-[state=closed]:fade-out',
+          'data-[state=open]:animate-in data-[state=open]:fade-in-0',
+          'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
+          'data-[state=open]:duration-3 data-[state=closed]:duration-2',
         )}
       />
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed z-50 flex flex-col border-line bg-surface shadow-2xl',
-          'transition-transform duration-200 ease-out',
+          'fixed z-50 flex flex-col border-line bg-surface shadow-overlay outline-none',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out',
+          'data-[state=open]:duration-3 data-[state=closed]:duration-2 ease-smooth',
           SIDES[side],
           wide && side !== 'bottom' && 'sm:max-w-3xl',
           className,
@@ -83,7 +90,7 @@ export const SheetContent = React.forwardRef<
           <div className="min-w-0 flex-1">
             <DialogPrimitive.Title
               className={cn(
-                'truncate text-base font-bold tracking-tight text-ink',
+                'truncate text-base font-semibold tracking-tight text-ink',
                 hideTitle && 'sr-only',
               )}
             >
@@ -101,7 +108,7 @@ export const SheetContent = React.forwardRef<
           {headerActions}
           <DialogPrimitive.Close
             aria-label="Close"
-            className="rounded-lg p-1.5 text-ink-3 transition hover:bg-surface-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+            className="rounded-lg p-1.5 text-ink-3 transition duration-1 hover:bg-surface-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
           >
             <X size={16} />
           </DialogPrimitive.Close>

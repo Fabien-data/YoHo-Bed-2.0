@@ -75,8 +75,8 @@ JWT_SECRET=dev-secret-jwt-key-32-characters!! \
 pnpm test
 ```
 
-197 tests across six suites (domain 56, db 8, api e2e 78, cm-adapter 19, etl 31, worker 5). Notes
-that matter:
+302 Vitest tests across six suites (domain 56, db 15, api e2e 173, cm-adapter 22, etl 31,
+worker 5), plus the 27 Playwright specs below. Notes that matter:
 
 - **Turbo strict env mode:** `turbo.json`'s `test.env` allow-list is what passes
   `DATABASE_URL` & friends through to the suites. Without it the db/api integration tests would
@@ -97,7 +97,9 @@ pnpm build                                   # both servers run built output
 pnpm --filter @yohobed/web-extranet e2e      # or `e2e:ui` for the interactive runner
 ```
 
-16 tests in `apps/web-extranet/e2e/`. `playwright.config.ts` starts the API and the web app
+27 tests in `apps/web-extranet/e2e/` (every nav route smoke-rendered, plus the Stay View specs).
+**These run in CI too** (a `playwright install` + `e2e` step after migrate/seed/build) — they are
+the only coverage the browser layer has. `playwright.config.ts` starts the API and the web app
 itself; the one prerequisite is a migrated, seeded database. Two things it has to work around,
 both of which fail _silently_ if you change them:
 

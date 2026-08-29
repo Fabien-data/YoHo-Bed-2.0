@@ -3,16 +3,17 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Command } from 'cmdk';
-import { Search } from 'lucide-react';
-import { Sheet, SheetContent } from '@yohobed/ui';
+import { MagnifyingGlass } from '@phosphor-icons/react';
+import { Dialog, DialogContent, Kbd } from '@yohobed/ui';
 import { NAV } from '@/lib/nav';
+import { useEntitlements } from '@/lib/queries';
 
 /**
  * The omni-search — Yanolja's "Search reservations, guests and more".
  *
- * Today it navigates the module tree. Reservation and guest lookup land in Sprint 4, when there
- * is a search endpoint to call; the shape is already right for it, because cmdk filters whatever
- * items it is given.
+ * Today it navigates the module tree. Reservation and guest lookup land when there is a search
+ * endpoint to call; the shape is already right for it, because cmdk filters whatever items it
+ * is given.
  *
  * Ctrl/Cmd-K is bound globally, which is the whole point: a front-desk agent should never have to
  * reach for the mouse to get somewhere.
@@ -25,6 +26,14 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+
+  // Same entitlement filter as the sidebar — the palette must not be a back door into modules
+  // the tenant's plan hides (the backend 403s anyway; a raw error beats no gate, but not by much).
+  const { data: entitlements } = useEntitlements();
+  const visibleGroups = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((i) => !i.feature || entitlements?.features[i.feature] !== false),
+  })).filter((g) => g.items.length > 0);
 
   React.useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -43,8 +52,8 @@ export function CommandPalette({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" title="Search" hideTitle className="mx-auto sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="Search" hideTitle hideClose className="max-w-xl p-0">
         <Command
           loop
           className="flex flex-col"
@@ -52,42 +61,56 @@ export function CommandPalette({
             value.toLowerCase().includes(search.toLowerCase().trim()) ? 1 : 0
           }
         >
-          <div className="flex items-center gap-2 border-b border-line pb-3">
-            <Search size={16} className="text-ink-3" />
+          <div className="flex items-center gap-2.5 border-b border-line px-4">
+            <MagnifyingGlass size={16} className="shrink-0 text-ink-3" />
             <Command.Input
               autoFocus
               placeholder="Search reservations, guests and more"
-              className="flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-3"
+              className="h-12 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-3"
             />
+            <Kbd>Esc</Kbd>
           </div>
 
-          <Command.List className="max-h-80 overflow-y-auto pt-2">
-            <Command.Empty className="px-2 py-6 text-center text-sm text-ink-3">
+          <Command.List className="max-h-80 overflow-y-auto p-2">
+            <Command.Empty className="px-2 py-8 text-center text-sm text-ink-3">
               Nothing matches that.
             </Command.Empty>
 
-            {NAV.map((group) => (
+            {visibleGroups.map((group) => (
               <Command.Group
                 key={group.label}
                 heading={group.label}
-                className="px-1 pb-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3"
+                className="pb-1 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3"
               >
                 {group.items.map((item) => (
                   <Command.Item
                     key={item.href}
                     value={`${group.label} ${item.label}`}
                     onSelect={() => go(item.href)}
-                    className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-ink outline-none data-[selected=true]:bg-surface-2"
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink-2 outline-none transition duration-1 data-[selected=true]:bg-surface-2 data-[selected=true]:text-ink"
                   >
-                    <item.icon size={15} className="text-ink-3" />
+                    <item.icon size={16} className="shrink-0 text-ink-3" />
                     {item.label}
                   </Command.Item>
                 ))}
               </Command.Group>
             ))}
           </Command.List>
+
+          <div className="flex items-center gap-4 border-t border-line bg-surface-2 px-4 py-2.5 text-[11px] text-ink-3">
+            <span className="inline-flex items-center gap-1.5">
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd> navigate
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Kbd>↵</Kbd> open
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Kbd>Esc</Kbd> close
+            </span>
+          </div>
         </Command>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

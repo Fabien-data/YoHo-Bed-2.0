@@ -44,6 +44,8 @@ export class HousekeepingController {
   constructor(private readonly hk: HousekeepingService) {}
 
   /** The Room View card grid — also the House Status grid, same data rendered two ways. */
+  // `room_view` is its own plan key and the nav gates the screen on it — not on housekeeping.
+  @Feature('room_view')
   @Get('room-view')
   roomView(
     @TenantId() tenantId: string,

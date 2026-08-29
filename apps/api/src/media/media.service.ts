@@ -74,25 +74,39 @@ export class MediaService {
     });
   }
 
+  // NB: `media` carries a permissive public-read policy (media_public_read, for <img> serving),
+  // and Postgres ORs permissive policies — so SELECTs on media are NOT tenant-fenced the way every
+  // other table is. Every read below must therefore filter on tenant_id explicitly, or a caller
+  // could enumerate (and via remove(), destroy the files of) another tenant's photos by uuid.
+
   listForProperty(tenantId: string, propertyId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
       tx
         .select()
         .from(media)
-        .where(and(eq(media.propertyId, propertyId), isNull(media.roomId)))
+        .where(
+          and(eq(media.tenantId, tenantId), eq(media.propertyId, propertyId), isNull(media.roomId)),
+        )
         .orderBy(asc(media.sortOrder)),
     );
   }
 
   listForRoom(tenantId: string, roomId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(media).where(eq(media.roomId, roomId)).orderBy(asc(media.sortOrder)),
+      tx
+        .select()
+        .from(media)
+        .where(and(eq(media.tenantId, tenantId), eq(media.roomId, roomId)))
+        .orderBy(asc(media.sortOrder)),
     );
   }
 
   async remove(tenantId: string, id: string) {
     const row = await this.dbs.withTenant(tenantId, async (tx) => {
-      const [m] = await tx.select().from(media).where(eq(media.id, id));
+      const [m] = await tx
+        .select()
+        .from(media)
+        .where(and(eq(media.id, id), eq(media.tenantId, tenantId)));
       if (!m) throw new NotFoundException('Photo not found');
       await tx.delete(media).where(eq(media.id, id));
       return m;

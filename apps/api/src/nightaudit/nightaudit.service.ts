@@ -13,6 +13,7 @@ import {
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { CashieringService } from '../cashiering/cashiering.service';
+import { localToday } from '../common/local-date';
 
 const money = (n: number) => n.toFixed(2);
 
@@ -41,9 +42,12 @@ export class NightAuditService {
     const [property] = await tx.select().from(properties).where(eq(properties.id, propertyId));
     if (!property) throw new NotFoundException('Property not found');
 
+    // Seed in the property's OWN timezone — this column exists precisely so nothing keys off the
+    // wall clock. UTC "today" is yesterday for a UTC+5:30 hotel until 05:30 local, and a business
+    // date born a day behind re-posts room charges the desk already billed.
     const [created] = await tx
       .insert(businessDates)
-      .values({ tenantId, propertyId, currentDate: new Date().toISOString().slice(0, 10) })
+      .values({ tenantId, propertyId, currentDate: localToday(property.timezone) })
       .onConflictDoNothing({ target: businessDates.propertyId })
       .returning();
     if (created) return created;
@@ -93,14 +97,16 @@ export class NightAuditService {
         ),
       );
 
-    // Reservations that were due in today and never arrived.
+    // Reservations due in on or before this date that never arrived. `<=`, not `=`: if an audit
+    // was skipped, yesterday's unarrived booking is still Approved and would otherwise keep
+    // accruing nightly room charges forever without ever being flagged.
     const noShows = await tx
       .select({ id: bookings.id, reference: bookings.reference })
       .from(bookings)
       .where(
         and(
           eq(bookings.propertyId, propertyId),
-          eq(bookings.checkin, date),
+          lte(bookings.checkin, date),
           eq(bookings.status, 'Approved'),
         ),
       );
@@ -157,12 +163,15 @@ export class NightAuditService {
       for (const c of p.dueCharges) {
         const folio = await this.ensureFolio(tx, tenantId, propertyId, c.bookingId);
 
+        // Across EVERY window of the booking, not just window 1 — a room charge transferred to
+        // the company window is still posted, and the per-folio unique index cannot see it.
         const [existing] = await tx
           .select({ id: folioCharges.id })
           .from(folioCharges)
+          .innerJoin(folios, eq(folios.id, folioCharges.folioId))
           .where(
             and(
-              eq(folioCharges.folioId, folio.id),
+              eq(folios.bookingId, c.bookingId),
               eq(folioCharges.source, 'room'),
               eq(folioCharges.bookingDate, date),
               isNull(folioCharges.voidedAt),
@@ -210,30 +219,38 @@ export class NightAuditService {
         .set({ currentDate: p.nextDate, updatedAt: new Date() })
         .where(eq(businessDates.propertyId, propertyId));
 
-      const [run] = await tx
-        .insert(nightAuditRuns)
-        .values({
-          tenantId,
-          propertyId,
-          fromDate: date,
-          toDate: p.nextDate,
-          roomsCharged: posted,
-          chargesPosted: p.chargesToPost,
-          taxesPosted: p.taxesToPost,
-          noShows: p.noShowIds.length,
-          drawersClosed,
-          summary: {
-            roomsDue: p.roomsToCharge,
-            roomsPosted: posted,
-            roomsSkipped: skipped,
-            noShowReferences: p.noShows,
-          },
-          runByUserId: userId,
-          runFromIp: ip,
-        })
-        .returning();
-
-      return run;
+      try {
+        const [run] = await tx
+          .insert(nightAuditRuns)
+          .values({
+            tenantId,
+            propertyId,
+            fromDate: date,
+            toDate: p.nextDate,
+            roomsCharged: posted,
+            chargesPosted: p.chargesToPost,
+            taxesPosted: p.taxesToPost,
+            noShows: p.noShowIds.length,
+            drawersClosed,
+            summary: {
+              roomsDue: p.roomsToCharge,
+              roomsPosted: posted,
+              roomsSkipped: skipped,
+              noShowReferences: p.noShows,
+            },
+            runByUserId: userId,
+            runFromIp: ip,
+          })
+          .returning();
+        return run;
+      } catch (e) {
+        // The unique index on (property_id, from_date) is the real lock — the SELECT above is
+        // only a friendly fast path and two concurrent runs (a double-click) both pass it.
+        if ((e as { code?: string })?.code === '23505') {
+          throw new ConflictException(`The audit for ${date} has already been run`);
+        }
+        throw e;
+      }
     });
   }
 

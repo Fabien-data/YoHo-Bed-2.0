@@ -5,9 +5,10 @@
  * `content` glob at `packages/ui/src`. There is no build step, so a component edit is live in
  * the app's dev server immediately and `'use client'` boundaries survive untouched.
  *
- * Styling is entirely through the app's CSS custom-property tokens (`--brand`, `--ink`,
- * `--surface`, `--avail`…), which is what keeps the dark-by-default theme working: swap the
- * variables, and every component follows without a single class change.
+ * Styling is entirely through the app's CSS custom-property tokens (`--brand`, `--brass`,
+ * `--ink`, `--surface`, `--avail`…) plus the shared Tailwind preset
+ * (`@yohobed/ui/tailwind-preset`): swap the variables and every component follows both themes
+ * without a single class change.
  */
 
 export { cn } from './lib/cn';
@@ -23,6 +24,13 @@ export {
   type SheetSide,
 } from './primitives/sheet';
 export {
+  Dialog,
+  DialogTrigger,
+  DialogClose,
+  DialogContent,
+  type DialogContentProps,
+} from './primitives/dialog';
+export {
   Menu,
   MenuTrigger,
   MenuContent,
@@ -33,6 +41,7 @@ export {
   MenuGroup,
   MenuSub,
   MenuSubTrigger,
+  MenuSubContent,
 } from './primitives/menu';
 export {
   Popover,
@@ -47,6 +56,7 @@ export {
 } from './primitives/overlays';
 export {
   Input,
+  Textarea,
   Field,
   type FieldProps,
   Select,
@@ -61,11 +71,13 @@ export {
   TabsTrigger,
   TabsContent,
 } from './primitives/form';
+export { SegmentedControl, type SegmentedOption } from './primitives/segmented';
 export {
   Card,
   Badge,
   type BadgeProps,
   type Tone,
+  Kbd,
   Skeleton,
   EmptyState,
   PageHeader,
@@ -76,3 +88,5 @@ export { CountedChips, type Chip } from './patterns/counted-chips';
 export { MoneyFooter, MetricFooter, type MetricColumn } from './patterns/footers';
 export { DataGrid, type ColumnDef } from './patterns/data-grid';
 export { AuditTrailDrawer, type AuditEntry } from './patterns/audit-trail';
+export { StatCard } from './patterns/stat-card';
+export { Toaster, toast } from './patterns/toaster';

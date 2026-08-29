@@ -2,13 +2,22 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Crown, Download, LayoutList, Printer, Search, Table2, Users2 } from 'lucide-react';
+import {
+  Crown,
+  DownloadSimple,
+  ListDashes,
+  MagnifyingGlass,
+  Printer,
+  Table,
+  UsersThree,
+} from '@phosphor-icons/react';
 import {
   Badge,
   Button,
   Card,
   Checkbox,
   Input,
+  PageHeader,
   Sheet,
   SheetContent,
   Skeleton,
@@ -24,7 +33,8 @@ import {
   type ReservationRow,
   type ReservationTab,
 } from '@/lib/api';
-import { useProperties } from '@/lib/queries';
+import { useActiveProperty } from '@/components/active-property';
+import { todayISO } from '@/lib/format';
 import { RegistrationCardSheet } from '@/components/reservations/registration-card';
 
 const TABS: Array<{ value: ReservationTab; label: string }> = [
@@ -47,10 +57,9 @@ const STATUS_TONE: Record<string, Tone> = {
 
 export default function ReservationsPage() {
   const qc = useQueryClient();
-  const { data: properties } = useProperties();
-  const propertyId = properties?.[0]?.id;
+  const { propertyId } = useActiveProperty();
 
-  const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = React.useState(() => todayISO());
   const [tab, setTab] = React.useState<ReservationTab>('all');
   const [search, setSearch] = React.useState('');
   const [view, setView] = React.useState<'list' | 'cards'>('list');
@@ -141,48 +150,46 @@ export default function ReservationsPage() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div>
-          <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
-            Front desk
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink">Reservations</h1>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => e.target.value && setDate(e.target.value)}
-            className="w-40"
-            aria-label="Business date"
-          />
-          <div className="relative">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3"
-            />
+      <PageHeader
+        eyebrow="Front desk"
+        title="Reservations"
+        actions={
+          <>
             <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Reference, name, email or phone"
-              className="w-64 pl-8"
-              aria-label="Search reservations"
+              type="date"
+              value={date}
+              onChange={(e) => e.target.value && setDate(e.target.value)}
+              className="w-40"
+              aria-label="Business date"
             />
-          </div>
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label={view === 'list' ? 'Switch to cards' : 'Switch to list'}
-            onClick={() => setView(view === 'list' ? 'cards' : 'list')}
-          >
-            {view === 'list' ? <LayoutList size={16} /> : <Table2 size={16} />}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
-            <Download size={14} />
-            Export
-          </Button>
-        </div>
-      </div>
+            <div className="relative">
+              <MagnifyingGlass
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3"
+              />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Reference, name, email or phone"
+                className="w-64 pl-8"
+                aria-label="Search reservations"
+              />
+            </div>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label={view === 'list' ? 'Switch to cards' : 'Switch to list'}
+              onClick={() => setView(view === 'list' ? 'cards' : 'list')}
+            >
+              {view === 'list' ? <ListDashes size={16} /> : <Table size={16} />}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
+              <DownloadSimple size={14} />
+              Export
+            </Button>
+          </>
+        }
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as ReservationTab)}>
         <TabsList className="mb-4 overflow-x-auto">
@@ -196,7 +203,7 @@ export default function ReservationsPage() {
 
       {selected.size > 0 && (
         <Card className="mb-4 flex flex-wrap items-center gap-3 p-3">
-          <Users2 size={16} className="text-ink-2" />
+          <UsersThree size={16} className="text-ink-2" />
           <span className="text-sm font-semibold text-ink">{selected.size} selected</span>
           <Input
             value={groupName}
@@ -219,9 +226,7 @@ export default function ReservationsPage() {
             <span className="text-xs text-ink-3">Select at least two to group them.</span>
           )}
           {group.isError && (
-            <span className="text-xs text-[var(--closed-ink)]">
-              {(group.error as Error).message}
-            </span>
+            <span className="text-xs text-closed-ink">{(group.error as Error).message}</span>
           )}
         </Card>
       )}
@@ -273,7 +278,7 @@ export default function ReservationsPage() {
                   </td>
                   <td className="px-3 py-3">
                     <span className="flex items-center gap-1.5 text-ink">
-                      {r.vip && <Crown size={12} className="text-[var(--low-ink)]" />}
+                      {r.vip && <Crown size={12} className="text-low-ink" />}
                       {r.guestName}
                     </span>
                     <span className="text-xs text-ink-3">{r.channel ?? r.source}</span>
@@ -289,10 +294,8 @@ export default function ReservationsPage() {
                     <Badge tone={STATUS_TONE[r.status] ?? 'muted'}>{r.status}</Badge>
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums text-ink">
-                    {Number(r.amount).toFixed(2)}
-                    {r.balanceDue && (
-                      <span className="ml-1 text-xs text-[var(--closed-ink)]">due</span>
-                    )}
+                    {r.currency} {Number(r.amount).toFixed(2)}
+                    {r.balanceDue && <span className="ml-1 text-xs text-closed-ink">due</span>}
                   </td>
                   <td className="px-3 py-3 text-right">
                     <Button
@@ -354,7 +357,7 @@ function ReservationCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            {row.vip && <Crown size={12} className="shrink-0 text-[var(--low-ink)]" />}
+            {row.vip && <Crown size={12} className="shrink-0 text-low-ink" />}
             <span className="truncate font-semibold text-ink">{row.guestName}</span>
           </div>
           <div className="font-mono text-xs text-ink-3">{row.reference}</div>

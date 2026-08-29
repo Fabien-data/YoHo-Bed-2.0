@@ -225,10 +225,16 @@ export class RoomUnitsService {
         const free = await this.firstFreeUnit(tx, booking.roomId, leg.checkin, leg.checkout);
         if (!free) break;
         try {
-          await tx
-            .update(bookingRooms)
-            .set({ roomUnitId: free, updatedAt: new Date() })
-            .where(eq(bookingRooms.id, leg.id));
+          // Savepoint per attempt: in Postgres a constraint violation aborts the WHOLE
+          // transaction, so without the nested scope the "partial success" below would run its
+          // remaining statements on an aborted transaction and 500, rolling back every room
+          // assigned earlier in the loop.
+          await tx.transaction(async (sp) => {
+            await sp
+              .update(bookingRooms)
+              .set({ roomUnitId: free, updatedAt: new Date() })
+              .where(eq(bookingRooms.id, leg.id));
+          });
           assigned += 1;
         } catch (e) {
           // Lost a race for that unit; stop rather than spin.
@@ -386,12 +392,16 @@ export async function releaseLegs(tx: Tx, bookingId: string): Promise<void> {
     .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)));
 }
 
-/** Drop every unit assignment on a booking, freeing the rooms but keeping the legs. */
+/**
+ * Drop every LIVE unit assignment on a booking, freeing the rooms but keeping the legs.
+ * Released legs are history — nulling their unit would erase "which room was that cancellation
+ * in?", the exact record `releaseLegs` exists to preserve.
+ */
 export async function unassignLegs(tx: Tx, bookingId: string): Promise<void> {
   await tx
     .update(bookingRooms)
     .set({ roomUnitId: null, updatedAt: new Date() })
-    .where(eq(bookingRooms.bookingId, bookingId));
+    .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)));
 }
 
 /**
@@ -415,10 +425,11 @@ export async function resizeLegs(
 ): Promise<void> {
   const target = Math.max(args.rooms, 1);
 
+  // Only live legs are re-shaped; released ones are the cancellation history and keep their dates.
   const existing = await tx
     .select({ id: bookingRooms.id, legIndex: bookingRooms.legIndex })
     .from(bookingRooms)
-    .where(eq(bookingRooms.bookingId, args.bookingId))
+    .where(and(eq(bookingRooms.bookingId, args.bookingId), isNull(bookingRooms.releasedAt)))
     .orderBy(asc(bookingRooms.legIndex));
 
   if (existing.length > target) {
@@ -440,5 +451,5 @@ export async function resizeLegs(
   await tx
     .update(bookingRooms)
     .set({ checkin: args.checkin, checkout: args.checkout, updatedAt: new Date() })
-    .where(eq(bookingRooms.bookingId, args.bookingId));
+    .where(and(eq(bookingRooms.bookingId, args.bookingId), isNull(bookingRooms.releasedAt)));
 }

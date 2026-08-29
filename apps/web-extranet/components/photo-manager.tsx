@@ -11,7 +11,7 @@ import {
   ApiError,
   type Photo,
 } from '@/lib/api';
-import { Button } from '@/components/ui';
+import { Button } from '@yohobed/ui';
 
 /** Upload + gallery for one property's or one room's photos (Compartment H). */
 export function PhotoManager({
@@ -82,18 +82,15 @@ export function PhotoManager({
         />
         <Button
           variant="secondary"
-          className="!px-2 !py-1 text-xs"
-          disabled={busy}
+          size="sm"
+          loading={busy}
           onClick={() => fileRef.current?.click()}
         >
-          {busy ? 'Working…' : '+ Add photo'}
+          + Add photo
         </Button>
       </div>
       {err && (
-        <p
-          className="mb-2 rounded-lg px-3 py-1.5 text-xs font-medium"
-          style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
-        >
+        <p className="mb-2 rounded-lg bg-closed-soft px-3 py-1.5 text-xs font-medium text-closed-ink">
           {err}
         </p>
       )}
@@ -115,8 +112,7 @@ export function PhotoManager({
                 title="Delete photo"
                 disabled={busy}
                 onClick={() => remove(p.id)}
-                className="absolute right-1 top-1 hidden h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white group-hover:flex"
-                style={{ background: 'rgba(0,0,0,0.55)' }}
+                className="absolute right-1 top-1 hidden h-5 w-5 items-center justify-center rounded-full bg-black/55 text-xs font-bold text-white group-hover:flex"
               >
                 ×
               </button>

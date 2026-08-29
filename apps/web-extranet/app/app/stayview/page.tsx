@@ -2,13 +2,14 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Wand2 } from 'lucide-react';
+import { CaretLeft, CaretRight, MagicWand } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
   Card,
   CountedChips,
   Input,
+  PageHeader,
   Sheet,
   SheetContent,
   Skeleton,
@@ -24,7 +25,8 @@ import {
   type StayBar,
   type StayView,
 } from '@/lib/api';
-import { useProperties } from '@/lib/queries';
+import { useActiveProperty } from '@/components/active-property';
+import { todayISO } from '@/lib/format';
 import { TapeChart } from '@/components/stayview/tape-chart';
 import { FolioPanel } from '@/components/folio/folio-panel';
 
@@ -41,10 +43,9 @@ type Filter = 'all' | 'vacant' | 'occupied' | 'reserved' | 'blocked' | 'dueOut';
 
 export default function StayViewPage() {
   const qc = useQueryClient();
-  const { data: properties } = useProperties();
-  const propertyId = properties?.[0]?.id;
+  const { propertyId } = useActiveProperty();
 
-  const [from, setFrom] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [from, setFrom] = React.useState(() => todayISO());
   const [filter, setFilter] = React.useState<Filter>('all');
   const [selected, setSelected] = React.useState<StayBar | null>(null);
 
@@ -75,47 +76,40 @@ export default function StayViewPage() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div>
-          <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
-            Front desk
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink">Stay view</h1>
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label="Previous week"
-            onClick={() => setFrom(addDays(from, -7))}
-          >
-            <ChevronLeft size={16} />
-          </Button>
-          <Input
-            type="date"
-            value={from}
-            onChange={(e) => e.target.value && setFrom(e.target.value)}
-            className="w-40"
-            aria-label="Window start date"
-          />
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label="Next week"
-            onClick={() => setFrom(addDays(from, 7))}
-          >
-            <ChevronRight size={16} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setFrom(new Date().toISOString().slice(0, 10))}
-          >
-            Today
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Front desk"
+        title="Stay view"
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="Previous week"
+              onClick={() => setFrom(addDays(from, -7))}
+            >
+              <CaretLeft size={16} />
+            </Button>
+            <Input
+              type="date"
+              value={from}
+              onChange={(e) => e.target.value && setFrom(e.target.value)}
+              className="w-40"
+              aria-label="Window start date"
+            />
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="Next week"
+              onClick={() => setFrom(addDays(from, 7))}
+            >
+              <CaretRight size={16} />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setFrom(todayISO())}>
+              Today
+            </Button>
+          </>
+        }
+      />
 
       <CountedChips
         chips={chips}
@@ -253,9 +247,9 @@ function ReservationSheet({
       >
         {!bar ? null : isBlock ? (
           <div className="space-y-4">
-            <Field label="Reason" value={bar.reason ?? '—'} />
-            <Field label="From" value={bar.from} />
-            <Field label="To" value={bar.to} />
+            <InfoRow label="Reason" value={bar.reason ?? '—'} />
+            <InfoRow label="From" value={bar.from} />
+            <InfoRow label="To" value={bar.to} />
             <Button
               variant="secondary"
               onClick={() => unblock.mutate()}
@@ -263,9 +257,7 @@ function ReservationSheet({
             >
               {unblock.isPending ? 'Unblocking…' : 'Unblock room'}
             </Button>
-            {unblock.isError && (
-              <p className="text-sm text-[var(--closed-ink)]">{String(unblock.error)}</p>
-            )}
+            {unblock.isError && <p className="text-sm text-closed-ink">{String(unblock.error)}</p>}
           </div>
         ) : (
           <div className="space-y-5">
@@ -278,10 +270,10 @@ function ReservationSheet({
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Reservation" value={bar.reference ?? '—'} />
-              <Field label="Guest" value={bar.guestName ?? '—'} />
-              <Field label="Arrival" value={bar.from} />
-              <Field label="Departure" value={bar.to} />
+              <InfoRow label="Reservation" value={bar.reference ?? '—'} />
+              <InfoRow label="Guest" value={bar.guestName ?? '—'} />
+              <InfoRow label="Arrival" value={bar.from} />
+              <InfoRow label="Departure" value={bar.to} />
             </div>
 
             <div>
@@ -298,7 +290,7 @@ function ReservationSheet({
                   onClick={() => auto.mutate()}
                   disabled={auto.isPending}
                 >
-                  <Wand2 size={13} />
+                  <MagicWand size={13} />
                   Auto-assign
                 </Button>
               </div>
@@ -329,13 +321,13 @@ function ReservationSheet({
               </div>
 
               {assign.isError && (
-                <p className="mt-2 text-sm text-[var(--closed-ink)]">
+                <p className="mt-2 text-sm text-closed-ink">
                   {(assign.error as { data?: { message?: string } })?.data?.message ??
                     'That room is not available for those dates.'}
                 </p>
               )}
               {auto.data && auto.data.unassigned > 0 && (
-                <p className="mt-2 text-sm text-[var(--low-ink)]">
+                <p className="mt-2 text-sm text-low-ink">
                   Placed {auto.data.assigned}; {auto.data.unassigned} still need a room.
                 </p>
               )}
@@ -347,7 +339,8 @@ function ReservationSheet({
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+/** A label/value display row (renamed from `Field` so it cannot shadow the kit's form Field). */
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-xs font-semibold uppercase tracking-wide text-ink-3">{label}</div>

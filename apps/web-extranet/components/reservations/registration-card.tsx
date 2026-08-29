@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Printer } from 'lucide-react';
+import { Printer } from '@phosphor-icons/react';
 import { Button, Skeleton } from '@yohobed/ui';
 import { getRegistrationCard } from '@/lib/api';
 
@@ -29,7 +29,7 @@ export function RegistrationCardSheet({ bookingId }: { bookingId: string }) {
     );
   }
   if (!card.data) {
-    return <p className="text-sm text-[var(--closed-ink)]">Could not load the card.</p>;
+    return <p className="text-sm text-closed-ink">Could not load the card.</p>;
   }
 
   const c = card.data;

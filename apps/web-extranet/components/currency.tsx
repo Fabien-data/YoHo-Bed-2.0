@@ -128,7 +128,7 @@ export function CurrencyPicker() {
           ? 'Amounts not already in this currency are converted at the latest rate (approximate).'
           : 'Choose the currency to view amounts in'
       }
-      className="rounded-lg border border-line bg-[var(--surface-2)] px-2 py-2 text-sm font-semibold text-ink-2 transition hover:text-ink"
+      className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm font-semibold text-ink-2 transition duration-1 hover:border-ink-3 hover:text-ink focus-visible:border-brass focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brass-soft"
     >
       {SUPPORTED_CURRENCIES.map((c) => (
         <option key={c} value={c}>

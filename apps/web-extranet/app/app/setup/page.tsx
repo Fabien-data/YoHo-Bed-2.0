@@ -18,11 +18,21 @@ import {
   type RatePlan,
   type Occupancy,
 } from '@/lib/api';
-import { Button, Card, Field, Pill } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  toast,
+} from '@yohobed/ui';
 import { PhotoManager } from '@/components/photo-manager';
-
-const selectClass =
-  'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
 
 function Section({
   step,
@@ -36,10 +46,7 @@ function Section({
   return (
     <Card className="flex flex-col p-4">
       <div className="mb-3 flex items-center gap-2">
-        <span
-          className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
-          style={{ background: 'var(--brand)' }}
-        >
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">
           {step}
         </span>
         <h2 className="text-sm font-bold uppercase tracking-wide text-ink">{title}</h2>
@@ -58,7 +65,6 @@ export default function SetupPage() {
   const [plans, setPlans] = useState<RatePlan[]>([]);
   const [occByPlan, setOccByPlan] = useState<Record<string, Occupancy[]>>({});
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: 'avail' | 'closed'; text: string } | null>(null);
 
   const [propName, setPropName] = useState('');
   const [roomForm, setRoomForm] = useState({ name: '', quantity: 5 });
@@ -116,12 +122,11 @@ export default function SetupPage() {
 
   async function guard(fn: () => Promise<void>, ok: string) {
     setBusy(true);
-    setMsg(null);
     try {
       await fn();
-      setMsg({ tone: 'avail', text: ok });
+      toast.success(ok);
     } catch (e) {
-      setMsg({ tone: 'closed', text: e instanceof ApiError ? e.message : 'Something went wrong' });
+      toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
     } finally {
       setBusy(false);
     }
@@ -170,26 +175,13 @@ export default function SetupPage() {
 
   return (
     <div>
-      <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">Onboarding</div>
-      <h1 className="text-2xl font-bold tracking-tight text-ink">Property setup</h1>
-      <p className="mt-1 text-sm text-ink-2">
-        Build the structure the calendar prices against: property → rooms → rate plans (meal plans)
-        → occupancies (guest configurations).
-      </p>
+      <PageHeader
+        eyebrow="Configuration"
+        title="Property setup"
+        description="Build the structure the calendar prices against: property → rooms → rate plans (meal plans) → occupancies (guest configurations)."
+      />
 
-      {msg && (
-        <div
-          className="mt-4 rounded-lg px-3 py-2 text-sm font-medium"
-          style={{
-            color: msg.tone === 'avail' ? 'var(--avail-ink)' : 'var(--closed-ink)',
-            background: msg.tone === 'avail' ? 'var(--avail-soft)' : 'var(--closed-soft)',
-          }}
-        >
-          {msg.text}
-        </div>
-      )}
-
-      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3">
         {/* Properties */}
         <Section step={1} title="Properties">
           <div className="flex flex-col gap-1.5">
@@ -199,10 +191,9 @@ export default function SetupPage() {
                 onClick={() => selectProperty(p.id)}
                 className={`rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
                   propertyId === p.id
-                    ? 'border-brand text-brand-ink'
+                    ? 'border-brand bg-brand-soft text-brand-ink'
                     : 'border-line text-ink-2 hover:border-ink-3'
                 }`}
-                style={propertyId === p.id ? { background: 'var(--brand-soft)' } : undefined}
               >
                 <span className="flex items-center justify-between gap-2">
                   {p.name}
@@ -219,12 +210,13 @@ export default function SetupPage() {
           </div>
           <form onSubmit={addProperty} className="mt-3 flex items-end gap-2">
             <div className="flex-1">
-              <Field
-                label="New property"
-                value={propName}
-                onChange={(e) => setPropName(e.target.value)}
-                placeholder="e.g. Cinnamon Grand"
-              />
+              <Field label="New property">
+                <Input
+                  value={propName}
+                  onChange={(e) => setPropName(e.target.value)}
+                  placeholder="e.g. Cinnamon Grand"
+                />
+              </Field>
             </div>
             <Button type="submit" disabled={busy}>
               Add
@@ -252,10 +244,9 @@ export default function SetupPage() {
                     onClick={() => selectRoom(r.id)}
                     className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
                       roomId === r.id
-                        ? 'border-brand text-brand-ink'
+                        ? 'border-brand bg-brand-soft text-brand-ink'
                         : 'border-line text-ink-2 hover:border-ink-3'
                     }`}
-                    style={roomId === r.id ? { background: 'var(--brand-soft)' } : undefined}
                   >
                     {r.name}
                     <span className="font-mono text-xs text-ink-3">×{r.quantity}</span>
@@ -265,23 +256,25 @@ export default function SetupPage() {
               </div>
               <form onSubmit={addRoom} className="mt-3 flex items-end gap-2">
                 <div className="flex-1">
-                  <Field
-                    label="New room"
-                    value={roomForm.name}
-                    onChange={(e) => setRoomForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. Garden Villa"
-                  />
+                  <Field label="New room">
+                    <Input
+                      value={roomForm.name}
+                      onChange={(e) => setRoomForm((f) => ({ ...f, name: e.target.value }))}
+                      placeholder="e.g. Garden Villa"
+                    />
+                  </Field>
                 </div>
                 <div className="w-20">
-                  <Field
-                    label="Qty"
-                    type="number"
-                    min={0}
-                    value={roomForm.quantity}
-                    onChange={(e) =>
-                      setRoomForm((f) => ({ ...f, quantity: Number(e.target.value) || 0 }))
-                    }
-                  />
+                  <Field label="Qty">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={roomForm.quantity}
+                      onChange={(e) =>
+                        setRoomForm((f) => ({ ...f, quantity: Number(e.target.value) || 0 }))
+                      }
+                    />
+                  </Field>
                 </div>
                 <Button type="submit" disabled={busy}>
                   Add
@@ -308,22 +301,22 @@ export default function SetupPage() {
                 {plans.map((p) => (
                   <div key={p.id} className="rounded-lg border border-line p-3">
                     <div className="flex items-center gap-2">
-                      <Pill tone="brand">{p.code}</Pill>
+                      <Badge tone="brand">{p.code}</Badge>
                       <span className="text-sm font-semibold text-ink">{p.name}</span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {(occByPlan[p.id] ?? []).map((o) => (
-                        <Pill key={o.id} tone="muted">
+                        <Badge key={o.id} tone="muted">
                           {o.label} · ×{o.accommodates}
-                        </Pill>
+                        </Badge>
                       ))}
                       {(occByPlan[p.id] ?? []).length === 0 && (
                         <span className="text-xs text-ink-3">No occupancies yet.</span>
                       )}
                     </div>
                     <div className="mt-2 flex items-end gap-2">
-                      <input
-                        className={`${selectClass} w-28 flex-1`}
+                      <Input
+                        className="w-28 flex-1"
                         placeholder="Occupancy"
                         value={occForm[p.id]?.label ?? ''}
                         onChange={(e) =>
@@ -336,8 +329,8 @@ export default function SetupPage() {
                           }))
                         }
                       />
-                      <input
-                        className={`${selectClass} w-16`}
+                      <Input
+                        className="w-16"
                         type="number"
                         min={1}
                         value={occForm[p.id]?.accommodates ?? 2}
@@ -353,7 +346,8 @@ export default function SetupPage() {
                       />
                       <Button
                         variant="secondary"
-                        className="!px-3"
+                        size="icon"
+                        aria-label="Add occupancy"
                         disabled={busy}
                         onClick={() => addOcc(p.id)}
                       >
@@ -365,20 +359,20 @@ export default function SetupPage() {
                 {plans.length === 0 && <p className="text-sm text-ink-3">No rate plans yet.</p>}
               </div>
               <form onSubmit={addPlan} className="mt-3 flex items-end gap-2">
-                <label className="flex flex-1 flex-col gap-1.5">
-                  <span className="text-sm font-medium text-ink-2">Add meal plan</span>
-                  <select
-                    className={selectClass}
-                    value={newCode}
-                    onChange={(e) => setNewCode(e.target.value)}
-                  >
-                    {rateCodes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.code} · {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <Field label="Add meal plan" className="flex-1">
+                  <Select value={newCode} onValueChange={setNewCode}>
+                    <SelectTrigger aria-label="Meal plan">
+                      <SelectValue placeholder="Select a meal plan" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rateCodes.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.code} · {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
                 <Button type="submit" disabled={busy}>
                   Add plan
                 </Button>

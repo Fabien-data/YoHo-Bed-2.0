@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check } from 'lucide-react';
+import { CaretRight, Check } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 
 /**
@@ -12,11 +12,16 @@ export const Menu = DropdownMenuPrimitive.Root;
 export const MenuTrigger = DropdownMenuPrimitive.Trigger;
 export const MenuGroup = DropdownMenuPrimitive.Group;
 export const MenuSub = DropdownMenuPrimitive.Sub;
-export const MenuSubTrigger = DropdownMenuPrimitive.SubTrigger;
+
+const MOTION =
+  'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 ' +
+  'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 ' +
+  'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 ' +
+  'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ' +
+  'duration-2 ease-smooth';
 
 const PANEL =
-  'z-50 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-xl ' +
-  'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in';
+  'z-50 min-w-[11rem] overflow-hidden rounded-xl border border-line bg-surface p-1.5 shadow-raised';
 
 export const MenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
@@ -27,7 +32,7 @@ export const MenuContent = React.forwardRef<
       <DropdownMenuPrimitive.Content
         ref={ref}
         sideOffset={sideOffset}
-        className={cn(PANEL, className)}
+        className={cn(PANEL, MOTION, className)}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>
@@ -35,8 +40,8 @@ export const MenuContent = React.forwardRef<
 });
 
 const ITEM =
-  'relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-2 text-sm ' +
-  'text-ink outline-none transition data-[highlighted]:bg-surface-2 ' +
+  'relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2.5 py-2 text-sm ' +
+  'text-ink outline-none transition duration-1 data-[highlighted]:bg-surface-2 ' +
   'data-[disabled]:pointer-events-none data-[disabled]:opacity-50';
 
 export const MenuItem = React.forwardRef<
@@ -46,7 +51,11 @@ export const MenuItem = React.forwardRef<
   return (
     <DropdownMenuPrimitive.Item
       ref={ref}
-      className={cn(ITEM, destructive && 'text-[var(--closed-ink)]', className)}
+      className={cn(
+        ITEM,
+        destructive && 'text-closed-ink data-[highlighted]:bg-closed-soft',
+        className,
+      )}
       {...props}
     />
   );
@@ -64,7 +73,7 @@ export const MenuCheckboxItem = React.forwardRef<
     >
       <span className="absolute left-2 flex h-4 w-4 items-center justify-center">
         <DropdownMenuPrimitive.ItemIndicator>
-          <Check size={14} />
+          <Check size={14} weight="bold" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -80,7 +89,7 @@ export const MenuLabel = React.forwardRef<
     <DropdownMenuPrimitive.Label
       ref={ref}
       className={cn(
-        'px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3',
+        'px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3',
         className,
       )}
       {...props}
@@ -95,8 +104,40 @@ export const MenuSeparator = React.forwardRef<
   return (
     <DropdownMenuPrimitive.Separator
       ref={ref}
-      className={cn('-mx-1 my-1 h-px bg-line', className)}
+      className={cn('-mx-1.5 my-1 h-px bg-line', className)}
       {...props}
     />
+  );
+});
+
+export const MenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger>
+>(function MenuSubTrigger({ className, children, ...props }, ref) {
+  return (
+    <DropdownMenuPrimitive.SubTrigger
+      ref={ref}
+      className={cn(ITEM, 'data-[state=open]:bg-surface-2', className)}
+      {...props}
+    >
+      {children}
+      <CaretRight size={12} className="ml-auto text-ink-3" />
+    </DropdownMenuPrimitive.SubTrigger>
+  );
+});
+
+export const MenuSubContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
+>(function MenuSubContent({ className, sideOffset = 4, ...props }, ref) {
+  return (
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.SubContent
+        ref={ref}
+        sideOffset={sideOffset}
+        className={cn(PANEL, MOTION, className)}
+        {...props}
+      />
+    </DropdownMenuPrimitive.Portal>
   );
 });

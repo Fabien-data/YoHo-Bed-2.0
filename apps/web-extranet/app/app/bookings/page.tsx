@@ -14,7 +14,22 @@ import {
   type Room,
   type Occupancy,
 } from '@/lib/api';
-import { Button, Card, Field, Modal, Pill } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Sheet,
+  SheetContent,
+} from '@yohobed/ui';
 import { todayISO, addDays } from '@/lib/format';
 import { useMoney } from '@/components/currency';
 
@@ -50,9 +65,6 @@ function canEditStay(s: Booking['status']) {
 function canEdit(s: Booking['status']) {
   return canEditStay(s) || s === 'CheckedIn' || s === 'CheckedOut';
 }
-
-const selectClass =
-  'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
 
 export default function BookingsPage() {
   const { money } = useMoney();
@@ -236,123 +248,33 @@ export default function BookingsPage() {
 
   return (
     <div>
-      <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
-        Reservations
-      </div>
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-ink">Bookings</h1>
-        <span className="font-mono text-sm text-ink-3">{bookings.length}</span>
-        <div className="flex-1" />
-        <Button
-          onClick={() => {
-            setMsg(null);
-            setShowNew((v) => !v);
-          }}
-          disabled={occs.length === 0}
-        >
-          + Walk-in booking
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Front desk"
+        title="Bookings"
+        actions={
+          <>
+            <span className="font-mono text-sm tabular-nums text-ink-3">{bookings.length}</span>
+            <Button
+              onClick={() => {
+                setMsg(null);
+                setShowNew((v) => !v);
+              }}
+              disabled={occs.length === 0}
+            >
+              + Walk-in booking
+            </Button>
+          </>
+        }
+      />
 
-      {showNew && (
-        <Modal
+      <Sheet open={showNew} onOpenChange={(o) => !o && setShowNew(false)}>
+        <SheetContent
+          side="right"
+          wide
           title="New walk-in booking"
-          subtitle="The stay is priced from the rate calendar; availability is reserved atomically."
-          onClose={() => setShowNew(false)}
-        >
-          <form onSubmit={create} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink-2">Room</span>
-              <select
-                className={`${selectClass} w-full`}
-                value={roomId}
-                onChange={(e) => selectRoom(e.target.value)}
-              >
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink-2">Occupancy / rate plan</span>
-              <select
-                className={`${selectClass} w-full`}
-                value={occId}
-                onChange={(e) => setOccId(e.target.value)}
-              >
-                {occs.length === 0 && <option>No occupancies — set up in Setup</option>}
-                {occs.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label} (×{o.accommodates})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Field
-              label="Guest name"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. A. Fernando"
-              required
-            />
-            <Field
-              label="Rooms"
-              type="number"
-              min={1}
-              value={String(form.rooms)}
-              onChange={(e) => setForm((f) => ({ ...f, rooms: Number(e.target.value) || 1 }))}
-            />
-            <Field
-              label="Email (optional)"
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              placeholder="guest@example.com"
-            />
-            <Field
-              label="Phone (optional)"
-              value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              placeholder="+94 …"
-            />
-            <Field
-              label="Check-in"
-              type="date"
-              value={form.checkin}
-              onChange={(e) => setForm((f) => ({ ...f, checkin: e.target.value }))}
-            />
-            <Field
-              label="Check-out"
-              type="date"
-              min={form.checkin}
-              value={form.checkout}
-              onChange={(e) => setForm((f) => ({ ...f, checkout: e.target.value }))}
-            />
-            <Field
-              label="Coupon (optional)"
-              value={form.couponCode}
-              onChange={(e) => setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))}
-              placeholder="SUMMER10"
-            />
-            <Field
-              label="Referral (optional)"
-              value={form.referralCode}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))
-              }
-              placeholder="LANKA"
-            />
-            {msg?.tone === 'closed' && (
-              <div
-                className="rounded-lg px-3 py-2 text-sm font-medium sm:col-span-2"
-                style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
-              >
-                {msg.text}
-              </div>
-            )}
-            <div className="mt-2 flex items-center gap-3 border-t border-line pt-4 sm:col-span-2">
+          description="The stay is priced from the rate calendar; availability is reserved atomically."
+          footer={
+            <div className="flex items-center gap-3">
               <span className="text-sm text-ink-3">
                 {nightsBetween(form.checkin, form.checkout) > 0
                   ? `${nightsBetween(form.checkin, form.checkout)} night${
@@ -361,124 +283,241 @@ export default function BookingsPage() {
                   : 'Check-out must be after check-in'}
               </span>
               <div className="flex-1" />
-              <Button type="button" variant="ghost" onClick={() => setShowNew(false)}>
+              <Button type="button" variant="outline" onClick={() => setShowNew(false)}>
                 Cancel
               </Button>
               <Button
                 type="submit"
-                disabled={busy || !occId || nightsBetween(form.checkin, form.checkout) === 0}
+                form="new-booking-form"
+                loading={busy}
+                disabled={!occId || nightsBetween(form.checkin, form.checkout) === 0}
               >
                 {busy ? 'Booking…' : 'Create booking'}
               </Button>
             </div>
-          </form>
-        </Modal>
-      )}
-
-      {edit && (
-        <Modal
-          title={`Edit booking ${edit.reference}`}
-          subtitle={
-            edit.stayEditable
-              ? 'Changing dates or rooms re-prices the stay from the rate calendar and swaps inventory atomically; any coupon discount is kept as granted.'
-              : 'Guest details only — this booking has already checked in.'
           }
-          onClose={() => setEdit(null)}
         >
-          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Field
-                label="Guest name"
-                value={edit.name}
-                onChange={(e) => setEdit((v) => v && { ...v, name: e.target.value })}
+          <form
+            id="new-booking-form"
+            onSubmit={create}
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+          >
+            <Field label="Room">
+              <Select value={roomId} onValueChange={selectRoom}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {rooms.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Occupancy / rate plan">
+              <Select value={occId} onValueChange={setOccId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="No occupancies — set up in Setup" />
+                </SelectTrigger>
+                <SelectContent>
+                  {occs.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.label} (×{o.accommodates})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Guest name" required>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. A. Fernando"
+                required
               />
-            </div>
-            <Field
-              label="Email"
-              type="email"
-              value={edit.email}
-              onChange={(e) => setEdit((v) => v && { ...v, email: e.target.value })}
-              placeholder="guest@example.com"
-            />
-            <Field
-              label="Phone"
-              value={edit.phone}
-              onChange={(e) => setEdit((v) => v && { ...v, phone: e.target.value })}
-              placeholder="+94 …"
-            />
-            {edit.stayEditable && (
-              <>
-                <Field
-                  label="Check-in"
-                  type="date"
-                  value={edit.checkin}
-                  onChange={(e) => setEdit((v) => v && { ...v, checkin: e.target.value })}
-                />
-                <Field
-                  label="Check-out"
-                  type="date"
-                  min={edit.checkin}
-                  value={edit.checkout}
-                  onChange={(e) => setEdit((v) => v && { ...v, checkout: e.target.value })}
-                />
-                <Field
-                  label="Rooms"
-                  type="number"
-                  min={1}
-                  value={String(edit.rooms)}
-                  onChange={(e) =>
-                    setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })
-                  }
-                />
-              </>
-            )}
+            </Field>
+            <Field label="Rooms">
+              <Input
+                type="number"
+                min={1}
+                value={String(form.rooms)}
+                onChange={(e) => setForm((f) => ({ ...f, rooms: Number(e.target.value) || 1 }))}
+              />
+            </Field>
+            <Field label="Email (optional)">
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="guest@example.com"
+              />
+            </Field>
+            <Field label="Phone (optional)">
+              <Input
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="+94 …"
+              />
+            </Field>
+            <Field label="Check-in">
+              <Input
+                type="date"
+                value={form.checkin}
+                onChange={(e) => setForm((f) => ({ ...f, checkin: e.target.value }))}
+              />
+            </Field>
+            <Field label="Check-out">
+              <Input
+                type="date"
+                min={form.checkin}
+                value={form.checkout}
+                onChange={(e) => setForm((f) => ({ ...f, checkout: e.target.value }))}
+              />
+            </Field>
+            <Field label="Coupon (optional)">
+              <Input
+                value={form.couponCode}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))
+                }
+                placeholder="SUMMER10"
+              />
+            </Field>
+            <Field label="Referral (optional)">
+              <Input
+                value={form.referralCode}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))
+                }
+                placeholder="LANKA"
+              />
+            </Field>
             {msg?.tone === 'closed' && (
-              <div
-                className="rounded-lg px-3 py-2 text-sm font-medium sm:col-span-2"
-                style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
-              >
+              <div className="rounded-lg bg-closed-soft px-3 py-2 text-sm font-medium text-closed-ink sm:col-span-2">
                 {msg.text}
               </div>
             )}
-            <div className="mt-2 flex items-center gap-3 border-t border-line pt-4 sm:col-span-2">
-              {edit.stayEditable && (
-                <span className="text-sm text-ink-3">
-                  {nightsBetween(edit.checkin, edit.checkout) > 0
-                    ? `${nightsBetween(edit.checkin, edit.checkout)} night${
-                        nightsBetween(edit.checkin, edit.checkout) === 1 ? '' : 's'
-                      } · ${edit.rooms} room${edit.rooms === 1 ? '' : 's'}`
-                    : 'Check-out must be after check-in'}
-                </span>
-              )}
-              <div className="flex-1" />
-              <Button type="button" variant="ghost" onClick={() => setEdit(null)}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  busy || (edit.stayEditable && nightsBetween(edit.checkin, edit.checkout) === 0)
-                }
-              >
-                {busy ? 'Saving…' : 'Save changes'}
-              </Button>
-            </div>
           </form>
-        </Modal>
-      )}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
+        <SheetContent
+          side="right"
+          wide
+          title={edit ? `Edit booking ${edit.reference}` : 'Edit booking'}
+          description={
+            edit?.stayEditable
+              ? 'Changing dates or rooms re-prices the stay from the rate calendar and swaps inventory atomically; any coupon discount is kept as granted.'
+              : 'Guest details only — this booking has already checked in.'
+          }
+          footer={
+            edit && (
+              <div className="flex items-center gap-3">
+                {edit.stayEditable && (
+                  <span className="text-sm text-ink-3">
+                    {nightsBetween(edit.checkin, edit.checkout) > 0
+                      ? `${nightsBetween(edit.checkin, edit.checkout)} night${
+                          nightsBetween(edit.checkin, edit.checkout) === 1 ? '' : 's'
+                        } · ${edit.rooms} room${edit.rooms === 1 ? '' : 's'}`
+                      : 'Check-out must be after check-in'}
+                  </span>
+                )}
+                <div className="flex-1" />
+                <Button type="button" variant="outline" onClick={() => setEdit(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  form="edit-booking-form"
+                  loading={busy}
+                  disabled={edit.stayEditable && nightsBetween(edit.checkin, edit.checkout) === 0}
+                >
+                  {busy ? 'Saving…' : 'Save changes'}
+                </Button>
+              </div>
+            )
+          }
+        >
+          {edit && (
+            <form
+              id="edit-booking-form"
+              onSubmit={saveEdit}
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+            >
+              <Field label="Guest name" className="sm:col-span-2">
+                <Input
+                  value={edit.name}
+                  onChange={(e) => setEdit((v) => v && { ...v, name: e.target.value })}
+                />
+              </Field>
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={edit.email}
+                  onChange={(e) => setEdit((v) => v && { ...v, email: e.target.value })}
+                  placeholder="guest@example.com"
+                />
+              </Field>
+              <Field label="Phone">
+                <Input
+                  value={edit.phone}
+                  onChange={(e) => setEdit((v) => v && { ...v, phone: e.target.value })}
+                  placeholder="+94 …"
+                />
+              </Field>
+              {edit.stayEditable && (
+                <>
+                  <Field label="Check-in">
+                    <Input
+                      type="date"
+                      value={edit.checkin}
+                      onChange={(e) => setEdit((v) => v && { ...v, checkin: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Check-out">
+                    <Input
+                      type="date"
+                      min={edit.checkin}
+                      value={edit.checkout}
+                      onChange={(e) => setEdit((v) => v && { ...v, checkout: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Rooms">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={String(edit.rooms)}
+                      onChange={(e) =>
+                        setEdit((v) => v && { ...v, rooms: Number(e.target.value) || 1 })
+                      }
+                    />
+                  </Field>
+                </>
+              )}
+              {msg?.tone === 'closed' && (
+                <div className="rounded-lg bg-closed-soft px-3 py-2 text-sm font-medium text-closed-ink sm:col-span-2">
+                  {msg.text}
+                </div>
+              )}
+            </form>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* filters */}
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {STATUSES.map((s) => (
           <button
             key={s}
             onClick={() => setFilter(s)}
             className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
               filter === s
-                ? 'border-brand text-brand-ink'
+                ? 'border-brand bg-brand-soft text-brand-ink'
                 : 'border-line-strong text-ink-2 hover:border-ink-3'
             }`}
-            style={filter === s ? { background: 'var(--brand-soft)' } : undefined}
           >
             {s}
             {s !== 'All' && counts[s] ? (
@@ -487,8 +526,8 @@ export default function BookingsPage() {
           </button>
         ))}
         <div className="flex-1" />
-        <input
-          className={`${selectClass} w-56`}
+        <Input
+          className="w-56"
           placeholder="Search guest or reference…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -497,11 +536,9 @@ export default function BookingsPage() {
 
       {msg && !showNew && !edit && (
         <div
-          className="mt-4 rounded-lg px-3 py-2 text-sm font-medium"
-          style={{
-            color: msg.tone === 'avail' ? 'var(--avail-ink)' : 'var(--closed-ink)',
-            background: msg.tone === 'avail' ? 'var(--avail-soft)' : 'var(--closed-soft)',
-          }}
+          className={`mt-4 rounded-lg px-3 py-2 text-sm font-medium ${
+            msg.tone === 'avail' ? 'bg-avail-soft text-avail-ink' : 'bg-closed-soft text-closed-ink'
+          }`}
         >
           {msg.text}
         </div>
@@ -509,18 +546,30 @@ export default function BookingsPage() {
 
       <Card className="mt-4 overflow-x-auto">
         {filtered.length === 0 ? (
-          <p className="p-8 text-center text-sm text-ink-3">No bookings match.</p>
+          <EmptyState title="No bookings match." />
         ) : (
           <table className="w-full text-sm" style={{ minWidth: 720 }}>
             <thead>
-              <tr className="border-b border-line text-left font-mono text-[0.6rem] uppercase tracking-widest text-ink-3">
-                <th className="px-4 py-2 font-medium">Ref</th>
-                <th className="px-4 py-2 font-medium">Guest</th>
-                <th className="px-4 py-2 font-medium">Stay</th>
-                <th className="px-4 py-2 font-medium">Source</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 text-right font-medium">Amount</th>
-                <th className="px-4 py-2"></th>
+              <tr className="border-b border-line bg-surface-2">
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+                  Ref
+                </th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+                  Guest
+                </th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+                  Stay
+                </th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+                  Source
+                </th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+                  Status
+                </th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+                  Amount
+                </th>
+                <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody>
@@ -535,25 +584,21 @@ export default function BookingsPage() {
                   </td>
                   <td className="px-4 py-2 text-xs text-ink-3">{b.source}</td>
                   <td className="px-4 py-2">
-                    <Pill tone={tone(b.status)}>{b.status}</Pill>
+                    <Badge tone={tone(b.status)}>{b.status}</Badge>
                   </td>
-                  <td className="px-4 py-2 text-right font-mono font-semibold">
+                  <td className="px-4 py-2 text-right font-mono font-semibold tabular-nums">
                     {money(b.amount, b.currency)}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-1">
                       {b.status === 'Pending' && (
                         <>
-                          <Button
-                            className="!px-2 !py-1 text-xs"
-                            disabled={busy}
-                            onClick={() => act(b.id, 'approve')}
-                          >
+                          <Button size="sm" disabled={busy} onClick={() => act(b.id, 'approve')}>
                             Approve
                           </Button>
                           <Button
                             variant="ghost"
-                            className="!px-2 !py-1 text-xs"
+                            size="sm"
                             disabled={busy}
                             onClick={() => act(b.id, 'reject')}
                           >
@@ -563,16 +608,12 @@ export default function BookingsPage() {
                       )}
                       {b.status === 'Approved' && (
                         <>
-                          <Button
-                            className="!px-2 !py-1 text-xs"
-                            disabled={busy}
-                            onClick={() => act(b.id, 'check-in')}
-                          >
+                          <Button size="sm" disabled={busy} onClick={() => act(b.id, 'check-in')}>
                             Check in
                           </Button>
                           <Button
                             variant="secondary"
-                            className="!px-2 !py-1 text-xs"
+                            size="sm"
                             disabled={busy}
                             onClick={() => act(b.id, 'no-show')}
                           >
@@ -580,7 +621,7 @@ export default function BookingsPage() {
                           </Button>
                           <Button
                             variant="ghost"
-                            className="!px-2 !py-1 text-xs"
+                            size="sm"
                             disabled={busy}
                             onClick={() => act(b.id, 'cancel')}
                           >
@@ -589,18 +630,14 @@ export default function BookingsPage() {
                         </>
                       )}
                       {b.status === 'CheckedIn' && (
-                        <Button
-                          className="!px-2 !py-1 text-xs"
-                          disabled={busy}
-                          onClick={() => act(b.id, 'check-out')}
-                        >
+                        <Button size="sm" disabled={busy} onClick={() => act(b.id, 'check-out')}>
                           Check out
                         </Button>
                       )}
                       {canEdit(b.status) && (
                         <Button
                           variant="ghost"
-                          className="!px-2 !py-1 text-xs"
+                          size="sm"
                           disabled={busy}
                           onClick={() => startEdit(b)}
                         >

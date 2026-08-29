@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Bed, Clock, Gauge, SignIn, SignOut, Wallet, Warning } from '@phosphor-icons/react';
 import {
   getDashboard,
   listProperties,
@@ -11,29 +12,27 @@ import {
   type DashboardBooking,
   type Property,
 } from '@/lib/api';
-import { Button, Card, Pill } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  StatCard,
+} from '@yohobed/ui';
 import { useMoney } from '@/components/currency';
+import { todayISO } from '@/lib/format';
 
-const selectClass =
-  'rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-sm font-medium text-ink outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand';
+const TH = 'px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2';
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Card className="flex-1 p-4">
-      <div className="font-mono text-[0.6rem] uppercase tracking-widest text-ink-3">{label}</div>
-      <div
-        className="mt-1 text-2xl font-bold tracking-tight text-ink"
-        style={{ fontVariantNumeric: 'tabular-nums' }}
-      >
-        {value}
-      </div>
-      {hint && <div className="mt-0.5 text-xs text-ink-3">{hint}</div>}
-    </Card>
-  );
+  return todayISO();
 }
 
 function MovementList({
@@ -59,7 +58,7 @@ function MovementList({
         {title} <span className="ml-1 text-ink-2">{items.length}</span>
       </div>
       {items.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-ink-3">{emptyText}</p>
+        <EmptyState title={emptyText} className="py-8" />
       ) : (
         <ul>
           {items.map((b) => (
@@ -73,11 +72,11 @@ function MovementList({
                   {b.reference} · {b.roomName} · {b.nights}n ×{b.rooms}
                 </div>
               </div>
-              <Pill tone={b.status === 'Approved' ? 'low' : 'avail'}>
+              <Badge tone={b.status === 'Approved' ? 'low' : 'avail'}>
                 {b.status === 'Approved' ? 'Due' : b.status === 'CheckedIn' ? 'In-house' : 'Done'}
-              </Pill>
+              </Badge>
               {actionFor(b) && (
-                <Button className="!px-2 !py-1 text-xs" disabled={busy} onClick={() => onAction(b)}>
+                <Button size="sm" disabled={busy} onClick={() => onAction(b)}>
                   {actionLabel}
                 </Button>
               )}
@@ -138,60 +137,79 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">Front desk</div>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-ink">Dashboard</h1>
-        <div className="flex-1" />
-        <select
-          className={selectClass}
-          value={propertyId}
-          onChange={(e) => setPropertyId(e.target.value)}
-        >
-          <option value="">All properties</option>
-          {properties.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <input
-          className={selectClass}
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-      </div>
+      <PageHeader
+        eyebrow="Front desk"
+        title="Dashboard"
+        actions={
+          <>
+            <Select
+              value={propertyId || 'all'}
+              onValueChange={(v) => setPropertyId(v === 'all' ? '' : v)}
+            >
+              <SelectTrigger className="w-44" aria-label="Property">
+                <SelectValue placeholder="All properties" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All properties</SelectItem>
+                {properties.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-40"
+              aria-label="Dashboard date"
+            />
+          </>
+        }
+      />
 
       {err && (
-        <div
-          className="mt-4 rounded-lg px-3 py-2 text-sm font-medium"
-          style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
-        >
+        <div className="mt-4 rounded-lg bg-closed-soft px-3 py-2 text-sm font-medium text-closed-ink">
           {err}
         </div>
       )}
 
       {data && (
         <>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Stat
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <StatCard
               label="Arrivals"
               value={String(data.arrivals.length)}
               hint={`${data.arrivals.filter((a) => a.status === 'Approved').length} still due`}
+              icon={<SignIn size={18} />}
             />
-            <Stat
+            <StatCard
               label="Departures"
               value={String(data.departures.length)}
               hint={`${data.departures.filter((d) => d.status === 'CheckedIn').length} still in-house`}
+              icon={<SignOut size={18} />}
             />
-            <Stat label="In-house" value={String(data.inHouse)} hint="guests checked in" />
-            <Stat label="Pending" value={String(data.pendingApprovals)} hint="awaiting approval" />
-            <Stat
+            <StatCard
+              label="In-house"
+              value={String(data.inHouse)}
+              hint="guests checked in"
+              icon={<Bed size={18} />}
+            />
+            <StatCard
+              label="Pending"
+              value={String(data.pendingApprovals)}
+              hint="awaiting approval"
+              tone={data.pendingApprovals > 0 ? 'low' : 'brand'}
+              icon={data.pendingApprovals > 0 ? <Warning size={18} /> : <Clock size={18} />}
+            />
+            <StatCard
               label="Occupancy"
               value={`${data.occupancy.pct}%`}
               hint={`${data.occupancy.occupied} of ${data.occupancy.totalRooms} rooms tonight`}
+              icon={<Gauge size={18} />}
             />
-            <Stat
+            <StatCard
               label={monthLabel || 'This month'}
               value={money(String(data.month.gross), data.month.currency, data.month.approximate)}
               hint={
@@ -199,14 +217,15 @@ export default function DashboardPage() {
                   ? `${data.month.nightsSold} room-nights · consolidated to ${data.month.currency}`
                   : `${data.month.nightsSold} room-nights confirmed`
               }
+              tone="brass"
+              icon={<Wallet size={18} />}
             />
           </div>
 
           {data.pendingApprovals > 0 && (
             <Link
               href="/app/bookings"
-              className="mt-4 block rounded-lg px-3 py-2 text-sm font-semibold"
-              style={{ color: 'var(--low-ink)', background: 'var(--low-soft)' }}
+              className="mt-4 block rounded-lg bg-low-soft px-3 py-2 text-sm font-semibold text-low-ink"
             >
               {data.pendingApprovals} booking{data.pendingApprovals === 1 ? '' : 's'} waiting for
               approval →
@@ -239,9 +258,19 @@ export default function DashboardPage() {
               Recent bookings
             </div>
             {data.recent.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-ink-3">No bookings yet.</p>
+              <EmptyState title="No bookings yet." className="py-8" />
             ) : (
-              <table className="w-full text-sm" style={{ minWidth: 640 }}>
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-line bg-surface-2">
+                    <th className={TH}>Reference</th>
+                    <th className={TH}>Guest</th>
+                    <th className={TH}>Dates</th>
+                    <th className={TH}>Room</th>
+                    <th className={TH}>Status</th>
+                    <th className={`${TH} text-right`}>Amount</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {data.recent.map((b) => (
                     <tr key={b.id} className="border-b border-line last:border-0">
@@ -254,7 +283,7 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-4 py-2 text-xs text-ink-3">{b.roomName}</td>
                       <td className="px-4 py-2">
-                        <Pill
+                        <Badge
                           tone={
                             b.status === 'Approved' ||
                             b.status === 'CheckedIn' ||
@@ -268,9 +297,9 @@ export default function DashboardPage() {
                           }
                         >
                           {b.status}
-                        </Pill>
+                        </Badge>
                       </td>
-                      <td className="px-4 py-2 text-right font-mono font-semibold">
+                      <td className="px-4 py-2 text-right font-mono font-semibold tabular-nums">
                         {money(b.amount, b.currency)}
                       </td>
                     </tr>

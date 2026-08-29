@@ -4,12 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   bookings,
   bookingDays,
   bookingApprovals,
   customers,
+  folioCharges,
+  folios,
   occupancies,
   ratePlans,
   rooms,
@@ -427,8 +429,13 @@ export class BookingService {
 
   /**
    * The LKR-conversion rate to freeze onto a booking: 1 for LKR, else the newest exchange_rates
-   * row for `currency`→LKR. Returns a numeric string for the column. Falls back to '1' if no rate
-   * exists yet (only reachable before the Phase 2 FX job seeds rates; today every property is LKR).
+   * row for `currency`→LKR. Returns a numeric string for the column.
+   *
+   * A missing rate REFUSES the booking rather than freezing 1:1 — a USD 250 booking recorded as
+   * LKR 250 poisons every downstream aggregate, invoice and payout, silently and permanently.
+   * The rate table can be empty any time the worker is down or its provider keeps failing, not
+   * just "before the FX job first runs", so the loud failure is the only safe behaviour. A staff
+   * override via POST /fx/override unblocks bookings immediately if the feed is down.
    */
   private async resolveFxRateToLkr(tx: Tx, currency: string): Promise<string> {
     if (currency === 'LKR') return '1';
@@ -438,7 +445,13 @@ export class BookingService {
       .where(and(eq(exchangeRates.base, currency), eq(exchangeRates.quote, 'LKR')))
       .orderBy(desc(exchangeRates.fetchedAt))
       .limit(1);
-    return row?.rate ?? '1';
+    if (!row) {
+      throw new ConflictException({
+        error: 'fx_rate_unavailable',
+        message: `No ${currency}→LKR exchange rate is loaded; cannot record a ${currency} booking. Check the worker's FX job, or set a manual override.`,
+      });
+    }
+    return row.rate;
   }
 
   private transition(tenantId: string, id: string, kind: Transition, reason?: string) {
@@ -720,6 +733,56 @@ export class BookingService {
             updatedAt: new Date(),
           })
           .where(eq(bookings.id, id));
+
+        // Reconcile any room charges the night audit already posted. An Approved booking can
+        // carry posted nights, and leaving them untouched breaks the load-bearing invariant that
+        // the folio's room lines sum to `bookings.amount`: a removed night stays billed, a
+        // re-priced night keeps its old price. Removed nights are voided; re-priced nights are
+        // voided and re-posted at the new price on the same window.
+        const liveRoomCharges = await tx
+          .select({
+            id: folioCharges.id,
+            folioId: folioCharges.folioId,
+            bookingDate: folioCharges.bookingDate,
+            total: folioCharges.total,
+          })
+          .from(folioCharges)
+          .innerJoin(folios, eq(folios.id, folioCharges.folioId))
+          .where(
+            and(
+              eq(folios.bookingId, id),
+              eq(folioCharges.source, 'room'),
+              isNull(folioCharges.voidedAt),
+            ),
+          );
+        for (const c of liveRoomCharges) {
+          const d = c.bookingDate!;
+          const stillInStay = nightSelling.has(d);
+          const newTotal = stillInStay ? Number((nightSelling.get(d)! * newRooms).toFixed(2)) : 0;
+          if (stillInStay && Number(c.total) === newTotal) continue;
+          await tx
+            .update(folioCharges)
+            .set({ voidedAt: new Date(), voidReason: 'stay amended', updatedAt: new Date() })
+            .where(eq(folioCharges.id, c.id));
+          if (stillInStay) {
+            const t = Number((nightTax.get(d)! * newRooms).toFixed(2));
+            await tx.insert(folioCharges).values({
+              tenantId,
+              folioId: c.folioId,
+              source: 'room',
+              description:
+                newRooms > 1 ? `Room charge — ${d} (${newRooms} rooms)` : `Room charge — ${d}`,
+              postedFor: d,
+              bookingDate: d,
+              quantity: newRooms.toFixed(2),
+              unitPrice: nightSelling.get(d)!.toFixed(2),
+              net: (newTotal - t).toFixed(2),
+              tax: t.toFixed(2),
+              total: newTotal.toFixed(2),
+            });
+          }
+        }
+
         changes.push(
           `stay ${b.checkin}→${b.checkout} ×${b.rooms} to ${newCheckin}→${newCheckout} ×${newRooms}`,
         );

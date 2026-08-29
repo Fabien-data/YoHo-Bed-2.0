@@ -3,17 +3,17 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Ban,
-  BedDouble,
-  Sparkles,
+  Bed,
   Crown,
-  LogIn,
-  LogOut,
+  Prohibit,
   ShieldCheck,
+  SignIn,
+  SignOut,
+  Sparkle,
   Users,
   Wallet,
   Wrench,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 import {
   Badge,
   Button,
@@ -36,7 +36,8 @@ import {
   type RoomCard,
   type RoomState,
 } from '@/lib/api';
-import { useProperties } from '@/lib/queries';
+import { useActiveProperty } from '@/components/active-property';
+import { todayISO } from '@/lib/format';
 
 const STATE_LABEL: Record<RoomState, string> = {
   Vacant: 'Vacant',
@@ -72,10 +73,9 @@ type Filter = 'all' | RoomState | 'dirty';
 
 export default function RoomViewPage() {
   const qc = useQueryClient();
-  const { data: properties } = useProperties();
-  const propertyId = properties?.[0]?.id;
+  const { propertyId } = useActiveProperty();
 
-  const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = React.useState(() => todayISO());
   const [filter, setFilter] = React.useState<Filter>('all');
   const [selected, setSelected] = React.useState<RoomCard | null>(null);
 
@@ -161,7 +161,7 @@ export default function RoomViewPage() {
             onClick={() => sweep.mutate()}
             disabled={sweep.isPending || !propertyId}
           >
-            <Sparkles size={14} />
+            <Sparkle size={14} />
             {sweep.isPending ? 'Marking…' : 'Mark departures dirty'}
           </Button>
         </div>
@@ -220,25 +220,25 @@ function RoomTile({ card, onOpen }: { card: RoomCard; onOpen: () => void }) {
       className={cn(
         'flex flex-col gap-2 rounded-xl border bg-surface p-3 text-left transition',
         'hover:border-ink-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand',
-        card.state === 'OutOfOrder' ? 'border-[var(--closed-ink)]/40' : 'border-line',
+        card.state === 'OutOfOrder' ? 'border-closed' : 'border-line',
       )}
     >
       <div className="flex items-center gap-2">
         <span className="font-mono text-lg font-bold text-ink">{card.code}</span>
         {card.vip && (
           <Tooltip label="VIP guest">
-            <Crown size={14} className="text-[var(--low-ink)]" />
+            <Crown size={14} className="text-low-ink" />
           </Tooltip>
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {card.balanceDue && (
             <Tooltip label="Payment pending">
-              <Wallet size={14} className="text-[var(--closed-ink)]" />
+              <Wallet size={14} className="text-closed-ink" />
             </Tooltip>
           )}
           {card.openWorkOrders > 0 && (
             <Tooltip label={`${card.openWorkOrders} open work order(s)`}>
-              <span className="flex items-center gap-0.5 text-[var(--low-ink)]">
+              <span className="flex items-center gap-0.5 text-low-ink">
                 <Wrench size={13} />
                 <span className="text-[11px] font-semibold">{card.openWorkOrders}</span>
               </span>
@@ -246,17 +246,17 @@ function RoomTile({ card, onOpen }: { card: RoomCard; onOpen: () => void }) {
           )}
           {card.state === 'ArrivingToday' && (
             <Tooltip label="Arriving today">
-              <LogIn size={14} className="text-[var(--info)]" />
+              <SignIn size={14} className="text-info" />
             </Tooltip>
           )}
           {card.state === 'PendingCheckout' && (
             <Tooltip label="Due out">
-              <LogOut size={14} className="text-[var(--low-ink)]" />
+              <SignOut size={14} className="text-low-ink" />
             </Tooltip>
           )}
           {card.unitStatus === 'inactive' && (
             <Tooltip label="Room disabled">
-              <Ban size={14} className="text-[var(--closed-ink)]" />
+              <Prohibit size={14} className="text-closed-ink" />
             </Tooltip>
           )}
         </div>
@@ -267,7 +267,7 @@ function RoomTile({ card, onOpen }: { card: RoomCard; onOpen: () => void }) {
       <div className="flex flex-wrap gap-1.5">
         <Badge tone={STATE_TONE[card.state]}>{STATE_LABEL[card.state]}</Badge>
         <Badge tone={HK_TONE[card.housekeeping]} dot={false}>
-          {card.housekeeping === 'inspected' ? <ShieldCheck size={11} /> : <BedDouble size={11} />}
+          {card.housekeeping === 'inspected' ? <ShieldCheck size={11} /> : <Bed size={11} />}
           {HK_LABEL[card.housekeeping]}
         </Badge>
       </div>
@@ -284,7 +284,7 @@ function RoomTile({ card, onOpen }: { card: RoomCard; onOpen: () => void }) {
             )}
           </span>
         ) : card.blockReason ? (
-          <span className="text-xs text-[var(--closed-ink)]">{card.blockReason}</span>
+          <span className="text-xs text-closed-ink">{card.blockReason}</span>
         ) : (
           <span className="text-xs text-ink-3">&mdash;</span>
         )}
@@ -352,7 +352,7 @@ function RoomSheet({
             )}
 
             {card.blockReason && (
-              <p className="rounded-lg bg-[var(--closed-soft)] px-3 py-2 text-sm text-[var(--closed-ink)]">
+              <p className="rounded-lg bg-closed-soft px-3 py-2 text-sm text-closed-ink">
                 Blocked: {card.blockReason}
               </p>
             )}
@@ -380,9 +380,7 @@ function RoomSheet({
                 ))}
               </div>
               {set.isError && (
-                <p className="mt-2 text-sm text-[var(--closed-ink)]">
-                  {(set.error as Error).message}
-                </p>
+                <p className="mt-2 text-sm text-closed-ink">{(set.error as Error).message}</p>
               )}
             </div>
           </div>

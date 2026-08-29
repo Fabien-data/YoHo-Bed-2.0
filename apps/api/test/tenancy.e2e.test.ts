@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { makeTenant, openAndPrice, book, request, stopApp } from './harness';
+import { media } from '@yohobed/db';
+import { admin, makeTenant, openAndPrice, book, request, stopApp } from './harness';
 
 afterAll(stopApp);
 
@@ -58,5 +59,39 @@ describe('tenant isolation (API surface)', () => {
       },
     });
     expect(res.status).toBe(404); // RLS hides the occupancy entirely
+  });
+
+  /**
+   * 2026-08-28 audit: `media` carries a permissive public-read policy (for <img> serving), and
+   * Postgres ORs permissive policies — so unlike every other table, SELECTs on media are NOT
+   * fenced by RLS. The service must therefore filter on tenant_id explicitly; without that,
+   * DELETE /photos/:id found another tenant's row and destroyed their file on disk.
+   */
+  it('cannot read or delete another tenant’s photos by id', async () => {
+    const a = await makeTenant();
+    const b = await makeTenant();
+
+    const [bPhoto] = await admin()
+      .insert(media)
+      .values({
+        tenantId: b.tenantId,
+        propertyId: b.propertyId,
+        storageKey: `e2e-cross-tenant-${Date.now()}.jpg`,
+        originalName: 'pool.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 1234,
+        sortOrder: 0,
+      })
+      .returning();
+
+    // Listing another tenant's property photos returns nothing.
+    const listed = await request('GET', `/properties/${b.propertyId}/photos`, { token: a.token });
+    expect(listed.body.some?.((p: any) => p.id === bPhoto!.id)).not.toBe(true);
+
+    // Deleting by id 404s, and the row survives.
+    const del = await request('DELETE', `/photos/${bPhoto!.id}`, { token: a.token });
+    expect(del.status).toBe(404);
+    const owner = await request('GET', `/properties/${b.propertyId}/photos`, { token: b.token });
+    expect(owner.body.map((p: any) => p.id)).toContain(bPhoto!.id);
   });
 });

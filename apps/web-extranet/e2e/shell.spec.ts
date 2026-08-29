@@ -26,6 +26,14 @@ const ROUTES: Array<{ path: string; heading: RegExp }> = [
   { path: '/app/setup', heading: /setup|propert/i },
   { path: '/app/profile', heading: /profile|account/i },
   { path: '/app/plan', heading: /plan/i },
+  // The Yanolja-parity screens (Sprints 3–7). These are exactly the pages a provider or shell
+  // regression is most likely to white-screen, so they must be in the smoke list too.
+  { path: '/app/stayview', heading: /stay view/i },
+  { path: '/app/roomview', heading: /room view/i },
+  { path: '/app/reservations', heading: /reservation/i },
+  { path: '/app/folios', heading: /folio|unsettled/i },
+  { path: '/app/cashiering', heading: /cashiering/i },
+  { path: '/app/night-audit', heading: /night audit/i },
 ];
 
 async function signIn(page: Page) {

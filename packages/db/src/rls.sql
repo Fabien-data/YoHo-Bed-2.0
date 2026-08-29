@@ -368,3 +368,64 @@ DROP POLICY IF EXISTS tenant_isolation ON night_audit_runs;
 CREATE POLICY tenant_isolation ON night_audit_runs
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Identity tables (2026-08-28 audit).
+--
+-- These cannot take the plain tenant_isolation policy: login and registration resolve users
+-- BEFORE any tenant context exists, staff rows carry tenant_id = NULL, and sessions /
+-- password_resets have no tenant column at all. The shape used instead: an UNSCOPED connection
+-- (no app.tenant_id set — the auth flows, which run on the service handle by design) sees
+-- everything, while a tenant-scoped transaction is fenced to its own tenant. Without this, the
+-- identity tables were the one place a forgotten WHERE clause could leak every tenant's emails,
+-- password hashes and live session-token hashes instead of returning nothing.
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS identity_scope ON users;
+CREATE POLICY identity_scope ON users
+  USING (
+    nullif(current_setting('app.tenant_id', true), '') IS NULL
+    OR tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
+    -- Staff users stay readable in tenant context so audit-log joins can name who acted.
+    OR tenant_id IS NULL
+  )
+  WITH CHECK (
+    nullif(current_setting('app.tenant_id', true), '') IS NULL
+    OR tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  );
+
+ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS identity_scope ON memberships;
+CREATE POLICY identity_scope ON memberships
+  USING (
+    nullif(current_setting('app.tenant_id', true), '') IS NULL
+    OR tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  )
+  WITH CHECK (
+    nullif(current_setting('app.tenant_id', true), '') IS NULL
+    OR tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  );
+
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS identity_scope ON tenants;
+CREATE POLICY identity_scope ON tenants
+  USING (
+    nullif(current_setting('app.tenant_id', true), '') IS NULL
+    OR id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  )
+  WITH CHECK (
+    nullif(current_setting('app.tenant_id', true), '') IS NULL
+    OR id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  );
+
+-- Token stores: no tenant column, and no tenant-scoped code path has any business reading them.
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS identity_scope ON sessions;
+CREATE POLICY identity_scope ON sessions
+  USING (nullif(current_setting('app.tenant_id', true), '') IS NULL)
+  WITH CHECK (nullif(current_setting('app.tenant_id', true), '') IS NULL);
+
+ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS identity_scope ON password_resets;
+CREATE POLICY identity_scope ON password_resets
+  USING (nullif(current_setting('app.tenant_id', true), '') IS NULL)
+  WITH CHECK (nullif(current_setting('app.tenant_id', true), '') IS NULL);

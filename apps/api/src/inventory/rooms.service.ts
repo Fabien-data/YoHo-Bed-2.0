@@ -99,9 +99,32 @@ export class RoomsService {
       const [room] = await tx.select().from(rooms).where(eq(rooms.id, roomId));
       if (!room) throw new NotFoundException('Room not found');
 
-      const roomsToSell = Math.min(dto.roomsToSell, room.quantity);
+      const sellable = Math.min(dto.roomsToSell, room.quantity);
       const dates = dateRangeInclusive(dto.from, dto.to);
+
+      // `rooms_to_sell` is a live counter that bookings have already decremented (reserveStay).
+      // Writing the requested number absolutely would re-open rooms that are sold — the classic
+      // "owner re-opens the month, hotel overbooks" path. So the counter is re-derived per date:
+      // requested sellable minus the rooms still held by non-terminal bookings on that night.
+      const bookedRows = (await tx.execute(sql`
+        SELECT d::date AS date, COALESCE(SUM(b.rooms), 0)::int AS booked
+          FROM generate_series(${dto.from}::date, ${dto.to}::date, '1 day') AS d
+          LEFT JOIN bookings b
+            ON b.room_id = ${roomId}
+           AND b.status NOT IN ('Cancelled', 'Rejected')
+           AND b.checkin <= d::date
+           AND b.checkout > d::date
+         GROUP BY d
+      `)) as unknown as Array<{ date: string | Date; booked: number }>;
+      const bookedByDate = new Map(
+        bookedRows.map((r) => [
+          r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+          Number(r.booked),
+        ]),
+      );
+
       for (const date of dates) {
+        const roomsToSell = Math.max(0, sellable - (bookedByDate.get(date) ?? 0));
         await tx
           .insert(availabilityCalendar)
           .values({
@@ -143,10 +166,10 @@ export class RoomsService {
         kind: 'availability',
         fromDate: dto.from,
         toDate: dto.to,
-        detail: { roomsToSell, status: dto.status },
+        detail: { roomsToSell: sellable, status: dto.status },
         actorEmail: actorEmail ?? null,
       });
-      return { opened: dates.length, from: dto.from, to: dto.to, roomsToSell };
+      return { opened: dates.length, from: dto.from, to: dto.to, roomsToSell: sellable };
     });
   }
 

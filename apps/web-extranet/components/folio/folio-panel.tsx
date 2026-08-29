@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Plus, Receipt, Split, Wallet } from 'lucide-react';
+import { ArrowsLeftRight, Plus, Prohibit, Receipt, Wallet } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
@@ -75,8 +75,7 @@ export function FolioPanel({ bookingId }: { bookingId: string }) {
       </div>
     );
   }
-  if (!folio.data)
-    return <p className="text-sm text-[var(--closed-ink)]">Could not load the bill.</p>;
+  if (!folio.data) return <p className="text-sm text-closed-ink">Could not load the bill.</p>;
 
   const data = folio.data;
   const current = data.windows.find((w) => w.id === activeWindow) ?? data.windows[0];
@@ -100,13 +99,13 @@ export function FolioPanel({ bookingId }: { bookingId: string }) {
           onClick={() => addWindow.mutate()}
           disabled={addWindow.isPending}
         >
-          <Split size={14} />
+          <ArrowsLeftRight size={14} />
           Split bill
         </Button>
       </div>
 
       {postRooms.isError && (
-        <p className="text-sm text-[var(--closed-ink)]">{(postRooms.error as Error).message}</p>
+        <p className="text-sm text-closed-ink">{(postRooms.error as Error).message}</p>
       )}
 
       {data.windows.length > 1 && (
@@ -292,9 +291,7 @@ function WindowView({
           }}
         />
       )}
-      {close.isError && (
-        <p className="text-sm text-[var(--closed-ink)]">{(close.error as Error).message}</p>
-      )}
+      {close.isError && <p className="text-sm text-closed-ink">{(close.error as Error).message}</p>}
     </div>
   );
 }
@@ -338,7 +335,7 @@ function Line({
           </span>
         )}
         {dead && (
-          <span className="ml-1.5 text-[11px] text-[var(--closed-ink)]">
+          <span className="ml-1.5 text-[11px] text-closed-ink">
             voided{l.voidReason ? ` — ${l.voidReason}` : ''}
           </span>
         )}
@@ -359,9 +356,9 @@ function Line({
               type="button"
               onClick={onVoid}
               aria-label={`Void ${l.description}`}
-              className="text-ink-3 transition hover:text-[var(--closed-ink)]"
+              className="text-ink-3 transition hover:text-closed-ink"
             >
-              <Ban size={13} />
+              <Prohibit size={13} />
             </button>
           )}
         </td>
@@ -447,7 +444,7 @@ function AddCharge({ folioId, onDone }: { folioId: string; onDone: () => void })
           {post.isPending ? 'Posting…' : 'Post charge'}
         </Button>
         {post.isError && (
-          <span className="text-sm text-[var(--closed-ink)]">{(post.error as Error).message}</span>
+          <span className="text-sm text-closed-ink">{(post.error as Error).message}</span>
         )}
       </div>
     </form>
@@ -521,7 +518,7 @@ function TakePayment({
           {pay.isPending ? 'Recording…' : 'Record payment'}
         </Button>
         {pay.isError && (
-          <span className="text-sm text-[var(--closed-ink)]">{(pay.error as Error).message}</span>
+          <span className="text-sm text-closed-ink">{(pay.error as Error).message}</span>
         )}
       </div>
     </form>

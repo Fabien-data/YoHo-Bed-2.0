@@ -4,8 +4,8 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { resetPassword, ApiError } from '@/lib/api';
-import { Button, Card, Field, Logo } from '@/components/ui';
-import { ThemeToggle } from '@/components/theme';
+import { Button, Field, Input } from '@yohobed/ui';
+import { AuthShell, AuthError } from '@/components/auth-shell';
 
 function ResetForm() {
   const router = useRouter();
@@ -40,24 +40,18 @@ function ResetForm() {
   }
   return (
     <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-4">
-      <Field
-        label="New password (min 8 characters)"
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        autoComplete="new-password"
-        minLength={8}
-        required
-      />
-      {error && (
-        <p
-          className="rounded-lg px-3 py-2 text-sm font-medium"
-          style={{ color: 'var(--closed-ink)', background: 'var(--closed-soft)' }}
-        >
-          {error}
-        </p>
-      )}
-      <Button type="submit" disabled={busy} className="w-full">
+      <Field label="New password (min 8 characters)" required>
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          minLength={8}
+          required
+        />
+      </Field>
+      {error && <AuthError>{error}</AuthError>}
+      <Button type="submit" loading={busy} className="w-full">
         {busy ? 'Updating…' : 'Set new password'}
       </Button>
     </form>
@@ -66,19 +60,11 @@ function ResetForm() {
 
 export default function ResetPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <ThemeToggle floating />
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex justify-center">
-          <Logo size={30} />
-        </div>
-        <Card className="p-7">
-          <h1 className="text-xl font-bold tracking-tight text-ink">Choose a new password</h1>
-          <Suspense>
-            <ResetForm />
-          </Suspense>
-        </Card>
-      </div>
-    </main>
+    <AuthShell>
+      <h1 className="text-xl font-semibold tracking-tight text-ink">Choose a new password</h1>
+      <Suspense>
+        <ResetForm />
+      </Suspense>
+    </AuthShell>
   );
 }

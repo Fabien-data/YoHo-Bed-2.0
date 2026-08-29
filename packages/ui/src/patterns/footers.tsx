@@ -32,18 +32,13 @@ export function MoneyFooter({
     <dl className={cn('flex flex-col gap-1', className)}>
       {rows.map(([label, value, alert]) => (
         <div key={label} className="flex items-baseline justify-between gap-4">
-          <dt
-            className={cn(
-              'text-sm',
-              alert ? 'font-semibold text-[var(--closed-ink)]' : 'text-ink-2',
-            )}
-          >
+          <dt className={cn('text-sm', alert ? 'font-semibold text-closed-ink' : 'text-ink-2')}>
             {label}
           </dt>
           <dd
             className={cn(
               'font-mono text-sm tabular-nums',
-              alert ? 'font-semibold text-[var(--closed-ink)]' : 'text-ink',
+              alert ? 'font-semibold text-closed-ink' : 'text-ink',
             )}
           >
             {fmt(value)}

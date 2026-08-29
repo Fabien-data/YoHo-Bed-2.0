@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getProfile, getToken, getUser, isStaff, type SessionUser } from '@/lib/api';
 import { CurrencyProvider } from '@/components/currency';
 import { Providers } from '@/components/providers';
+import { ActivePropertyProvider } from '@/components/active-property';
 import { AppShell } from '@/components/app-shell';
 import { FeatureDocsLink } from '@/components/feature-docs-link';
 
@@ -37,10 +38,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <Providers>
       <CurrencyProvider>
-        <AppShell user={user} pending={pending}>
-          {children}
-          <FeatureDocsLink />
-        </AppShell>
+        <ActivePropertyProvider>
+          <AppShell user={user} pending={pending}>
+            {children}
+            <FeatureDocsLink />
+          </AppShell>
+        </ActivePropertyProvider>
       </CurrencyProvider>
     </Providers>
   );

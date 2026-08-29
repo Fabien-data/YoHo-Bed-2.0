@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Check } from '@phosphor-icons/react';
+import { Badge, Card, PageHeader, cn } from '@yohobed/ui';
 import {
   getTenantPlan,
   listPlans,
@@ -9,7 +11,6 @@ import {
   type CataloguePlan,
   type TenantPlan,
 } from '@/lib/api';
-import { Card, Pill } from '@/components/ui';
 
 const STATUS_TONE = {
   active: 'avail',
@@ -35,14 +36,18 @@ export default function PlanPage() {
   const [tenantPlan, setTenantPlan] = useState<TenantPlan | null>(null);
   const [catalogue, setCatalogue] = useState<CataloguePlan[]>([]);
   const [loading, setLoading] = useState(true);
+  // A network blip must never render "No active subscription" to a paying customer — that state
+  // is reserved for a confirmed answer from the server.
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getTenantPlan(), listPlans()])
       .then(([p, c]) => {
         setTenantPlan(p);
         setCatalogue(c);
+        setError(null);
       })
-      .catch(() => {})
+      .catch((e) => setError(e instanceof Error ? e.message : 'Your plan could not be loaded'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -52,17 +57,22 @@ export default function PlanPage() {
 
   return (
     <div>
-      <div className="mb-1.5 font-mono text-xs uppercase tracking-widest text-ink-3">
-        Subscription
-      </div>
-      <h1 className="text-3xl font-bold tracking-tight text-ink">Your plan</h1>
-      <p className="mt-2 max-w-2xl text-base text-ink-2">
-        What your subscription includes today, and what the other tiers add. To change plan, contact
-        YoHoBed support.
-      </p>
+      <PageHeader
+        eyebrow="Configuration"
+        title="Your plan"
+        description="What your subscription includes today, and what the other tiers add. To change plan, contact YoHoBed support."
+      />
 
       {loading ? (
         <p className="mt-8 text-sm text-ink-3">Loading…</p>
+      ) : error ? (
+        <Card className="mt-6 p-8">
+          <h2 className="text-lg font-bold text-ink">Your plan could not be loaded</h2>
+          <p className="mt-2 max-w-xl text-sm text-ink-2">
+            {error}. This says nothing about your subscription — it is a loading problem. Refresh
+            the page to try again.
+          </p>
+        </Card>
       ) : !tenantPlan?.plan ? (
         <Card className="mt-6 p-8">
           <h2 className="text-lg font-bold text-ink">No active subscription</h2>
@@ -80,12 +90,12 @@ export default function PlanPage() {
                 {tenantPlan.plan.name}
               </span>
               {tenantPlan.subscription && (
-                <Pill tone={STATUS_TONE[tenantPlan.subscription.status]}>
+                <Badge tone={STATUS_TONE[tenantPlan.subscription.status]}>
                   {STATUS_LABEL[tenantPlan.subscription.status]}
-                </Pill>
+                </Badge>
               )}
               {tenantPlan.distributionMode === 'yoho' && (
-                <Pill tone="brand">YoHo distribution</Pill>
+                <Badge tone="brand">YoHo distribution</Badge>
               )}
               <span className="ml-auto font-mono text-lg tabular-nums text-ink">
                 {tenantPlan.plan.currency} {tenantPlan.plan.priceMonthly}
@@ -124,7 +134,7 @@ export default function PlanPage() {
               <ul className="mt-3 flex flex-col gap-2">
                 {included.map(([key]) => (
                   <li key={key} className="flex items-center gap-2 text-sm text-ink">
-                    <span style={{ color: 'var(--avail-ink)' }}>✓</span>
+                    <Check size={14} weight="bold" className="text-avail-ink" />
                     {FEATURE_LABELS[key] ?? key}
                   </li>
                 ))}
@@ -158,14 +168,10 @@ export default function PlanPage() {
                 {catalogue.map((p) => {
                   const current = p.code === tenantPlan.plan?.code;
                   return (
-                    <Card
-                      key={p.id}
-                      className="p-6"
-                      style={current ? { borderColor: 'var(--brand)' } : undefined}
-                    >
+                    <Card key={p.id} className={cn('p-6', current && 'border-brand')}>
                       <div className="flex items-center gap-2">
                         <span className="text-lg font-bold text-ink">{p.name}</span>
-                        {current && <Pill tone="brand">Current</Pill>}
+                        {current && <Badge tone="brand">Current</Badge>}
                       </div>
                       <div className="mt-1 font-mono text-xl tabular-nums text-ink">
                         {p.currency} {p.priceMonthly}

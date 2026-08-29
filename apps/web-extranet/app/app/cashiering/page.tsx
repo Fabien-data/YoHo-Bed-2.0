@@ -2,13 +2,14 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Plus, Receipt, Wallet } from 'lucide-react';
+import { Money, Plus, Receipt, Wallet } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
   Card,
   Field,
   Input,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -39,7 +40,7 @@ import {
   settleLedgerAccount,
   type LedgerAccountType,
 } from '@/lib/api';
-import { useProperties } from '@/lib/queries';
+import { useActiveProperty } from '@/components/active-property';
 
 const ACCOUNT_LABEL: Record<LedgerAccountType, string> = {
   travel_agent: 'Travel agent',
@@ -49,17 +50,11 @@ const ACCOUNT_LABEL: Record<LedgerAccountType, string> = {
 };
 
 export default function CashieringPage() {
-  const { data: properties } = useProperties();
-  const propertyId = properties?.[0]?.id;
+  const { propertyId } = useActiveProperty();
 
   return (
     <div>
-      <div className="mb-4">
-        <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
-          Cashiering
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight text-ink">Cashiering centre</h1>
-      </div>
+      <PageHeader eyebrow="Cashiering" title="Cashiering centre" />
 
       <Tabs defaultValue="ledger">
         <TabsList className="mb-4 overflow-x-auto">
@@ -96,14 +91,23 @@ function LedgerTab() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['ledger-accounts'] });
 
   const rows = accounts.data ?? [];
-  const owed = rows.reduce((s, a) => s + Math.max(Number(a.balance), 0), 0);
+  // Currency is per-account, so the outstanding total must be grouped by currency — summing raw
+  // numbers and stamping the first row's currency on the result would fabricate a figure.
+  const owedByCurrency = React.useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const a of rows) {
+      const bal = Number(a.balance);
+      if (bal > 0) totals.set(a.currency, (totals.get(a.currency) ?? 0) + bal);
+    }
+    return [...totals.entries()].map(([c, v]) => `${c} ${v.toFixed(2)}`).join(' + ');
+  }, [rows]);
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         {rows.length > 0 && (
-          <Badge tone={owed > 0 ? 'low' : 'avail'}>
-            {rows[0]!.currency} {owed.toFixed(2)} outstanding
+          <Badge tone={owedByCurrency ? 'low' : 'avail'}>
+            {owedByCurrency || 'Nothing'} outstanding
           </Badge>
         )}
         <Button size="sm" className="ml-auto" onClick={() => setAdding((v) => !v)}>
@@ -159,14 +163,10 @@ function LedgerTab() {
                     <td
                       className={cn(
                         'px-4 py-3 text-right font-mono font-semibold tabular-nums',
-                        bal > 0
-                          ? 'text-[var(--closed-ink)]'
-                          : bal < 0
-                            ? 'text-[var(--avail-ink)]'
-                            : 'text-ink-2',
+                        bal > 0 ? 'text-closed-ink' : bal < 0 ? 'text-avail-ink' : 'text-ink-2',
                       )}
                     >
-                      {bal.toFixed(2)}
+                      {a.currency} {bal.toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button size="sm" variant="ghost" onClick={() => setOpenFor(a.id)}>
@@ -266,9 +266,7 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
             {create.isPending ? 'Creating…' : 'Create account'}
           </Button>
           {create.isError && (
-            <span className="text-sm text-[var(--closed-ink)]">
-              {(create.error as Error).message}
-            </span>
+            <span className="text-sm text-closed-ink">{(create.error as Error).message}</span>
           )}
         </div>
       </form>
@@ -322,7 +320,7 @@ function Statement({ accountId, onChanged }: { accountId: string; onChanged: () 
           />
         </Field>
         <Button type="submit" size="sm" disabled={!amount || settle.isPending}>
-          <Banknote size={14} />
+          <Money size={14} />
           Settle
         </Button>
       </form>
@@ -357,10 +355,10 @@ function Statement({ accountId, onChanged }: { accountId: string; onChanged: () 
                       <span className="ml-1.5 font-mono text-[11px] text-ink-3">{e.reference}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums text-[var(--closed-ink)]">
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-closed-ink">
                     {e.direction === 'debit' ? Number(e.amount).toFixed(2) : ''}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums text-[var(--avail-ink)]">
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-avail-ink">
                     {e.direction === 'credit' ? Number(e.amount).toFixed(2) : ''}
                   </td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
@@ -458,7 +456,7 @@ function DrawersTab({ propertyId }: { propertyId: string }) {
         </div>
       )}
       {open.isError && (
-        <p className="mt-2 text-sm text-[var(--closed-ink)]">{(open.error as Error).message}</p>
+        <p className="mt-2 text-sm text-closed-ink">{(open.error as Error).message}</p>
       )}
 
       <Sheet open={reportFor !== null} onOpenChange={(o) => !o && setReportFor(null)}>
@@ -568,10 +566,10 @@ function CashierReport({ sessionId, onClosed }: { sessionId: string; onClosed: (
               className={cn(
                 'text-sm font-semibold',
                 variance === 0
-                  ? 'text-[var(--avail-ink)]'
+                  ? 'text-avail-ink'
                   : variance < 0
-                    ? 'text-[var(--closed-ink)]'
-                    : 'text-[var(--low-ink)]',
+                    ? 'text-closed-ink'
+                    : 'text-low-ink',
               )}
             >
               {variance === 0
@@ -596,9 +594,7 @@ function CashierReport({ sessionId, onClosed }: { sessionId: string; onClosed: (
             <span
               className={cn(
                 'font-mono font-semibold',
-                Number(r.totals.variance) === 0
-                  ? 'text-[var(--avail-ink)]'
-                  : 'text-[var(--closed-ink)]',
+                Number(r.totals.variance) === 0 ? 'text-avail-ink' : 'text-closed-ink',
               )}
             >
               {r.totals.variance}
@@ -709,9 +705,7 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
                 : 'No till is open, so this is recorded outside the drawer.'}
             </span>
             {add.isError && (
-              <span className="text-sm text-[var(--closed-ink)]">
-                {(add.error as Error).message}
-              </span>
+              <span className="text-sm text-closed-ink">{(add.error as Error).message}</span>
             )}
           </div>
         </form>
@@ -755,10 +749,17 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
   );
 }
 
+/**
+ * Default swatch for a new business source. `<input type="color">` only accepts a literal hex,
+ * so a token class cannot be used here — this mirrors the light-theme `--info` token, the
+ * nearest tone in the design system.
+ */
+const DEFAULT_SOURCE_COLOR = '#3e6db5';
+
 /** Where the business came from — the colours the tape chart uses. */
 function SourcesTab() {
   const qc = useQueryClient();
-  const [form, setForm] = React.useState({ shortCode: '', name: '', color: '#5b7cfa' });
+  const [form, setForm] = React.useState({ shortCode: '', name: '', color: DEFAULT_SOURCE_COLOR });
   const sources = useQuery({ queryKey: ['business-sources'], queryFn: listBusinessSources });
   const add = useMutation({
     mutationFn: () =>
@@ -768,7 +769,7 @@ function SourcesTab() {
         color: form.color,
       }),
     onSuccess: () => {
-      setForm({ shortCode: '', name: '', color: '#5b7cfa' });
+      setForm({ shortCode: '', name: '', color: DEFAULT_SOURCE_COLOR });
       qc.invalidateQueries({ queryKey: ['business-sources'] });
     },
   });
@@ -814,7 +815,7 @@ function SourcesTab() {
             Add source
           </Button>
           {add.isError && (
-            <span className="text-sm text-[var(--closed-ink)]">{(add.error as Error).message}</span>
+            <span className="text-sm text-closed-ink">{(add.error as Error).message}</span>
           )}
         </form>
       </Card>
