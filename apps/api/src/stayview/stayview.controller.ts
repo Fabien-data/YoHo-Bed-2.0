@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
+import { EntitlementGuard } from '../common/entitlement.guard';
+import { Feature } from '../common/feature.decorator';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { StayViewService } from './stayview.service';
@@ -25,8 +27,11 @@ import {
 } from './dto';
 import type { AuthPrincipal } from '../auth/dto';
 
+// The nav gates this screen on `stay_view`; without the same gate here the entitlement was
+// enforced only by hiding a link — the endpoint stayed fully reachable via Ctrl-K or curl.
 @Controller()
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, EntitlementGuard)
+@Feature('stay_view')
 export class StayViewController {
   constructor(
     private readonly stayView: StayViewService,

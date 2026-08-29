@@ -61,11 +61,54 @@ export class CommercialService {
 
   deletePromotion(tenantId: string, id: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
-      const res = await tx
-        .delete(promotions)
-        .where(eq(promotions.id, id))
-        .returning({ id: promotions.id });
-      if (!res.length) throw new NotFoundException('Promotion not found');
+      const [promo] = await tx.select().from(promotions).where(eq(promotions.id, id));
+      if (!promo) throw new NotFoundException('Promotion not found');
+
+      // Take the discount back off the calendar. `applyPromotion` wrote into
+      // rate_calendar.last_minute_drop_pct, so deleting only the promotion row would leave the
+      // discount live forever with no record explaining it. Only cells still carrying exactly
+      // this promotion's percentage are reset — a manually-set drop is not clobbered.
+      const occRows = await tx
+        .select({ id: occupancies.id, roomId: rooms.id })
+        .from(occupancies)
+        .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
+        .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
+        .where(eq(rooms.propertyId, promo.propertyId));
+      const occIds = occRows.map((o) => o.id);
+      if (occIds.length) {
+        const res = await tx
+          .update(rateCalendar)
+          .set({ lastMinuteDropPct: '0', updatedAt: sql`now()` })
+          .where(
+            and(
+              inArray(rateCalendar.occupancyId, occIds),
+              between(rateCalendar.date, promo.startDate, promo.endDate),
+              eq(rateCalendar.lastMinuteDropPct, promo.discountPct),
+            ),
+          )
+          .returning({ id: rateCalendar.id });
+        if (res.length) {
+          for (const occ of occRows) {
+            await enqueueOutbox(tx, {
+              tenantId,
+              aggregate: 'rate',
+              aggregateId: occ.id,
+              eventType: 'ari.rate',
+              payload: {
+                propertyId: promo.propertyId,
+                roomId: occ.roomId,
+                occupancyId: occ.id,
+                from: promo.startDate,
+                to: promo.endDate,
+                promotion: `${promo.name} (removed)`,
+                discountPct: 0,
+              },
+            });
+          }
+        }
+      }
+
+      await tx.delete(promotions).where(eq(promotions.id, id));
       return { deleted: true };
     });
   }

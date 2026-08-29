@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SUPPORTED_CURRENCIES } from '@yohobed/domain';
 
 export const createLedgerAccountSchema = z.object({
   propertyId: z.string().uuid().optional(),
@@ -12,7 +13,8 @@ export const createLedgerAccountSchema = z.object({
   taxId: z.string().max(60).optional(),
   /** 0 means no limit is enforced. */
   creditLimit: z.number().min(0).default(0),
-  currency: z.string().length(3).default('LKR'),
+  /** Defaults to the property's base currency; a typo here would block chargeToLedger forever. */
+  currency: z.enum(SUPPORTED_CURRENCIES).optional(),
 });
 export type CreateLedgerAccountDto = z.infer<typeof createLedgerAccountSchema>;
 
@@ -63,7 +65,8 @@ export const createExpenseSchema = z.object({
     .default('other'),
   payee: z.string().min(1).max(160),
   amount: z.number().positive(),
-  currency: z.string().length(3).default('LKR'),
+  /** Defaults to the property's base currency. */
+  currency: z.enum(SUPPORTED_CURRENCIES).optional(),
   reference: z.string().max(120).optional(),
   note: z.string().max(500).optional(),
 });

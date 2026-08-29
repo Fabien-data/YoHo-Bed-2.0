@@ -132,6 +132,47 @@ describe('booking lifecycle', () => {
     expect(after.body[0].roomsToSell).toBe(3);
   });
 
+  /**
+   * 2026-08-28 audit: `rooms_to_sell` is a live counter that bookings decrement. Re-opening a
+   * range used to write the requested number absolutely, silently resurrecting sold rooms —
+   * a 10-room property with 6 sold would go straight back to 10 sellable and overbook.
+   */
+  it('does not resurrect sold rooms when availability is re-opened over live bookings', async () => {
+    const fx = await makeTenant({ roomQuantity: 10 });
+    await openAndPrice(fx, '2027-10-01', '2027-10-05', { roomsToSell: 10 });
+
+    for (let i = 0; i < 6; i++) {
+      const r = await book(fx, {
+        customerName: `October Guest ${i}`,
+        checkin: '2027-10-02',
+        checkout: '2027-10-03',
+      });
+      expect(r.status).toBe(201);
+    }
+
+    // The routine monthly action: the owner re-opens the whole range at full quantity.
+    const reopened = await request('POST', `/rooms/${fx.roomId}/availability`, {
+      token: fx.token,
+      body: { from: '2027-10-01', to: '2027-10-05', roomsToSell: 10, status: 'Open' },
+    });
+    expect(reopened.status).toBe(200);
+
+    const avail = await request(
+      'GET',
+      `/rooms/${fx.roomId}/availability?from=2027-10-02&to=2027-10-02`,
+      { token: fx.token },
+    );
+    expect(avail.body[0].roomsToSell).toBe(4); // 10 requested minus the 6 already sold
+
+    // A night with no bookings goes back to the full count.
+    const untouched = await request(
+      'GET',
+      `/rooms/${fx.roomId}/availability?from=2027-10-04&to=2027-10-04`,
+      { token: fx.token },
+    );
+    expect(untouched.body[0].roomsToSell).toBe(10);
+  });
+
   it('re-prices and swaps inventory when the stay is amended', async () => {
     const fx = await makeTenant();
     await openAndPrice(fx, '2027-09-01', '2027-09-10', { base: 18000 });

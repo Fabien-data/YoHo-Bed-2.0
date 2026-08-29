@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { desc, eq, sql } from 'drizzle-orm';
 import { notifications, messages, templates, languages } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
+import { MailerService } from '../email/mailer.service';
 import type { UpdateTemplateDto } from './dto';
 
 /**
@@ -11,7 +12,10 @@ import type { UpdateTemplateDto } from './dto';
  */
 @Injectable()
 export class CommsService {
-  constructor(private readonly dbs: DatabaseService) {}
+  constructor(
+    private readonly dbs: DatabaseService,
+    private readonly mailer: MailerService,
+  ) {}
 
   // --- Notifications ---------------------------------------------------------
   listNotifications(tenantId: string) {
@@ -58,6 +62,20 @@ export class CommsService {
     return this.dbs.withTenant(tenantId, (tx) =>
       tx.select().from(messages).orderBy(desc(messages.createdAt)).limit(100),
     );
+  }
+
+  /**
+   * Re-queue a failed message and run a delivery pass. The recovery path the Comms screen and
+   * the ops runbook both describe — a failed message must never be a dead end.
+   */
+  async retryMessage(tenantId: string, id: string) {
+    await this.dbs.withTenant(tenantId, async (tx) => {
+      const [m] = await tx.select().from(messages).where(eq(messages.id, id));
+      if (!m) throw new NotFoundException('Message not found');
+      if (m.status === 'sent') throw new BadRequestException('That message was already sent');
+      await tx.update(messages).set({ status: 'queued', error: null }).where(eq(messages.id, id));
+    });
+    return this.mailer.deliverQueued(tenantId);
   }
 
   // --- Templates -------------------------------------------------------------

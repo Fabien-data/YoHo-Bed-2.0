@@ -36,7 +36,7 @@ export class FakeCmAdapter implements CmAdapter {
 /** Placeholder real adapters — implemented against the external services in a later phase. */
 export class NotImplementedCmAdapter implements CmAdapter {
   constructor(public readonly provider: string) {}
-  push(): Promise<CmPushResult> {
+  async push(): Promise<CmPushResult> {
     throw new CmPushError(this.provider, `${this.provider} adapter not implemented yet`);
   }
 }
@@ -50,9 +50,16 @@ export interface ResolveAdapterOptions extends FakeCmOptions {
  *
  * `axisrooms` needs a baseUrl (the core service). If CM_PROVIDER=axisrooms is set without one,
  * fail loudly at startup rather than silently degrading to the fake and pretending to sync.
+ *
+ * The same rule applies to an unrecognised provider string: a typo like `AxisRooms ` must never
+ * select the fake (which marks every outbox row `sent` while nothing reaches the channel manager),
+ * so anything that is not an exact known provider throws. Case and surrounding whitespace are
+ * forgiven; only `fake` — the explicit dev/demo choice — returns the fake adapter.
  */
 export function resolveAdapter(provider = 'fake', opts: ResolveAdapterOptions = {}): CmAdapter {
-  switch (provider) {
+  switch (provider.trim().toLowerCase()) {
+    case 'fake':
+      return new FakeCmAdapter(opts);
     case 'axisrooms': {
       if (!opts.axisrooms?.baseUrl) {
         throw new CmPushError(
@@ -63,8 +70,12 @@ export function resolveAdapter(provider = 'fake', opts: ResolveAdapterOptions = 
       return new AxisRoomsAdapter(opts.axisrooms);
     }
     case 'rategain':
-      return new NotImplementedCmAdapter(provider);
+      return new NotImplementedCmAdapter('rategain');
     default:
-      return new FakeCmAdapter(opts);
+      throw new CmPushError(
+        provider,
+        `Unknown CM_PROVIDER "${provider}" — expected one of fake | axisrooms | rategain. ` +
+          'Refusing to fall back to the fake adapter, which would mark pushes sent without syncing anything.',
+      );
   }
 }

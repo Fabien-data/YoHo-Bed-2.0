@@ -11,6 +11,21 @@ import {
 import { resolveAdapter } from '@yohobed/cm-adapter';
 import { fetchAndStoreRates, DEFAULT_FX_URL } from './fx';
 
+// The API fails fast on a bad environment (Zod schema); the worker must not be the one process
+// that boots happily onto dev-port fallbacks and then errors every 1.5s in a log nobody watches.
+// In production the URLs must be explicit; anywhere else a used fallback is announced loudly.
+if (process.env.NODE_ENV === 'production') {
+  const missing = ['APP_DATABASE_URL', 'REDIS_URL'].filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error(`[worker] FATAL: missing required env in production: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+} else {
+  for (const k of ['APP_DATABASE_URL', 'REDIS_URL']) {
+    if (!process.env[k]) console.warn(`[worker] WARNING: ${k} not set — using the dev fallback`);
+  }
+}
+
 const DATABASE_URL =
   process.env.APP_DATABASE_URL ?? 'postgresql://yoho_app:yoho_app_pw@localhost:5433/yohobed';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6380';
@@ -18,14 +33,29 @@ const QUEUE = 'cm-push';
 const FX_URL = process.env.FX_PROVIDER_URL ?? DEFAULT_FX_URL;
 // How often to refresh FX rates. Append-only, so extra refreshes are cheap; default 6h keeps rates
 // fresh through the day without hammering the free provider. Set FX_FETCH_INTERVAL_MS=0 to disable.
-const FX_INTERVAL_MS = Number(process.env.FX_FETCH_INTERVAL_MS ?? 6 * 60 * 60 * 1000);
+// A malformed value (e.g. "6h") must not silently disable FX — fall back to the default instead.
+const FX_INTERVAL_MS = (() => {
+  const raw = process.env.FX_FETCH_INTERVAL_MS;
+  const n = Number(raw ?? 6 * 60 * 60 * 1000);
+  if (Number.isFinite(n)) return n;
+  console.warn(`[worker] WARNING: FX_FETCH_INTERVAL_MS="${raw}" is not a number — using 6h`);
+  return 6 * 60 * 60 * 1000;
+})();
 
 const redisUrl = new URL(REDIS_URL);
 // Let BullMQ own the Redis client (avoids two-copies-of-ioredis type clashes). maxRetriesPerRequest
-// must be null for the blocking worker.
+// must be null for the blocking worker. Credentials, database index and TLS from the URL must all
+// survive the translation — dropping them means connecting unauthenticated/plaintext the day Redis
+// gets a password, and ioredis would retry NOAUTH forever without crashing.
 const connection = {
   host: redisUrl.hostname,
   port: Number(redisUrl.port) || 6379,
+  ...(redisUrl.username ? { username: decodeURIComponent(redisUrl.username) } : {}),
+  ...(redisUrl.password ? { password: decodeURIComponent(redisUrl.password) } : {}),
+  ...(redisUrl.pathname && redisUrl.pathname !== '/'
+    ? { db: Number(redisUrl.pathname.slice(1)) || 0 }
+    : {}),
+  ...(redisUrl.protocol === 'rediss:' ? { tls: {} } : {}),
   maxRetriesPerRequest: null,
 };
 const { db, close } = createDb(DATABASE_URL);
@@ -65,6 +95,11 @@ const adapter = resolveAdapter(process.env.CM_PROVIDER ?? 'fake', {
 
 const queue = new Queue(QUEUE, { connection });
 
+// An 'error' event with no listener crashes the process (EventEmitter semantics) — so a transient
+// Redis blip would crash-loop the worker until PM2 gives up and leaves it stopped. Log and let the
+// clients reconnect instead; the relay loop and at-least-once outbox make missed work safe.
+queue.on('error', (err) => console.error(`[queue] redis error: ${err.message}`));
+
 /**
  * Process one channel-manager push. On success the outbox row is marked `sent`; on failure we
  * record the attempt and re-throw so BullMQ retries with backoff. The final failure is handled in
@@ -92,6 +127,8 @@ const worker = new Worker<OutboxRow>(
   },
   { connection, concurrency: 8 },
 );
+
+worker.on('error', (err) => console.error(`[cm-push] worker error: ${err.message}`));
 
 worker.on('completed', (job) => {
   console.log(
@@ -123,12 +160,17 @@ async function relay(): Promise<void> {
     await requeueStaleOutbox(db, 120);
     const rows = await claimPendingOutbox(db, 20);
     for (const row of rows) {
+      // jobId = outbox id gives idempotent enqueue while a job is queued/retrying — but BullMQ
+      // silently ignores add() when a job with that id exists in ANY state, including `failed`.
+      // A retained failed job would therefore make the documented dead-letter replay (re-set the
+      // outbox row to `pending`) a permanent no-op. The outbox row itself is the durable
+      // dead-letter record (status='failed' + last_error), so the Redis job can go.
       await queue.add('push', row, {
         jobId: row.id,
         attempts: row.maxAttempts,
         backoff: { type: 'exponential', delay: 400 },
         removeOnComplete: true,
-        removeOnFail: false,
+        removeOnFail: true,
       });
     }
     if (rows.length) console.log(`[relay] enqueued ${rows.length} event(s)`);
@@ -152,13 +194,25 @@ console.log(
     `fx=${FX_INTERVAL_MS > 0 ? `${FX_URL} every ${Math.round(FX_INTERVAL_MS / 3600000)}h` : 'disabled'}`,
 );
 
+// Guarded against re-entry: PM2 sends SIGINT and follows up before kill_timeout expires, and a
+// second concurrent close() would race the first. A failed close still exits (non-zero) rather
+// than hanging until PM2's SIGKILL, which would leave claimed rows in `processing` for the full
+// stale-requeue window.
+let shuttingDown = false;
 async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   clearInterval(relayTimer);
   if (fxTimer) clearInterval(fxTimer);
-  await worker.close();
-  await queue.close();
-  await close();
-  process.exit(0);
+  try {
+    await worker.close();
+    await queue.close();
+    await close();
+    process.exit(0);
+  } catch (e) {
+    console.error('[worker] shutdown error', e);
+    process.exit(1);
+  }
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown());

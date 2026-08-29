@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt, or, sql } from 'drizzle-orm';
 import { messages } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { EmailService } from './email.service';
@@ -21,11 +21,27 @@ export class MailerService {
 
   /** Send every queued message for a tenant. Returns counts for tests/ops. */
   async deliverQueued(tenantId: string): Promise<{ sent: number; failed: number }> {
+    // CLAIM the rows (queued → sending) before touching the provider. Two booking actions in the
+    // same tenant routinely overlap, and two plain SELECTs would both see the same queued rows —
+    // the guest gets two identical confirmations. Rows stuck in 'sending' (a process died between
+    // claim and result) are reclaimed after 15 minutes by the next delivery pass.
     const queued = await this.dbs.withTenant(tenantId, (tx) =>
       tx
-        .select()
-        .from(messages)
-        .where(and(eq(messages.status, 'queued'), eq(messages.channel, 'email'))),
+        .update(messages)
+        .set({ status: 'sending' })
+        .where(
+          and(
+            eq(messages.channel, 'email'),
+            or(
+              eq(messages.status, 'queued'),
+              and(
+                eq(messages.status, 'sending'),
+                lt(messages.createdAt, sql`now() - interval '15 minutes'`),
+              ),
+            ),
+          ),
+        )
+        .returning(),
     );
     let sent = 0;
     let failed = 0;

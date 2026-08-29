@@ -9,6 +9,7 @@ import { decomposeBooking } from '@yohobed/domain';
 import {
   bookings,
   bookingDays,
+  folios,
   invoices,
   invoiceLines,
   payments,
@@ -105,11 +106,41 @@ export class FinanceService {
         });
       }
 
+      // Land the money on the guest's bill too. A payment recorded here but not on the folio is
+      // the "two truths" bug: the reservation says paid while the folio still shows a balance,
+      // check-out refuses to close the window, and a fully-paid guest is listed as a debtor.
+      let folioId: string | null = null;
+      if (dto.direction === 'received') {
+        const [w1] = await tx
+          .select({ id: folios.id, status: folios.status })
+          .from(folios)
+          .where(and(eq(folios.bookingId, bookingId), eq(folios.window, 1)));
+        if (w1) {
+          // A closed window's cashier report is frozen — leave the payment booking-level then.
+          folioId = w1.status === 'open' ? w1.id : null;
+        } else {
+          const [created] = await tx
+            .insert(folios)
+            .values({
+              tenantId,
+              propertyId: b.propertyId,
+              bookingId,
+              window: 1,
+              label: 'Guest',
+              currency: b.currency,
+            })
+            .onConflictDoNothing({ target: [folios.bookingId, folios.window] })
+            .returning();
+          folioId = created?.id ?? null;
+        }
+      }
+
       const [pay] = await tx
         .insert(payments)
         .values({
           tenantId,
           bookingId,
+          folioId,
           direction: dto.direction,
           amount: dto.amount.toFixed(2),
           currency: b.currency,

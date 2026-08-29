@@ -47,7 +47,12 @@ export const reservationQuerySchema = z.object({
   /** Free text over reference, guest name, email and phone. */
   q: z.string().max(120).optional(),
   source: z.enum(['Extranet', 'OTA', 'Backend']).optional(),
-  groupsOnly: z.coerce.boolean().optional(),
+  // NOT z.coerce.boolean(): that maps the query string "false" to true (any non-empty string is
+  // truthy), silently inverting the filter.
+  groupsOnly: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });

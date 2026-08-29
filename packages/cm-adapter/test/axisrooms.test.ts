@@ -322,4 +322,26 @@ describe('adapter resolution', () => {
   it('refuses to fall back to the fake when axisrooms is misconfigured', () => {
     expect(() => resolveAdapter('axisrooms')).toThrow(/requires CM_URL_AXISROOMS/);
   });
+
+  /**
+   * A typo'd provider must never select the fake: the fake marks every outbox row `sent`, so a
+   * misspelt CM_PROVIDER would look perfectly healthy while syncing nothing to any channel.
+   */
+  it('throws on an unrecognised provider instead of falling back to the fake', () => {
+    expect(() => resolveAdapter('axis-rooms')).toThrow(/Unknown CM_PROVIDER/);
+    expect(() => resolveAdapter('')).toThrow(/Unknown CM_PROVIDER/);
+  });
+
+  it('forgives case and whitespace on a known provider', () => {
+    expect(() => resolveAdapter('AxisRooms ')).toThrow(/requires CM_URL_AXISROOMS/);
+    expect(resolveAdapter(' FAKE').provider).toBe('fake');
+  });
+
+  it('resolves rategain to the not-implemented placeholder that rejects on push', async () => {
+    const adapter = resolveAdapter('rategain');
+    expect(adapter.provider).toBe('rategain');
+    await expect(
+      adapter.push({ aggregate: 'room', aggregateId: 'x', eventType: 'rate.updated', payload: {} }),
+    ).rejects.toThrow(/not implemented/);
+  });
 });

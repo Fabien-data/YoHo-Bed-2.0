@@ -8,15 +8,20 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   bookingDays,
   bookings,
+  businessDates,
+  cashDrawers,
   chargeParticulars,
   customers,
+  drawerSessions,
   folioCharges,
   folioTransfers,
   folios,
   payments,
+  properties,
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
+import { localToday } from '../common/local-date';
 import type {
   CreateParticularDto,
   OpenFolioDto,
@@ -186,12 +191,16 @@ export class FolioService {
         .where(eq(bookingDays.bookingId, bookingId))
         .orderBy(asc(bookingDays.date));
 
+      // Dedupe across EVERY window of the booking, not just window 1 — a room charge that was
+      // transferred to the company window is still posted, and checking only this folio would
+      // bill the night a second time (the unique index is per-folio, so it cannot catch this).
       const already = await tx
         .select({ bookingDate: folioCharges.bookingDate })
         .from(folioCharges)
+        .innerJoin(folios, eq(folios.id, folioCharges.folioId))
         .where(
           and(
-            eq(folioCharges.folioId, folio.id),
+            eq(folios.bookingId, bookingId),
             eq(folioCharges.source, 'room'),
             isNull(folioCharges.voidedAt),
           ),
@@ -255,11 +264,34 @@ export class FolioService {
 
       const gross = unitPrice * dto.quantity;
       // Tax-inclusive prices are decomposed out of the total, the same convention the room rate
-      // uses, so a bill never mixes tax-in and tax-on lines.
-      const tax = taxInclusive
+      // uses, so a bill never mixes tax-in and tax-on lines. Tax and total are rounded FIRST and
+      // net derived from the rounded pair — rounding all three independently can break the stored
+      // invariant `net + tax = total` by a cent on half-cent taxes.
+      const taxRaw = taxInclusive
         ? gross - gross / (1 + taxRatePct / 100)
         : gross * (taxRatePct / 100);
-      const total = taxInclusive ? gross : gross + tax;
+      const tax = Number(money(taxRaw));
+      const total = Number(money(taxInclusive ? gross : gross + taxRaw));
+
+      // Postings key off the property's business date, not the wall clock: a minibar rung up at
+      // 03:00 belongs to the business day the night audit has not yet closed. Wall-clock UTC would
+      // also be a day behind for any UTC+ property before its own midnight.
+      let postedFor = dto.postedFor;
+      if (!postedFor) {
+        const [bd] = await tx
+          .select({ currentDate: businessDates.currentDate })
+          .from(businessDates)
+          .where(eq(businessDates.propertyId, folio.propertyId));
+        if (bd) {
+          postedFor = bd.currentDate;
+        } else {
+          const [prop] = await tx
+            .select({ timezone: properties.timezone })
+            .from(properties)
+            .where(eq(properties.id, folio.propertyId));
+          postedFor = localToday(prop?.timezone);
+        }
+      }
 
       const [created] = await tx
         .insert(folioCharges)
@@ -269,7 +301,7 @@ export class FolioService {
           particularId: dto.particularId ?? null,
           source: dto.source ?? 'manual',
           description,
-          postedFor: dto.postedFor ?? new Date().toISOString().slice(0, 10),
+          postedFor,
           quantity: money(dto.quantity),
           unitPrice: money(unitPrice),
           net: money(total - tax),
@@ -355,6 +387,28 @@ export class FolioService {
   async recordPayment(tenantId: string, folioId: string, dto: RecordFolioPaymentDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const folio = await this.loadOpenFolio(tx, folioId);
+
+      // A quoted shift must be real, still open, and on this folio's property. A payment attached
+      // to a closed session appears on a Cashier Report whose expected total is already frozen —
+      // the report stops adding up and the shortfall lands on a shift that had reconciled.
+      if (dto.drawerSessionId) {
+        const [session] = await tx
+          .select({
+            id: drawerSessions.id,
+            closedAt: drawerSessions.closedAt,
+            propertyId: cashDrawers.propertyId,
+          })
+          .from(drawerSessions)
+          .innerJoin(cashDrawers, eq(cashDrawers.id, drawerSessions.drawerId))
+          .where(eq(drawerSessions.id, dto.drawerSessionId));
+        if (!session || session.propertyId !== folio.propertyId) {
+          throw new NotFoundException('Drawer session not found');
+        }
+        if (session.closedAt) {
+          throw new BadRequestException('That cashier shift is already closed');
+        }
+      }
+
       const [created] = await tx
         .insert(payments)
         .values({

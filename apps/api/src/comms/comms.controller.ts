@@ -38,6 +38,13 @@ export class CommsController {
     return this.comms.listMessages(tenantId);
   }
 
+  /** Re-queue a failed (or stranded) message and try delivery again immediately. */
+  @Post('messages/:id/retry')
+  @HttpCode(200)
+  retryMessage(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.comms.retryMessage(tenantId, id);
+  }
+
   @Get('templates')
   listTemplates(@TenantId() tenantId: string) {
     return this.comms.listTemplates(tenantId);

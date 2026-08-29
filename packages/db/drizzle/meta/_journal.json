@@ -183,6 +183,13 @@
       "when": 1787546426912,
       "tag": "0025_night_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787632826913,
+      "tag": "0026_audit_hardening",
+      "breakpoints": true
     }
   ]
 }

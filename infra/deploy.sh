@@ -54,6 +54,22 @@ if grep -rqs "localhost:3001" apps/web-extranet/.next/static; then
 fi
 echo "ok — no localhost:3001 in the bundle"
 
+log "Pre-migration backup"
+# A migration that goes wrong must not cost up to 24h of tester data (the nightly cron is the
+# only other recovery point, and some migrations mutate data). Seconds of pg_dump buys a
+# same-minute rollback point. Kept beside the nightly dumps, pruned with them.
+BACKUP_DIR="$ROOT_DIR/backups"
+mkdir -p "$BACKUP_DIR"
+PRE_DUMP="$BACKUP_DIR/pre-migrate-$(date +%Y%m%d-%H%M%S).dump"
+if pg_dump --dbname="$DATABASE_URL" --format=custom --file="$PRE_DUMP" 2>/dev/null; then
+  chmod 600 "$PRE_DUMP"
+  # Keep only the 5 newest pre-migrate dumps.
+  ls -1t "$BACKUP_DIR"/pre-migrate-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f
+  echo "ok — $PRE_DUMP"
+else
+  echo "WARNING: pre-migration pg_dump failed — continuing, but rollback point is the nightly backup" >&2
+fi
+
 log "Migrating the database"
 pnpm --filter @yohobed/db db:migrate
 
@@ -76,5 +92,16 @@ for i in $(seq 1 20); do
   sleep 3
 done
 curl -fsS -m 10 -o /dev/null -w 'web http %{http_code}\n' http://127.0.0.1:3000/ || true
+
+# The worker has no HTTP surface, so ask PM2. Without this a crash-looping worker (bad
+# CM_PROVIDER, wrong DB URL) deploys "green" while channel sync and FX refresh are dead.
+sleep 5
+WORKER_STATUS=$(pm2 jlist | node -e "
+  const apps = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+  const w = apps.find((a) => a.name === 'yoho-worker');
+  process.stdout.write(w ? w.pm2_env.status : 'missing');
+")
+[[ "$WORKER_STATUS" == "online" ]] || die "yoho-worker is '$WORKER_STATUS' — check pm2 logs yoho-worker"
+echo "worker online"
 
 log "Deployed $(git rev-parse --short HEAD)"

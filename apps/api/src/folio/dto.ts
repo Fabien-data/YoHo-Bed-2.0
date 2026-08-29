@@ -15,7 +15,9 @@ export const postChargeSchema = z
   .object({
     particularId: z.string().uuid().optional(),
     description: z.string().min(1).max(200).optional(),
-    unitPrice: z.number().finite().optional(),
+    // Never negative: a "minus charge" is an invisible, unaudited discount — the classic
+    // front-desk fraud path. Corrections go through void (stamped, reasoned), not negative lines.
+    unitPrice: z.number().finite().min(0).optional(),
     quantity: z.number().positive().default(1),
     taxRatePct: z.number().min(0).max(100).optional(),
     taxInclusive: z.boolean().optional(),

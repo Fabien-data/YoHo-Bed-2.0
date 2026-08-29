@@ -16,15 +16,19 @@
 | 3      | 1 Front desk    | Stay View tape chart                   | ✅ **Done**    |
 | 4      | 1 Front desk    | Room View, Reservations, Housekeeping  | ✅ **Done**    |
 | 5      | 2 Money core    | Folio + charge posting                 | ✅ **Done**    |
-| 6      | 2 Money core    | Cashiering, ledgers, POS               | ✅ **Done**    |
-| 7      | 2 Money core    | Night audit                            | ✅ **Done**    |
+| 6      | 2 Money core    | Cashiering, ledgers, POS               | 🟡 Partly¹     |
+| 7      | 2 Money core    | Night audit                            | 🟡 Partly¹     |
 | 8      | 3 Rates & dist. | The 7-tab ARI grid                     | ⏳ Next        |
 | 9      | 3 Rates & dist. | Distribution + per-channel commission  | ⬜ Not started |
-| 10–11  | 4 Reports       | Analytics + async export queue         | ⬜ Blocked¹    |
+| 10–11  | 4 Reports       | Analytics + async export queue         | ⬜ Blocked²    |
 | 12–13  | 5 Growth        | Guest portal, booking engine, payments | ⬜ Not started |
 | 14+    | 6 AI            | MCP, Copilot, Revenue Manager, Healer  | ⬜ Not started |
 
-¹ Blocked on receiving Yanolja Snapshots Part 02 — see "Open items" below.
+¹ Re-graded by the 2026-08-28 pre-deployment audit — the core shipped and is tested, but the
+sub-module list was never reconciled. See "The 2026-08-28 pre-deployment audit" below for
+exactly what is missing from Sprints 1–7 and what the next phase must pick up.
+
+² Sprint 10–11 blocked on receiving Yanolja Snapshots Part 02 — see "Open items" below.
 
 ## Context
 
@@ -446,6 +450,104 @@ B2B Marketplace powered by **YoHo's own demand** instead of third-party reseller
 
 `packages/mcp` exposing the RLS-fenced domain as MCP tools; Supplier Copilot; AI Revenue Manager;
 Distribution Healer over the outbox.
+
+### Interlude — the premium design pass (2026-08-24, between Sprints 7 and 8)
+
+Before the ARI grid, the whole surface was re-skinned to the **"Ink Navy & Brass"** system —
+light-first theme, IBM Plex, Phosphor icons, real motion, one `PageHeader`/one kit everywhere;
+the legacy `components/ui.tsx` was deleted and `lucide-react` removed from the workspace. The
+binding contract for every subsequent screen is [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md); per-screen
+Yanolja-layout parity passes (Dashboard first) follow it. Verified: typecheck + build + 20
+Playwright specs green.
+
+### The 2026-08-28 pre-deployment audit
+
+A full end-to-end audit (five parallel deep reviews: API, frontend, database, worker/infra/CI,
+plan-vs-code) before the first production deployment. Everything below was verified against code,
+not prose. All fixes landed the same day; suites green afterwards (db 15, domain 56, cm-adapter 22,
+API e2e 173, worker 5, etl 31, Playwright 26 + 1 skipped).
+
+**Critical bugs found and FIXED:**
+
+1. **Overbooking via availability reset** — `openAvailability` wrote `rooms_to_sell` absolutely,
+   resurrecting sold rooms; re-opening a month over 6 live bookings re-offered all 10 rooms. Now
+   re-derived per date (requested − held by non-terminal bookings), with a regression e2e.
+2. **Cross-tenant photo deletion** — `media`'s public-read policy ORs past `tenant_isolation`, so
+   `DELETE /photos/:id` found a foreign row and destroyed the file on disk. All media reads now
+   filter `tenant_id` explicitly; regression e2e added.
+3. **Business date born in UTC** — `ensureBusinessDate` (and folio `postedFor` defaults) used
+   `toISOString()`, a day behind for UTC+ properties until 05:30 local — the night-audit window —
+   double-posting room charges. Now property-timezone via `localToday()`; postings default to the
+   business date.
+4. **Dead-letter replay was a permanent no-op** — BullMQ retains failed jobs under `jobId` and
+   silently ignores re-adds, so the documented "re-set to pending" recovery looped forever. Now
+   `removeOnFail: true` (the outbox row is the durable dead-letter record).
+5. **Typo'd `CM_PROVIDER` selected the fake adapter** — which marks every push `sent` while
+   syncing nothing. `resolveAdapter` now throws on any unrecognised value; contract tests added.
+6. **Worker crash-loop on a Redis blip** — no `error` listeners on Worker/Queue (an unhandled
+   `'error'` event kills the process; PM2 gives up after 10 restarts). Listeners added; env
+   fail-fast in production (NODE_ENV now in provision.sh); Redis URL password/TLS/db honoured.
+
+**High-severity fixed:** room charges double-posting after a bill-split transfer (dedupe is now
+per-booking across windows, in both the folio service and night audit); amend leaving stale/
+mispriced posted room charges (now voided/re-posted in the same transaction); the two payment
+paths (`POST /bookings/:id/payments` now lands on window 1, so folio and reservation agree);
+missing FX rate silently freezing foreign-currency bookings at 1:1 (now refuses with
+`fx_rate_unavailable`); unbounded ARI date ranges (one request could write 357k rows — capped at
+731 days); negative folio charges as invisible discounts (unitPrice ≥ 0; corrections go through
+void); identity tables (`users`/`sessions`/`memberships`/`tenants`/`password_resets`) had **no
+RLS** — policies added (unscoped auth flows see all, tenant scope is fenced); cashiering hardcoded
+LKR breaking USD properties (defaults to the property currency; DTO validates the code); the
+property switcher was decorative — six screens hardcoded the first property (now a shared
+`useActiveProperty()` context); `toISOString()` "today" off-by-one on Dashboard/StayView/RoomView/
+Reservations before 05:30 local (now `todayISO()`); silent `.catch(() => {})` rendering Rs 0.00
+revenue / "No active subscription" / blank profile on network errors (now real error states);
+night-audit duplicate-run race + no-show catch-up (`0026` unique index; `checkin <= date`);
+`requeueStaleOutbox` looping exhausted rows and racing long backoffs (attempt ceiling added);
+mailer double-send (atomic queued→sending claim; `POST /messages/:id/retry` added — the endpoint
+OPERATIONS.md always claimed); Playwright now runs in CI (it never did); deploy.sh takes a
+pre-migration `pg_dump` and health-checks the worker (a crash-looping worker used to deploy
+"green"); entitlement gates added to Stay View (`stay_view`) and Room View (`room_view`), and the
+command palette + header quick actions now respect entitlements like the sidebar.
+
+Migration **`0026_audit_hardening`**: night-audit unique run index, `folio_charges` room-needs-
+night CHECK, `booking_groups` unique code, `message_status` gains `'sending'`.
+
+**Known gaps deferred to the next phase** (verified missing from "Done" sprints — the audit's
+build list, roughly in value order):
+
+1. **Housekeeping has no screen at all.** House Status grid, Work Orders and Maintenance Block
+   screens are absent; the APIs and `lib/api.ts` clients exist unused. Work orders are a Pro-tier
+   selling point with no UI. _Sprint 4 debt._
+2. **POS / Incidental Invoice does not exist** (no table, route or screen) yet `pos: true` is
+   sold on Pro/Enterprise. Ship it or pull it from the plan matrix. _Sprint 6 debt._
+3. **Insert Transaction** (back-dated stay form) — absent entirely. _Sprint 7 debt._
+4. Stay View interactions: drag-to-move, drag-to-extend, Group Reservation List panel, rate-plan
+   selector (API param exists, no UI), create/edit maintenance block from the UI (only Unblock is
+   wired), group-by dropdown, Assign Room toolbar action. _Sprint 3 debt._
+5. Reservations: Merge Group (endpoint + client exist, no button), Individual/Group tab toggle,
+   advanced search, inline Confirm, Total/Paid/Balance on cards. _Sprint 4 debt._
+6. Cashiering depth: per-type Travel Agent / Company / Sales Person screens, Cashiering Center
+   KPIs + opening/closing balance, expense voucher line items, Exchange Rate editor UI for
+   `POST /fx/override` (staff have no way to set the override the FX fallback now depends on).
+7. `business_sources` is inert — `bookings.business_source_id` is written nowhere and Stay View
+   colours by status, not source. The colour-coded tape chart the schema was built for is
+   unreachable.
+8. **Night audit is manual-only** — nothing schedules it and nothing alarms when the business
+   date falls behind; drift is invisible until reconciliation fails. Needs a scheduled run or a
+   staleness alert (plus the audit-drift no-show catch-up now in place).
+9. **No monitoring/alerting anywhere** — worker `[ALERT]` lines go to a rotated PM2 log; backup
+   failures are silent; `/health` checks nothing real. First ops sprint after launch.
+10. Plan **limits** (`max_properties`, `max_rooms`) are resolved and displayed but enforced
+    nowhere; `channel_manager` / `guest_messaging` / `reports_advanced` endpoints carry no
+    `@Feature` gates. JWT memberships have no revocation until expiry (1d).
+11. `scripts/demo-data.mjs` predates Sprints 2–7: a demo database shows an empty Stay View,
+    Folios, Cashiering, Housekeeping and Night Audit. Extend it before the next client demo.
+12. Email in production: `provision.sh` writes `EMAIL_PROVIDER=console`, and messages are marked
+    `sent` while going nowhere. Deliberate until Resend credentials land — but switching it on is
+    a go-live checklist item, not a code change.
+13. Docs drift: ARCHITECTURE.md §7/§8 counts, USER-GUIDE.md (predates Sprints 1–7), API.md's
+    missing `fx` module, OPERATIONS.md test counts. Sweep once Sprint 8 lands.
 
 ### Cross-cutting, every sprint
 

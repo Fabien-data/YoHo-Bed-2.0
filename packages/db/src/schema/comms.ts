@@ -13,7 +13,9 @@ import { bookings } from './bookings';
  */
 
 export const messageChannel = pgEnum('message_channel', ['email', 'sms']);
-export const messageStatus = pgEnum('message_status', ['queued', 'sent', 'failed']);
+// 'sending' is the delivery claim: concurrent deliverers atomically flip queued → sending, so two
+// overlapping bursts can never send the same confirmation twice.
+export const messageStatus = pgEnum('message_status', ['queued', 'sending', 'sent', 'failed']);
 
 /** Global language lookup (e.g. en, si, ta). Not tenant-scoped. */
 export const languages = pgTable('languages', {
