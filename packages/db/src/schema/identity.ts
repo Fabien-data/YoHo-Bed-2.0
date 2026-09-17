@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   pgEnum,
@@ -8,7 +9,30 @@ import {
   time,
   timestamp,
   unique,
+  jsonb,
+  check,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * The tax and business registration numbers a property prints on its documents. Sparse: a key is
+ * present only when the property has that registration.
+ */
+export interface PropertyTaxIds {
+  /** Sri Lanka: 9-digit Taxpayer Identification Number (VAT). */
+  tin?: string;
+  /** Sri Lanka: SSCL registration, when it differs from the TIN. */
+  ssclRegNo?: string;
+  /** Sri Lanka: SLTDA registration / TDL number. */
+  sltdaRegNo?: string;
+  /** India: 15-character GSTIN. */
+  gstin?: string;
+  /** Malaysia: SST registration number. */
+  sstNo?: string;
+  /** Malaysia: Tourism Tax registration number (printed beside the TTx line). */
+  ttxNo?: string;
+  /** Malaysia: business registration number (BRN), needed for MyInvois. */
+  brn?: string;
+}
 
 /**
  * Identity & Tenancy (Phase 1).
@@ -101,49 +125,78 @@ export const passwordResets = pgTable('password_resets', {
  * Minimal tenant-owned exemplar so the tenant-scope + RLS machinery is real and testable now.
  * Fleshed out into the full Property & Inventory model in Phase 3.
  */
-export const properties = pgTable('properties', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id')
-    .notNull()
-    .references(() => tenants.id, { onDelete: 'cascade' }),
-  legacyId: integer('legacy_id').unique(),
-  name: text('name').notNull(),
-  /** How the Yoho commission is derived: 'percentage' (uses commissionPercentage) or 'slab'. */
-  commissionType: text('commission_type').notNull().default('percentage'),
-  commissionPercentage: numeric('commission_percentage', { precision: 6, scale: 2 })
-    .notNull()
-    .default('10'),
-  /**
-   * Base currency the property prices, stores, and settles in — 'LKR' or 'USD' only
-   * (BASE_CURRENCIES in @yohobed/domain). Display-only currencies (INR/GBP/EUR) are never stored
-   * here. All money on this property's bookings/invoices/payouts is denominated in this currency.
-   */
-  currency: text('currency').notNull().default('LKR'),
+export const properties = pgTable(
+  'properties',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    legacyId: integer('legacy_id').unique(),
+    name: text('name').notNull(),
+    /** How the Yoho commission is derived: 'percentage' (uses commissionPercentage) or 'slab'. */
+    commissionType: text('commission_type').notNull().default('percentage'),
+    commissionPercentage: numeric('commission_percentage', { precision: 6, scale: 2 })
+      .notNull()
+      .default('10'),
+    /**
+     * Base currency the property prices, stores, and settles in — 'LKR' or 'USD' only
+     * (BASE_CURRENCIES in @yohobed/domain). Display-only currencies (INR/GBP/EUR) are never stored
+     * here. All money on this property's bookings/invoices/payouts is denominated in this currency.
+     */
+    currency: text('currency').notNull().default('LKR'),
 
-  /**
-   * Property identity & operating parameters (Yanolja-parity Sprint 0). Every one of these is
-   * consumed downstream: `code` is the number beside the property name in Yanolja's header;
-   * the address block prints on registration cards and invoices; `timezone` is what the night
-   * audit rolls the business date against; the check-in/out times seed every reservation.
-   */
-  code: text('code'),
-  address: text('address'),
-  city: text('city'),
-  state: text('state'),
-  country: text('country'),
-  zip: text('zip'),
-  phone: text('phone'),
-  email: text('email'),
-  timezone: text('timezone').notNull().default('Asia/Colombo'),
-  checkinTime: time('checkin_time').notNull().default('14:00:00'),
-  checkoutTime: time('checkout_time').notNull().default('11:00:00'),
-  starRating: integer('star_rating'),
-  /**
-   * Intentionally not a foreign key: `media` already references `properties`, so a FK back would
-   * make the two table modules import each other. The application resolves it.
-   */
-  logoMediaId: uuid('logo_media_id'),
+    /**
+     * Property identity & operating parameters (Yanolja-parity Sprint 0). Every one of these is
+     * consumed downstream: `code` is the number beside the property name in Yanolja's header;
+     * the address block prints on registration cards and invoices; `timezone` is what the night
+     * audit rolls the business date against; the check-in/out times seed every reservation.
+     */
+    code: text('code'),
+    address: text('address'),
+    city: text('city'),
+    state: text('state'),
+    country: text('country'),
+    zip: text('zip'),
+    phone: text('phone'),
+    email: text('email'),
+    timezone: text('timezone').notNull().default('Asia/Colombo'),
+    checkinTime: time('checkin_time').notNull().default('14:00:00'),
+    checkoutTime: time('checkout_time').notNull().default('11:00:00'),
+    starRating: integer('star_rating'),
+    /**
+     * Intentionally not a foreign key: `media` already references `properties`, so a FK back would
+     * make the two table modules import each other. The application resolves it.
+     */
+    logoMediaId: uuid('logo_media_id'),
 
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+    /**
+     * Regional identity (Development Phase 02). `country_code` (ISO 3166-1 alpha-2) is what selects
+     * the regional preset, the title list, the phone default and — from Phase 02 Sprint 7 — the tax
+     * and invoice profile. It is locked once the property has bookings, like `currency`.
+     * `state_code` is the ISO subdivision for LK/MY and the GST state code for India.
+     */
+    countryCode: text('country_code').notNull().default('LK'),
+    stateCode: text('state_code'),
+    /** The registered business name printed on tax invoices, when it differs from `name`. */
+    legalName: text('legal_name'),
+    taxIds: jsonb('tax_ids').$type<PropertyTaxIds>().notNull().default({}),
+    /** Sri Lanka's invoice serial carries a branch code (Gazette 2481/22 "QQQQ"). */
+    branchCode: text('branch_code'),
+    /** First month of the invoice-numbering year: 4 (April) for India and Sri Lanka. */
+    fyStartMonth: integer('fy_start_month').notNull().default(4),
+    invoicePrefix: text('invoice_prefix'),
+    /** Reservation-desk settings, resolved by `resolvePropertySettings` in @yohobed/domain. */
+    settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    fyStartMonthValid: check(
+      'properties_fy_start_month_valid',
+      sql`${t.fyStartMonth} between 1 and 12`,
+    ),
+    countryCodeShape: check('properties_country_code_shape', sql`${t.countryCode} ~ '^[A-Z]{2}$'`),
+  }),
+);

@@ -42,22 +42,25 @@ erDiagram
 
 ## Identity & tenancy (`schema/identity.ts`)
 
-| Table             | RLS         | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                               |
-| ----------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants`         | ➖ registry | A property owner — the root of every ownership chain. Unique `email`; `status` enum `pending/active/inactive/suspended`; `agreement_accepted_at`.                                                                                                                                                                                                                                                                       |
-| `users`           | ➖ registry | Login identity. Unique `email`; nullable `tenant_id` (null = cross-tenant YoHo staff); bcrypt `password_hash`.                                                                                                                                                                                                                                                                                                          |
-| `memberships`     | ➖ registry | What a user may do, where. Role enum `OWNER/OWNER_STAFF/YOHO_STAFF/YOHO_ADMIN`; staff rows have `tenant_id = null`; unique `(user_id, tenant_id)`.                                                                                                                                                                                                                                                                      |
-| `sessions`        | ➖ registry | Opaque token hashes (reserved for refresh flows).                                                                                                                                                                                                                                                                                                                                                                       |
-| `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                                                                                                                                                                                                                                                                                                    |
-| `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived. Plus its identity & operating parameters: `code` (the number shown beside the name), address block (`address/city/state/country/zip`), `phone`, `email`, `timezone` (what night audit rolls the business date against), `checkin_time`/`checkout_time`, `star_rating`, `logo_media_id`. |
+| Table             | RLS         | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants`         | ➖ registry | A property owner — the root of every ownership chain. Unique `email`; `status` enum `pending/active/inactive/suspended`; `agreement_accepted_at`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `users`           | ➖ registry | Login identity. Unique `email`; nullable `tenant_id` (null = cross-tenant YoHo staff); bcrypt `password_hash`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `memberships`     | ➖ registry | What a user may do, where. Role enum `OWNER/OWNER_STAFF/YOHO_STAFF/YOHO_ADMIN`; staff rows have `tenant_id = null`; unique `(user_id, tenant_id)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `sessions`        | ➖ registry | Opaque token hashes (reserved for refresh flows).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived. Plus its identity & operating parameters: `code` (the number shown beside the name), address block (`address/city/state/country/zip`), `phone`, `email`, `timezone` (what night audit rolls the business date against), `checkin_time`/`checkout_time`, `star_rating`, `logo_media_id`. Regional identity (Phase 02): `country_code` (ISO alpha-2, default `LK`, CHECK shape, **locked once the property has bookings**), `state_code` (ISO for LK/MY, GST state code for IN), `legal_name`, `tax_ids` jsonb (`tin`, `ssclRegNo`, `sltdaRegNo`, `gstin`, `sstNo`, `ttxNo`, `brn`), `branch_code`, `fy_start_month` (1–12), `invoice_prefix`, and `settings` jsonb (reservation-desk settings, resolved by `resolvePropertySettings`). |
 
 Identity tables are the tenancy _registry_ — they're what the guards consult to build the tenant
 context, so they can't themselves sit behind it. Access is confined to auth/staff code paths.
 
 `tenants.distribution_mode` (`yoho`\|`standalone`, default `yoho`) decides whether the platform
 commission and payout chain apply at all. A `standalone` tenant bought the PMS as a subscription
-and sells its own inventory, so `commissionStructureFor()` hands the pricing engine a
-zero-percentage structure — the flag selects the _input_, it never branches the maths.
+and sells its own inventory. `RatesService.setPriceRange` gives it a zero commission
+(`commissionStructureFor()`) and **no OTA gross-up**: its tax-exclusive price is the base price
+exactly as entered. That base is not passed through `sellingPrice(base, 0, 0)`, whose round-up
+step would add a cent to roughly one price in seventeen. (Before Phase 02 this was documented but
+never wired, so standalone tenants were still grossed up.)
 
 ## Subscriptions & entitlements (`schema/billing.ts`)
 
@@ -171,14 +174,14 @@ the guest's copy may already be printed.
 
 ## Cashiering (`schema/cashiering.ts`)
 
-| Table              | RLS | Purpose · key constraints                                                                                                                                         |
-| ------------------ | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ledger_accounts`  | ✅  | Travel agents, companies and sales people in **one** table — they differ only in what they are called. Unique `(tenant_id, code)`; `credit_limit` (0 = no limit). |
-| `ledger_entries`   | ✅  | The running account. `debit` increases what they owe us, `credit` is money received.                                                                              |
-| `business_sources` | ✅  | Colour-coded source of business; the hex is used directly as the Stay View bar colour.                                                                            |
-| `cash_drawers`     | ✅  | A physical till. A property may run several.                                                                                                                      |
-| `drawer_sessions`  | ✅  | One cashier's shift. Partial unique index allows only **one open shift per drawer**.                                                                              |
-| `expense_vouchers` | ✅  | Money out of the till. Unique `(property_id, voucher_no)`.                                                                                                        |
+| Table              | RLS | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------ | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ledger_accounts`  | ✅  | Travel agents, companies and sales people in **one** table — they differ only in what they are called. Unique `(tenant_id, code)`; `credit_limit` (0 = no limit). Phase 02 adds invoicing and agent-terms depth: `legal_name`, `country_code`, `state_code`, `city`, `zip`, `mobile`, `registration_no`, `commission_plan` (CHECK) + `commission_value`, `discount_pct`, `default_market_segment_id`, `payment_terms_days`. |
+| `ledger_entries`   | ✅  | The running account. `debit` increases what they owe us, `credit` is money received.                                                                                                                                                                                                                                                                                                                                        |
+| `business_sources` | ✅  | Where the business came from. Phase 02 adds `category` (`direct/ota/travel_agent/corporate` — Yanolja's Booking Source), `palette` (a `TAG_COLORS` key; the legacy hex `color` stays for old readers), `default_market_segment_id`, `commission_plan` + `commission_value`, `registration_no`, `collects_tourism_tax`, `sort`.                                                                                              |
+| `cash_drawers`     | ✅  | A physical till. A property may run several.                                                                                                                                                                                                                                                                                                                                                                                |
+| `drawer_sessions`  | ✅  | One cashier's shift. Partial unique index allows only **one open shift per drawer**.                                                                                                                                                                                                                                                                                                                                        |
+| `expense_vouchers` | ✅  | Money out of the till. Unique `(property_id, voucher_no)`.                                                                                                                                                                                                                                                                                                                                                                  |
 
 `payments` gains `drawer_session_id` (which shift took it) and `ledger_account_id` (set when the
 payment is a transfer to the city ledger rather than money arriving). `bookings` gains
@@ -194,6 +197,23 @@ back-dated payment landed on the shift.
 
 `ledger_accounts` is not `referral_partners`: a referrer _earns_ commission from us, a ledger
 account _owes_ us money.
+
+## Reservation configuration (`schema/configuration.ts`, Development Phase 02)
+
+| Table             | RLS | Purpose · key constraints                                                                                                                                                                                                                                                                                         |
+| ----------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `market_segments` | ✅  | Why the guest is staying. Unique `(tenant_id, code)`; `grp` CHECK `transient/group/contract/non_revenue`; `palette`; `excluded_from_sold` (complimentary and house use stay out of rooms sold); `sort`; `active`.                                                                                                 |
+| `payment_methods` | ✅  | The Payment Mode list. Unique `(tenant_id, code)`; `category` CHECK `cash/card/bank_transfer/qr/wallet/cheque/city_ledger/online/other`; `requires_reference`; `is_default_cash` (one per tenant, enforced by the service); `is_guest_advance`; `currency` (foreign cash); `property_id` (null = all properties). |
+
+**Vocabularies are CHECK-constrained text, not Postgres enums.** A value added to an enum cannot
+be used in the same migration run (Drizzle applies every pending migration in one transaction),
+and these lists are expected to grow.
+
+**Seeded once per tenant.** `seedDefaultMasters` copies the country preset (`@yohobed/locale`)
+into a tenant only if it has no market segments yet. It runs from `db:migrate` for existing
+tenants, from registration, and from the e2e fixture. After that the lists belong to the owner:
+entries are deactivated, never deleted, and re-running a migration never brings back an entry the
+owner renamed. `applyRegionPreset` adds another country's missing codes on request.
 
 ## Night audit (`schema/nightaudit.ts`)
 
@@ -327,38 +347,41 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 | `enqueueOutbox / claimPendingOutbox / markOutboxSent·Retry·Failed / requeueStaleOutbox` (`outbox.ts`) | The transactional-outbox machinery (claim uses `FOR UPDATE SKIP LOCKED`; stale `processing` rows are rescued after 120 s).                                                               |
 | `resolveTaxRatesForDates(tx, propertyId, dates)` (`tax.ts`)                                           | Per-date tax fractions `{serviceCharge, nbt, vat}` from the property's tax config (zeros when unconfigured).                                                                             |
 | `defaultTemplates / seedDefaultTemplates` (`default-templates.ts`)                                    | The starter message templates — single source used by **both** the dev seed and `/auth/register`.                                                                                        |
+| `seedDefaultMasters / applyRegionPreset` (`masters.ts`)                                               | The reservation master lists from the country preset — seeded once per tenant (migration, registration, fixture); `applyRegionPreset` adds a preset's missing codes only.                |
 | `createDb(url, opts)` (`client.ts`)                                                                   | postgres.js + Drizzle handle; `migrate.ts` applies migrations then `rls.sql`.                                                                                                            |
 
 ## Migrations (`packages/db/drizzle/`, applied in order by `db:migrate`)
 
-| #    | What it added                                                                                |
-| ---- | -------------------------------------------------------------------------------------------- |
-| 0000 | Identity & tenancy: tenants, users, memberships, sessions, password_resets, properties       |
-| 0001 | Inventory: rooms, availability_calendar (+ `rooms_to_sell >= 0` check)                       |
-| 0002 | roomtypes + rooms.roomtype_id                                                                |
-| 0003 | Rates: rate_codes, rate_plans, occupancies, rate_calendar + property commission columns      |
-| 0004 | Bookings: customers, bookings, booking_days, booking_approvals, booking_counters             |
-| 0005 | outbox (transactional CM queue)                                                              |
-| 0006 | Finance: payments, invoices, invoice_lines, payouts                                          |
-| 0007 | audit_log                                                                                    |
-| 0008 | Tax parity: tax_types, tax_durations, property_tax_types, commission_slabs                   |
-| 0009 | Rates depth: seasons, last_minute_drop_pct                                                   |
-| 0010 | Commercial: promotions, coupons, coupon_redemptions, referral_partners, referral_commissions |
-| 0011 | Comms: languages, templates, notifications, messages                                         |
-| 0012 | OTA inbox: cm_room_mappings, ota_reservations                                                |
-| 0013 | Front desk: CheckedIn/CheckedOut statuses + checked_in_at/out_at (+ `amended` trail action)  |
-| 0014 | Onboarding: `pending` tenant status                                                          |
-| 0015 | Email seam: messages.error                                                                   |
-| 0016 | Compartment I: availability min_stay/max_stay, ari_history, reviews, review_invites          |
-| 0017 | Multi-currency: properties.currency, bookings.fx_rate_to_lkr, exchange_rates                 |
-| 0018 | Multi-currency: payments.currency, payouts.currency                                          |
-| 0019 | SaaS: plans, subscriptions, tenant_features, tenants.distribution_mode, property detail cols |
-| 0020 | Room units: room_units, booking_rooms, booking_groups, maintenance_blocks + back-fill        |
-| 0021 | Housekeeping: housekeeping_status, work_orders + guest-depth columns on customers            |
-| 0022 | Data-only: grandfathers every existing tenant onto an enterprise subscription                |
-| 0023 | Folio: folios, charge_particulars, folio_charges, folio_transfers, payments.folio_id         |
-| 0024 | Cashiering: ledger accounts/entries, business sources, drawers, expenses                     |
-| 0025 | Night audit: business_dates, night_audit_runs                                                |
+| #    | What it added                                                                                           |
+| ---- | ------------------------------------------------------------------------------------------------------- |
+| 0000 | Identity & tenancy: tenants, users, memberships, sessions, password_resets, properties                  |
+| 0001 | Inventory: rooms, availability_calendar (+ `rooms_to_sell >= 0` check)                                  |
+| 0002 | roomtypes + rooms.roomtype_id                                                                           |
+| 0003 | Rates: rate_codes, rate_plans, occupancies, rate_calendar + property commission columns                 |
+| 0004 | Bookings: customers, bookings, booking_days, booking_approvals, booking_counters                        |
+| 0005 | outbox (transactional CM queue)                                                                         |
+| 0006 | Finance: payments, invoices, invoice_lines, payouts                                                     |
+| 0007 | audit_log                                                                                               |
+| 0008 | Tax parity: tax_types, tax_durations, property_tax_types, commission_slabs                              |
+| 0009 | Rates depth: seasons, last_minute_drop_pct                                                              |
+| 0010 | Commercial: promotions, coupons, coupon_redemptions, referral_partners, referral_commissions            |
+| 0011 | Comms: languages, templates, notifications, messages                                                    |
+| 0012 | OTA inbox: cm_room_mappings, ota_reservations                                                           |
+| 0013 | Front desk: CheckedIn/CheckedOut statuses + checked_in_at/out_at (+ `amended` trail action)             |
+| 0014 | Onboarding: `pending` tenant status                                                                     |
+| 0015 | Email seam: messages.error                                                                              |
+| 0016 | Compartment I: availability min_stay/max_stay, ari_history, reviews, review_invites                     |
+| 0017 | Multi-currency: properties.currency, bookings.fx_rate_to_lkr, exchange_rates                            |
+| 0018 | Multi-currency: payments.currency, payouts.currency                                                     |
+| 0019 | SaaS: plans, subscriptions, tenant_features, tenants.distribution_mode, property detail cols            |
+| 0020 | Room units: room_units, booking_rooms, booking_groups, maintenance_blocks + back-fill                   |
+| 0021 | Housekeeping: housekeeping_status, work_orders + guest-depth columns on customers                       |
+| 0022 | Data-only: grandfathers every existing tenant onto an enterprise subscription                           |
+| 0023 | Folio: folios, charge_particulars, folio_charges, folio_transfers, payments.folio_id                    |
+| 0024 | Cashiering: ledger accounts/entries, business sources, drawers, expenses                                |
+| 0025 | Night audit: business_dates, night_audit_runs                                                           |
+| 0026 | Audit hardening: night-audit run index, room-line night check, group code index, `sending`              |
+| 0027 | Phase 02: market_segments, payment_methods, property regional identity + settings, source/account depth |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

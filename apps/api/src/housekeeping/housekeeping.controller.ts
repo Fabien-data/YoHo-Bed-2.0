@@ -28,8 +28,6 @@ import {
 } from './dto';
 import type { AuthPrincipal } from '../auth/dto';
 
-const today = () => new Date().toISOString().slice(0, 10);
-
 /**
  * Room View, House Status and Work Orders.
  *
@@ -47,19 +45,21 @@ export class HousekeepingController {
   // `room_view` is its own plan key and the nav gates the screen on it — not on housekeeping.
   @Feature('room_view')
   @Get('room-view')
-  roomView(
+  async roomView(
     @TenantId() tenantId: string,
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ) {
-    return this.hk.roomCards(tenantId, q.propertyId, q.date ?? today());
+    const date = q.date ?? (await this.hk.todayFor(tenantId, q.propertyId));
+    return this.hk.roomCards(tenantId, q.propertyId, date);
   }
 
   @Get('house-status/summary')
-  summary(
+  async summary(
     @TenantId() tenantId: string,
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ) {
-    return this.hk.summary(tenantId, q.propertyId, q.date ?? today());
+    const date = q.date ?? (await this.hk.todayFor(tenantId, q.propertyId));
+    return this.hk.summary(tenantId, q.propertyId, date);
   }
 
   @Post('properties/:propertyId/housekeeping')
@@ -76,13 +76,14 @@ export class HousekeepingController {
   /** The morning sweep: every room a guest left today becomes dirty. */
   @Post('properties/:propertyId/housekeeping/mark-departures-dirty')
   @HttpCode(200)
-  markDepartures(
+  async markDepartures(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthPrincipal,
     @Param('propertyId') propertyId: string,
     @Query(new ZodValidationPipe(houseStatusQuerySchema.pick({ date: true }))) q: { date?: string },
   ) {
-    return this.hk.markDeparturesDirty(tenantId, propertyId, q.date ?? today(), user.sub);
+    const date = q.date ?? (await this.hk.todayFor(tenantId, propertyId));
+    return this.hk.markDeparturesDirty(tenantId, propertyId, date, user.sub);
   }
 
   @Get('properties/:propertyId/work-orders')

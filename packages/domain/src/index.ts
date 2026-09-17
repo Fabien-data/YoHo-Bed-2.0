@@ -17,3 +17,6 @@ export * from './pricing';
 export * from './finance';
 export * from './commercial';
 export * from './template';
+export * from './palette';
+export * from './reservation-kinds';
+export * from './property-settings';

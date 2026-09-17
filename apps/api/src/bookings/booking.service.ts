@@ -49,6 +49,7 @@ import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
 import { createLegs, releaseLegs, resizeLegs, unassignLegs } from '../inventory/room-units.service';
 import { eachNight } from '../common/dates';
+import { localToday } from '../common/local-date';
 import type { Env } from '../config/env';
 import type { AmendBookingDto, CreateBookingDto } from './dto';
 
@@ -127,6 +128,7 @@ export class BookingService {
         propertyId: rooms.propertyId,
         roomId: ratePlans.roomId,
         currency: properties.currency,
+        timezone: properties.timezone,
         // Seeds the per-leg pax; the booking itself has no adults/children of its own.
         accommodates: occupancies.accommodates,
       })
@@ -195,7 +197,9 @@ export class BookingService {
     const commissionable = amount - taxes;
 
     // Optional coupon (marketing discount off the amount) and referral (partner commission).
-    const bookingDate = new Date().toISOString().slice(0, 10);
+    // "Today" is the hotel's today: in UTC a Colombo booking made before 05:30 would be dated
+    // yesterday, and a coupon ending yesterday would still be accepted.
+    const bookingDate = localToday(occ.timezone);
     let discount = 0;
     let couponId: string | null = null;
     if (dto.couponCode) {
@@ -267,9 +271,8 @@ export class BookingService {
       customerId = c!.id;
     }
 
-    // Safe reference (BUG #4).
-    const today = new Date().toISOString().slice(0, 10);
-    const reference = await nextBookingReference(tx, today);
+    // Safe reference (BUG #4), dated by the property's calendar.
+    const reference = await nextBookingReference(tx, bookingDate);
 
     // Denominate the booking in the property's base currency and freeze the LKR rate at creation
     // so the cross-property consolidated (LKR) view never drifts as live rates move.

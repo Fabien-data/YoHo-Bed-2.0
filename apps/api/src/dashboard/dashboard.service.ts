@@ -4,6 +4,7 @@ import { bookings, bookingDays, customers, rooms, properties } from '@yohobed/db
 import { DatabaseService } from '../database/database.service';
 import { resolveAggCurrency } from '../common/currency';
 import { CONFIRMED_STATUSES } from '../common/booking-status';
+import { propertyToday } from '../common/local-date';
 
 /**
  * The owner's morning screen (Compartment G): who arrives, who leaves, who is in-house,
@@ -13,8 +14,10 @@ import { CONFIRMED_STATUSES } from '../common/booking-status';
 export class DashboardService {
   constructor(private readonly dbs: DatabaseService) {}
 
-  overview(tenantId: string, date: string, propertyId?: string) {
+  /** `requestedDate` defaults to the property's own today (or the tenant's first property's). */
+  overview(tenantId: string, requestedDate: string | undefined, propertyId?: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
+      const date = requestedDate ?? (await propertyToday(tx, propertyId));
       const inProperty = (extra: SQL | undefined) =>
         propertyId ? and(eq(bookings.propertyId, propertyId), extra) : extra;
 

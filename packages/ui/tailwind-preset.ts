@@ -2,6 +2,37 @@ import type { Config } from 'tailwindcss';
 import animate from 'tailwindcss-animate';
 
 /**
+ * The categorical palette (TAG_COLORS in @yohobed/domain), each as base / -ink / -soft. Listed
+ * here rather than imported so the preset stays dependency-free for Tailwind's config loader.
+ */
+const TAGS = [
+  'slate',
+  'red',
+  'orange',
+  'amber',
+  'yellow',
+  'lime',
+  'green',
+  'emerald',
+  'teal',
+  'cyan',
+  'sky',
+  'blue',
+  'indigo',
+  'violet',
+  'purple',
+  'pink',
+  'rose',
+];
+const tagColors = Object.fromEntries(
+  TAGS.flatMap((t) => [
+    [`tag-${t}`, `var(--tag-${t})`],
+    [`tag-${t}-ink`, `var(--tag-${t}-ink)`],
+    [`tag-${t}-soft`, `var(--tag-${t}-soft)`],
+  ]),
+);
+
+/**
  * The YoHoBed Tailwind preset. Every consuming app layers this on top of its
  * own `content` globs; all values resolve to the CSS custom properties defined
  * in the app's globals.css, so both themes come along for free.
@@ -36,6 +67,7 @@ const preset: Omit<Config, 'content'> = {
         info: 'var(--info)',
         'info-ink': 'var(--info-ink)',
         'info-soft': 'var(--info-soft)',
+        ...tagColors,
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'IBM Plex Sans', 'Segoe UI', 'system-ui', 'sans-serif'],

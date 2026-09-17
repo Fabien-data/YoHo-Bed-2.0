@@ -19,6 +19,7 @@ import {
   taxDurations,
   propertyTaxTypes,
   seedDefaultTemplates,
+  seedDefaultMasters,
   type Database,
 } from '@yohobed/db';
 import { AppModule } from '../src/app.module';
@@ -93,6 +94,8 @@ export async function makeTenant(
      * rates keep their arithmetic easy to read.
      */
     taxed?: boolean;
+    /** The property's country (ISO alpha-2); selects the seeded master-list preset. */
+    country?: 'LK' | 'MY' | 'IN';
   } = {},
 ): Promise<TenantFixture> {
   const db = admin();
@@ -134,6 +137,7 @@ export async function makeTenant(
   await db.insert(memberships).values({ userId: user!.id, tenantId: tenant!.id, role: 'OWNER' });
   // Mirror what /auth/register provisions, so fixtures behave like real tenants.
   await seedDefaultTemplates(db, tenant!.id);
+  await seedDefaultMasters(db, tenant!.id, opts.country ?? 'LK');
 
   const [property] = await db
     .insert(properties)
@@ -142,6 +146,7 @@ export async function makeTenant(
       name: 'E2E Property',
       commissionType: 'percentage',
       commissionPercentage: String(opts.commissionPercentage ?? 10),
+      countryCode: opts.country ?? 'LK',
     })
     .returning();
 
@@ -296,6 +301,25 @@ export async function openAndPriceProperty(
     body: { from, to, base: opts.base ?? 100 },
   });
   if (price.status !== 200) throw new Error(`setPrice failed: ${JSON.stringify(price.body)}`);
+}
+
+/** A front-desk user (OWNER_STAFF) inside an existing tenant — for owner-only route tests. */
+export async function addDeskUser(fx: TenantFixture) {
+  const db = admin();
+  const email = `${uniq('desk')}@test.yohobed.local`;
+  const [user] = await db
+    .insert(users)
+    .values({
+      tenantId: fx.tenantId,
+      email,
+      name: 'E2E Desk',
+      passwordHash: await bcrypt.hash(PASSWORD, 10),
+    })
+    .returning();
+  await db
+    .insert(memberships)
+    .values({ userId: user!.id, tenantId: fx.tenantId, role: 'OWNER_STAFF' });
+  return { userId: user!.id, email, token: await login(email, PASSWORD) };
 }
 
 /** A cross-tenant YoHo staff user (tenantId null), for RBAC tests. */

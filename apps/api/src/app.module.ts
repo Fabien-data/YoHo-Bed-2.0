@@ -26,6 +26,7 @@ import { FxModule } from './fx/fx.module';
 import { EmailModule } from './email/email.module';
 import { ProfileModule } from './profile/profile.module';
 import { MediaModule } from './media/media.module';
+import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -56,6 +57,7 @@ import { HealthController } from './health/health.controller';
     ReviewsModule,
     CustomersModule,
     FxModule,
+    ConfigurationModule,
   ],
   controllers: [HealthController],
 })

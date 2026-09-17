@@ -9,7 +9,6 @@ import { CashieringService } from './cashiering.service';
 import {
   chargeToLedgerSchema,
   closeDrawerSchema,
-  createBusinessSourceSchema,
   createDrawerSchema,
   createExpenseSchema,
   createLedgerAccountSchema,
@@ -18,7 +17,6 @@ import {
   settleLedgerSchema,
   type ChargeToLedgerDto,
   type CloseDrawerDto,
-  type CreateBusinessSourceDto,
   type CreateDrawerDto,
   type CreateExpenseDto,
   type CreateLedgerAccountDto,
@@ -79,20 +77,8 @@ export class CashieringController {
     return this.cash.chargeToLedger(tenantId, id, user.sub, dto);
   }
 
-  // --- Business sources ---
-  @Get('business-sources')
-  listSources(@TenantId() tenantId: string) {
-    return this.cash.listBusinessSources(tenantId);
-  }
-
-  @Post('business-sources')
-  @HttpCode(201)
-  createSource(
-    @TenantId() tenantId: string,
-    @Body(new ZodValidationPipe(createBusinessSourceSchema)) dto: CreateBusinessSourceDto,
-  ) {
-    return this.cash.createBusinessSource(tenantId, dto);
-  }
+  // Business sources moved to the configuration module (Development Phase 02): every plan takes
+  // reservations, so the source list cannot sit behind the Pro-only cashiering gate.
 
   // --- Drawers ---
   @Get('properties/:propertyId/drawers')

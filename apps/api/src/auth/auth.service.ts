@@ -16,6 +16,7 @@ import {
   passwordResets,
   tenants,
   seedDefaultTemplates,
+  seedDefaultMasters,
   setTenantContext,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
@@ -122,6 +123,10 @@ export class AuthService {
       // `templates` is RLS-fenced, so adopt the just-created tenant's context for this insert.
       await setTenantContext(tx, t!.id);
       await seedDefaultTemplates(tx, t!.id);
+      // The reservation desk's lists (sources, segments, payment methods). Sign-up does not ask for
+      // a country yet, so the Sri Lanka preset is the start; the owner can apply another preset
+      // from Configuration once the property's country is set.
+      await seedDefaultMasters(tx, t!.id, 'LK');
 
       // Every tenant needs a subscription row. Entitlements are deny-by-default, so a tenant
       // without one is entitled to nothing — a signup that lands in that state can open the app

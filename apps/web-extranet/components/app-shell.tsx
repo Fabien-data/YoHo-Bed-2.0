@@ -105,6 +105,21 @@ export function AppShell({
     setDrawerOpen(false);
   }, [pathname]);
 
+  // Keep the current item in sight: the Configuration group sits below the fold on a laptop.
+  // Only the tree scrolls — scrollIntoView would drag the page along with it.
+  const navScroll = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const box = navScroll.current;
+    const link = box?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!box || !link) return;
+    const b = box.getBoundingClientRect();
+    const l = link.getBoundingClientRect();
+    if (l.top < b.top || l.bottom > b.bottom) {
+      box.scrollTop += l.top - b.top - (b.height - l.height) / 2;
+    }
+    // Entitlements hide items once they load, which moves the rest of the tree.
+  }, [active?.href, entitlements]);
+
   function toggleNav() {
     // One button, two meanings: below xl it opens the overlay drawer; at xl+ it pins/unpins.
     if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches) {
@@ -326,7 +341,7 @@ export function AppShell({
           )}
           style={{ height: 'calc(100vh - 3.5rem)' }}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+          <div ref={navScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {visibleGroups.map((group) => (
               <div key={group.label} className="mb-5">
                 <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3">

@@ -13,6 +13,7 @@ import {
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
+import { propertyToday } from '../common/local-date';
 import type { SetHousekeepingDto, CreateWorkOrderDto, UpdateWorkOrderDto } from './dto';
 
 /**
@@ -53,6 +54,11 @@ export interface RoomCard {
 @Injectable()
 export class HousekeepingService {
   constructor(private readonly dbs: DatabaseService) {}
+
+  /** The property's own calendar today — what a screen means when it asks without a date. */
+  todayFor(tenantId: string, propertyId: string): Promise<string> {
+    return this.dbs.withTenant(tenantId, (tx) => propertyToday(tx, propertyId));
+  }
 
   /**
    * The Room View card grid and the House Status grid share one query — they are the same data

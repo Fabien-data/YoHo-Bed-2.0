@@ -10,6 +10,7 @@ import {
   Money,
   MoonStars,
   Receipt,
+  SlidersHorizontal,
   SquaresFour,
   Star,
   Tag,
@@ -177,6 +178,13 @@ export const NAV: NavGroup[] = [
         label: 'Property setup',
         icon: GearSix,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455815c978eecf181bd1b52',
+      },
+      // Everyone can open it (desk staff read the lists); only the owner can change anything.
+      {
+        href: '/app/configuration',
+        label: 'Reservation setup',
+        icon: SlidersHorizontal,
+        docsUrl: 'PLACEHOLDER',
       },
       {
         href: '/app/profile',

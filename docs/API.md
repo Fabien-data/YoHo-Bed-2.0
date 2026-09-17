@@ -37,14 +37,22 @@
 
 ## Auth (`/auth`)
 
-| Method & path                | Auth   | Purpose                                                                                                                                                                                                                                 |
-| ---------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/login`           | public | Email + password → `{accessToken, user{memberships[+tenantStatus]}}`. Identical error for unknown email vs wrong password. Refused only if **all** the user's tenants are suspended/inactive (`pending` may sign in; staff always may). |
-| `POST /auth/register`        | public | Self-serve signup: creates a **pending** tenant + OWNER user + membership + starter message templates (one transaction), sends a "registration received" email. `409` on duplicate email.                                               |
-| `POST /auth/forgot-password` | public | Always answers success (no account enumeration); emails a reset link valid 60 minutes.                                                                                                                                                  |
-| `POST /auth/reset-password`  | public | `{token, password}` → sets the password, invalidates all outstanding reset tokens for that email.                                                                                                                                       |
-| `POST /auth/change-password` | JWT    | Requires the correct current password. Min length 8.                                                                                                                                                                                    |
-| `GET /auth/me`               | JWT    | The authenticated principal `{id, email, memberships}`.                                                                                                                                                                                 |
+| Method & path                | Auth       | Purpose                                                                                                                                                                                                                                                                      |
+| ---------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`           | public     | Email + password → `{accessToken, user{memberships[+tenantStatus]}}`. Identical error for unknown email vs wrong password. Refused only if **all** the user's tenants are suspended/inactive (`pending` may sign in; staff always may).                                      |
+| `POST /auth/register`        | public     | Self-serve signup: creates a **pending** tenant + OWNER user + membership + starter message templates (one transaction), sends a "registration received" email. `409` on duplicate email.                                                                                    |
+| `POST /auth/forgot-password` | public     | Always answers success (no account enumeration); emails a reset link valid 60 minutes.                                                                                                                                                                                       |
+| `POST /auth/reset-password`  | public     | `{token, password}` → sets the password, invalidates all outstanding reset tokens for that email.                                                                                                                                                                            |
+| `POST /auth/change-password` | JWT        | Requires the correct current password. Min length 8.                                                                                                                                                                                                                         |
+| `GET /auth/me`               | JWT        | The authenticated principal `{id, email, memberships}`.                                                                                                                                                                                                                      |
+| `POST /auth/step-up`         | JWT+Tenant | An **owner** approves one over-the-limit action for the signed-in desk user: `{email, password, action: rate_override\|complimentary\|tax_exempt, reason?}` → `{approvalToken, approver, expiresAt}` (10 minutes). `403` if the credentials are not an OWNER of this tenant. |
+
+Registration also seeds the tenant's reservation master lists (market segments, business sources,
+payment methods) from the Sri Lanka preset.
+
+**Approval tokens are not sessions.** They are signed with a key derived from `JWT_SECRET`, so one
+can never be presented as a bearer token (401). Each token approves exactly one action for one
+tenant and one requesting user; the services that accept it re-check all three.
 
 ## Properties
 
@@ -54,6 +62,25 @@
 | `GET /properties/:id`   | JWT+Tenant | One property (404 if not yours).                                                    |
 | `POST /properties`      | JWT+Tenant | Create (name). Commission model (percentage/slab) is staff-configured, default 10%. |
 | `PATCH /properties/:id` | JWT+Tenant | Rename.                                                                             |
+
+## Reservation configuration (Development Phase 02)
+
+Reads are open to everyone in the tenant, including desk staff (`OWNER_STAFF`), and are **not
+plan-gated** — every plan takes reservations. Writes are **owner-only** (`403` for desk staff).
+
+| Method & path                                                    | Auth                      | Purpose                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /properties/:id/reservation-config`                         | JWT+Tenant                | Everything the reservation screens need in one call: property (country, currency, timezone, check-in/out `HH:MM`), `today` (night audit's business date, else the property's calendar date), resolved settings, the five reservation kinds with their labels/colours, titles for the country, and the **active** business sources, market segments, payment methods and sales persons. |
+| `PATCH /properties/:id/profile`                                  | JWT+Tenant·OWNER          | Legal name, code, address block, `countryCode` (ISO), `stateCode` (ISO for LK/MY, GST code for IN; validated against the country), timezone, check-in/out times, `taxIds` (`tin`, `ssclRegNo`, `sltdaRegNo`, `gstin`, `sstNo`, `ttxNo`, `brn`; `''` clears one), `branchCode`, `fyStartMonth`, `invoicePrefix`. **409 `country_locked`** once the property has bookings.               |
+| `GET` / `PATCH /properties/:id/settings`                         | JWT+Tenant (PATCH OWNER)  | Reservation-desk settings, resolved against defaults. PATCH is a partial, deep merge: `timeFormat`, `mealCodeStyle`, `hold {defaultHours, reminderHours}`, `unconfirmedPolicy`, `rateControl {staffMaxDiscountPct, staffCanComp}`, `requireDocumentsAtCheckin`, `kindOverrides {kind: {label, color}}`, `titles`. Unknown keys → 400.                                                  |
+| `GET` / `POST /business-sources` · `PATCH /business-sources/:id` | JWT+Tenant (writes OWNER) | Sources grouped by `category` (`direct/ota/travel_agent/corporate` = Yanolja's Booking Source), with `palette`, `defaultMarketSegmentId`, `commissionPlan` + `commissionValue`, `registrationNo`, `collectsTourismTax`, `sort`, `active`. Codes are upper-cased; **409** on a duplicate. Moved here from cashiering.                                                                   |
+| `GET` / `POST /market-segments` · `PATCH /market-segments/:id`   | JWT+Tenant (writes OWNER) | `code`, `name`, `group` (`transient/group/contract/non_revenue`), `palette`, `excludedFromSold`, `sort`, `active`.                                                                                                                                                                                                                                                                     |
+| `GET` / `POST /payment-methods` · `PATCH /payment-methods/:id`   | JWT+Tenant (writes OWNER) | `code`, `name`, `shortName`, `category` (`cash/card/bank_transfer/qr/wallet/cheque/city_ledger/online/other`), `requiresReference`, `isDefaultCash` (cash only; exactly one), `isGuestAdvance`, `currency`, `propertyId` (null = all properties).                                                                                                                                      |
+| `GET` / `POST /sales-persons` · `PATCH /sales-persons/:id`       | JWT+Tenant (writes OWNER) | Ledger accounts of type `sales_person`. Phones are stored in E.164 (a local number is read in the tenant's country).                                                                                                                                                                                                                                                                   |
+| `POST /configuration/apply-preset`                               | JWT+Tenant·OWNER          | `{country: LK\|MY\|IN}` → adds the preset's missing segments, sources and payment methods (matched by code; never changes existing entries). Returns the counts added.                                                                                                                                                                                                                 |
+
+Every write re-reads the ids it references (segment, property) under the tenant's RLS context:
+RLS checks the row being written, but a foreign-key check does not.
 
 ## Rooms, room types, availability (inventory)
 
@@ -205,14 +232,14 @@ Room charges are posted explicitly for now. Automatic nightly posting belongs to
 | `GET /ledger-accounts/:id/statement`                         | JWT+Tenant | Every entry with a running balance.                                                                  |
 | `POST /ledger-accounts/:id/settle`                           | JWT+Tenant | The account pays us — a credit.                                                                      |
 | `POST /folios/:id/charge-to-ledger`                          | JWT+Tenant | "Charge to company": clears the folio, moves the debt. **409** over the credit limit.                |
-| `GET` / `POST /business-sources`                             | JWT+Tenant | Colour-coded sources. The hex colours Stay View's bars.                                              |
 | `GET` / `POST /properties/:id/drawers`                       | JWT+Tenant | Tills.                                                                                               |
 | `POST /drawers/:id/open`                                     | JWT+Tenant | Start a shift. **409** if that till already has one open.                                            |
 | `GET /drawer-sessions/:id/report`                            | JWT+Tenant | The Cashier Report — live while open, frozen once closed.                                            |
 | `POST /drawer-sessions/:id/close`                            | JWT+Tenant | Declare the count; the variance is computed and frozen.                                              |
 | `GET /expenses?propertyId` · `POST /properties/:id/expenses` | JWT+Tenant | Expense vouchers. Auto-numbered `EV-00001`.                                                          |
 
-All Pro and above. **Charging to a ledger writes both sides in one transaction** — the
+All Pro and above. (Business sources moved to [Reservation configuration](#reservation-configuration-development-phase-02)
+in Phase 02, because every plan needs them.) **Charging to a ledger writes both sides in one transaction** — the
 folio-clearing payment and the matching debit; recording only one would lose the debt or
 double-count it.
 

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { and, between, eq, sql } from 'drizzle-orm';
 import {
   computeCommission,
+  commissionStructureFor,
   sellingPrice,
   sellingFromCommissionable,
   applyLastMinuteDrop,
@@ -9,6 +10,8 @@ import {
 } from '@yohobed/domain';
 import {
   properties,
+  tenants,
+  type Tx,
   rooms,
   ratePlans,
   occupancies,
@@ -82,13 +85,38 @@ export class RatesService {
           roomId: rooms.id,
           commissionType: properties.commissionType,
           commissionPercentage: properties.commissionPercentage,
+          distributionMode: tenants.distributionMode,
         })
         .from(occupancies)
         .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
         .innerJoin(rooms, eq(rooms.id, ratePlans.roomId))
         .innerJoin(properties, eq(properties.id, rooms.propertyId))
+        .innerJoin(tenants, eq(tenants.id, properties.tenantId))
         .where(eq(occupancies.id, occupancyId));
       if (!ctx) throw new NotFoundException('Occupancy not found');
+
+      // A standalone PMS subscriber sells its own rooms at its own rates: no YoHo commission and
+      // no OTA gross-up, so the tax-exclusive price IS the base price. It is taken as-is rather
+      // than through `sellingPrice(base, 0, 0)`, whose round-up step would add a cent to
+      // roughly one base price in seventeen (e.g. 1,024.13 → 1,024.14).
+      if (ctx.distributionMode === 'standalone') {
+        const commission = computeCommission(
+          base,
+          commissionStructureFor('standalone', { type: 'percentage', percentage: 0 }),
+        );
+        return this.writePrices(
+          tx,
+          tenantId,
+          occupancyId,
+          ctx,
+          from,
+          to,
+          base,
+          commission,
+          base,
+          actorEmail,
+        );
+      }
 
       // Resolve the property's Yoho commission model (percentage or slab-based).
       let structure: CommissionStructure;
@@ -117,49 +145,78 @@ export class RatesService {
       // Commission and the tax-exclusive commissionable are date-independent; tax may vary per day.
       const commission = computeCommission(base, structure);
       const commissionable = sellingPrice(base, commission, OTA_RATE);
-
-      const dates = dateRangeInclusive(from, to);
-      const taxByDate = await resolveTaxRatesForDates(tx, ctx.propertyId, dates);
-
-      let firstSelling = commissionable;
-      for (const date of dates) {
-        const selling = sellingFromCommissionable(commissionable, taxByDate.get(date)!);
-        if (date === dates[0]) firstSelling = selling;
-        const values = {
-          basePrice: base.toFixed(2),
-          commission: commission.toFixed(2),
-          sellingPrice: selling.toFixed(2),
-        };
-        await tx
-          .insert(rateCalendar)
-          .values({ tenantId, occupancyId, date, ...values })
-          .onConflictDoUpdate({
-            target: [rateCalendar.occupancyId, rateCalendar.date],
-            set: { ...values, updatedAt: sql`now()` },
-          });
-      }
-      // Transactional outbox: schedule a channel-manager rate push atomically with the change.
-      await enqueueOutbox(tx, {
+      return this.writePrices(
+        tx,
         tenantId,
-        aggregate: 'rate',
-        aggregateId: occupancyId,
-        eventType: 'ari.rate',
-        // propertyId/roomId are what the channel manager keys on — carry them so the adapter
-        // can map the event without a database round-trip.
-        payload: { propertyId: ctx.propertyId, roomId: ctx.roomId, occupancyId, from, to, base },
-      });
-      await tx.insert(ariHistory).values({
-        tenantId,
-        propertyId: ctx.propertyId,
-        roomId: ctx.roomId,
-        kind: 'price',
-        fromDate: from,
-        toDate: to,
-        detail: { occupancyId, base, commission, selling: firstSelling },
-        actorEmail: actorEmail ?? null,
-      });
-      return { updated: dates.length, base, selling: firstSelling, commission };
+        occupancyId,
+        ctx,
+        from,
+        to,
+        base,
+        commission,
+        commissionable,
+        actorEmail,
+      );
     });
+  }
+
+  /**
+   * Store a priced range: per date, gross the tax-exclusive amount up by that day's taxes, then
+   * queue the channel-manager push and record the change — all in the caller's transaction.
+   */
+  private async writePrices(
+    tx: Tx,
+    tenantId: string,
+    occupancyId: string,
+    ctx: { propertyId: string; roomId: string },
+    from: string,
+    to: string,
+    base: number,
+    commission: number,
+    commissionable: number,
+    actorEmail?: string,
+  ) {
+    const dates = dateRangeInclusive(from, to);
+    const taxByDate = await resolveTaxRatesForDates(tx, ctx.propertyId, dates);
+
+    let firstSelling = commissionable;
+    for (const date of dates) {
+      const selling = sellingFromCommissionable(commissionable, taxByDate.get(date)!);
+      if (date === dates[0]) firstSelling = selling;
+      const values = {
+        basePrice: base.toFixed(2),
+        commission: commission.toFixed(2),
+        sellingPrice: selling.toFixed(2),
+      };
+      await tx
+        .insert(rateCalendar)
+        .values({ tenantId, occupancyId, date, ...values })
+        .onConflictDoUpdate({
+          target: [rateCalendar.occupancyId, rateCalendar.date],
+          set: { ...values, updatedAt: sql`now()` },
+        });
+    }
+    // Transactional outbox: schedule a channel-manager rate push atomically with the change.
+    await enqueueOutbox(tx, {
+      tenantId,
+      aggregate: 'rate',
+      aggregateId: occupancyId,
+      eventType: 'ari.rate',
+      // propertyId/roomId are what the channel manager keys on — carry them so the adapter
+      // can map the event without a database round-trip.
+      payload: { propertyId: ctx.propertyId, roomId: ctx.roomId, occupancyId, from, to, base },
+    });
+    await tx.insert(ariHistory).values({
+      tenantId,
+      propertyId: ctx.propertyId,
+      roomId: ctx.roomId,
+      kind: 'price',
+      fromDate: from,
+      toDate: to,
+      detail: { occupancyId, base, commission, selling: firstSelling },
+      actorEmail: actorEmail ?? null,
+    });
+    return { updated: dates.length, base, selling: firstSelling, commission };
   }
 
   // --- Rate plans / occupancies / seasons / last-minute drops (Compartment B) ------

@@ -34,6 +34,8 @@ const ROUTES: Array<{ path: string; heading: RegExp }> = [
   { path: '/app/folios', heading: /folio|unsettled/i },
   { path: '/app/cashiering', heading: /cashiering/i },
   { path: '/app/night-audit', heading: /night audit/i },
+  // Development Phase 02.
+  { path: '/app/configuration', heading: /reservation setup/i },
 ];
 
 async function signIn(page: Page) {

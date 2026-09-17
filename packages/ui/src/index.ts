@@ -90,3 +90,4 @@ export { DataGrid, type ColumnDef } from './patterns/data-grid';
 export { AuditTrailDrawer, type AuditEntry } from './patterns/audit-trail';
 export { StatCard } from './patterns/stat-card';
 export { Toaster, toast } from './patterns/toaster';
+export { TagChip, TagDot, TagColorPicker, TAG_COLOR_KEYS, tagBarClasses } from './patterns/tag';

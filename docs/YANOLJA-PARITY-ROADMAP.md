@@ -30,6 +30,44 @@ exactly what is missing from Sprints 1–7 and what the next phase must pick up.
 
 ² Sprint 10–11 blocked on receiving Yanolja Snapshots Part 02 — see "Open items" below.
 
+### Development Phase 02 — Reservations (approved 2026-09-17)
+
+The owner's brief (`Developement Phase 02/…Reservation_Section_Changes_and_Upgrades.pdf`, 21 Yanolja
+screenshots) takes priority over Sprint 8. It rebuilds reservation **creation** and the reservation
+list to Yanolja parity: Quick Reservation, the full Add Reservation page with its Billing Summary,
+reservation types and holds, sources and segments, Bill To and invoices. It is built for Sri Lankan,
+Malaysian and Indian hotels. Sri Lanka comes first; Malaysia and India money is the last sprint.
+Every sprint deploys on its own.
+
+| Sprint | Deliverable                                                           | Migration | Status         |
+| ------ | --------------------------------------------------------------------- | --------- | -------------- |
+| P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Built**³  |
+| P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ⬜ Not started |
+| P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ⬜ Not started |
+| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ⬜ Not started |
+| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ⬜ Not started |
+| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
+| P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
+
+³ P2-S1 (2026-09-17) — on `feat/phase-02-reservations`, not yet deployed.
+
+- **Configuration → Reservation setup.** Six tabs: property profile, reservation settings, business
+  sources, market segments, payment methods, sales persons.
+- **Master lists.** Seeded per tenant from the property's country, and a country preset can be
+  added later.
+- **Business sources.** Moved out of Pro-gated cashiering. Every plan can read them; owners write.
+- **Rate control.** Owner step-up approval tokens (`POST /auth/step-up`).
+- **Fixes.** Standalone tenants store plain rates with no gross-up. Booking references,
+  dashboards and housekeeping now use the hotel's own date, not UTC.
+
+Locked rules:
+
+- A multi-room reservation is **N sibling bookings** (`<ref>-1…n`) created in one transaction.
+- Reservation **kind** is fixed in code. `bookings.inventory_held` gates every release.
+- **One pricer** serves both quote and create. The legacy pricing path moves unchanged.
+- **New maths goes in new files only.**
+- ID scans and payment slips live in **private** storage.
+
 ## Context
 
 YohoBed 2.0 today is an **OTA-distribution extranet**, not a hotel PMS. It is unusually well

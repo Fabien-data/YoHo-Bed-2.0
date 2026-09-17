@@ -355,6 +355,20 @@ CREATE POLICY tenant_isolation ON expense_vouchers
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- Reservation master lists (Development Phase 02, Sprint 1).
+
+ALTER TABLE market_segments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON market_segments;
+CREATE POLICY tenant_isolation ON market_segments
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE payment_methods ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON payment_methods;
+CREATE POLICY tenant_isolation ON payment_methods
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 -- Business date + night audit log (Yanolja-parity Sprint 7).
 
 ALTER TABLE business_dates ENABLE ROW LEVEL SECURITY;
