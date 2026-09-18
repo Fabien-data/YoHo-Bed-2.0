@@ -57,11 +57,16 @@ echo "ok — no localhost:3001 in the bundle"
 log "Pre-migration backup"
 # A migration that goes wrong must not cost up to 24h of tester data (the nightly cron is the
 # only other recovery point, and some migrations mutate data). Seconds of pg_dump buys a
-# same-minute rollback point. Kept beside the nightly dumps, pruned with them.
-BACKUP_DIR="$ROOT_DIR/backups"
+# same-minute rollback point.
+#
+# Not in $ROOT_DIR/backups: backup.sh runs as root and makes that directory root-only (700), so
+# this script, running as `yoho`, could never write there. The 2026-09-18 deploy printed the
+# WARNING below and went ahead without a pre-migration dump.
+BACKUP_DIR="$ROOT_DIR/pre-migrate"
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 PRE_DUMP="$BACKUP_DIR/pre-migrate-$(date +%Y%m%d-%H%M%S).dump"
-if pg_dump --dbname="$DATABASE_URL" --format=custom --file="$PRE_DUMP" 2>/dev/null; then
+if pg_dump --dbname="$DATABASE_URL" --format=custom --file="$PRE_DUMP"; then
   chmod 600 "$PRE_DUMP"
   # Keep only the 5 newest pre-migrate dumps.
   ls -1t "$BACKUP_DIR"/pre-migrate-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f
