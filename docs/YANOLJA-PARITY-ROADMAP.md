@@ -44,7 +44,7 @@ Every sprint deploys on its own.
 | P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Live**³   |
 | P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴   |
 | P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
-| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Built**⁶  |
+| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶   |
 | P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ⬜ Not started |
 | P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
 | P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
@@ -83,7 +83,9 @@ seen in the 2026-08-29 run); PR #4's CI run passed.
 
 ⁵ P2-S3 (2026-09-18) — live since 2026-09-18 (PR #4).
 
-⁶ P2-S4 (2026-09-18) — on `feat/phase-02-reservations`, not yet deployed.
+⁶ P2-S4 (2026-09-18) — live since 2026-09-18 (`main@a0154e3`, PR #5). The migration was rehearsed
+on a copy of the live database first (every total unchanged), and `deploy.sh` took its own
+pre-migration dump for the first time.
 
 - **Add Reservation page** (`/app/reservations/new`, and "More options" from Quick Reservation):
   booking and business source, travel agent or company with voucher, segment, sales person; Rate
