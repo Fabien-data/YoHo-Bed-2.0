@@ -204,6 +204,13 @@
       "when": 1789667599394,
       "tag": "0028_reservation_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789718945652,
+      "tag": "0029_guests_and_remarks",
+      "breakpoints": true
     }
   ]
 }

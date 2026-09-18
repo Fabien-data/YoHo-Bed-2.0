@@ -85,4 +85,30 @@ run('tenant isolation (RLS)', () => {
       ),
     ).rejects.toThrow();
   });
+
+  /**
+   * A new table with a tenant_id column but no policy in rls.sql would be readable across tenants,
+   * and nothing else would notice. Every such table is either protected or on this list, each with
+   * its reason in rls.sql.
+   */
+  it('every table with a tenant_id has RLS, apart from the documented exceptions', async () => {
+    const rows = (await sup.sql`
+      select c.relname as name
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_attribute a on a.attrelid = c.oid and a.attname = 'tenant_id' and not a.attisdropped
+      where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
+      order by 1
+    `) as unknown as Array<{ name: string }>;
+    expect(rows.map((r) => r.name)).toEqual([
+      // Written by every tenant's actions, read only by platform staff.
+      'audit_log',
+      // The channel webhook resolves the tenant FROM this table, so it cannot already have one.
+      'cm_room_mappings',
+      // Drained by the worker across all tenants.
+      'outbox',
+      // A guest leaving a review has no tenant context; the token is the key.
+      'review_invites',
+    ]);
+  });
 });

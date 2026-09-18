@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
   bookings,
   businessSources,
@@ -154,7 +154,7 @@ export class ConfigurationService {
       const today = await propertyBusinessDate(tx, propertyId, p.timezone);
       const preset = presetFor(p.countryCode);
 
-      const [sources, segments, methods, salesPersons] = await Promise.all([
+      const [sources, segments, methods, salesPersons, accounts] = await Promise.all([
         tx
           .select({
             id: businessSources.id,
@@ -211,6 +211,30 @@ export class ConfigurationService {
             ),
           )
           .orderBy(asc(ledgerAccounts.name)),
+        // Travel agents and companies a reservation can be made for. Names only: the city ledger
+        // itself (balances, statements) stays on the Pro plan.
+        tx
+          .select({
+            id: ledgerAccounts.id,
+            code: ledgerAccounts.code,
+            name: ledgerAccounts.name,
+            type: ledgerAccounts.type,
+            defaultMarketSegmentId: ledgerAccounts.defaultMarketSegmentId,
+            hasContractRates: sql<boolean>`exists (
+              select 1 from ledger_account_rates lar
+              where lar.ledger_account_id = ${ledgerAccounts.id} and lar.active
+                and lar.property_id = ${propertyId}
+            )`,
+          })
+          .from(ledgerAccounts)
+          .where(
+            and(
+              inArray(ledgerAccounts.type, ['travel_agent', 'company']),
+              eq(ledgerAccounts.active, true),
+              or(isNull(ledgerAccounts.propertyId), eq(ledgerAccounts.propertyId, propertyId)),
+            ),
+          )
+          .orderBy(asc(ledgerAccounts.name)),
       ]);
 
       return {
@@ -254,6 +278,7 @@ export class ConfigurationService {
         marketSegments: segments,
         paymentMethods: methods,
         salesPersons,
+        accounts,
       };
     });
   }

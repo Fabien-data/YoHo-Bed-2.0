@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { BOOKING_ORIGINS, RESERVATION_KINDS, RESIDENCIES } from '@yohobed/domain';
+import { ID_DOCUMENT_TYPES } from '@yohobed/locale';
+import { REMARK_TYPES } from '@yohobed/db';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:mm');
@@ -28,6 +30,73 @@ export const rateOverrideSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('discount_pct'), pct: z.number().min(0).max(100) }),
 ]);
 
+/** An identity document the desk looked at. Aadhaar: the last 4 digits (anything longer is cut). */
+export const guestDocumentSchema = z.object({
+  type: z.enum(ID_DOCUMENT_TYPES),
+  number: z.string().trim().min(1).max(40),
+  issuingCountry: countryCode.optional(),
+  placeOfIssue: z.string().trim().max(120).optional(),
+  issuedOn: isoDate.optional(),
+  expiresOn: isoDate.optional(),
+  visaNumber: z.string().trim().max(40).optional(),
+  visaType: z.string().trim().max(60).optional(),
+  visaExpiresOn: isoDate.optional(),
+  /** How it was checked: the original, a copy, or an official app. */
+  verification: z.enum(['original', 'copy', 'digital']).optional(),
+  isPrimary: z.boolean().optional(),
+});
+export type GuestDocumentInput = z.infer<typeof guestDocumentSchema>;
+
+export const guestSchema = z.object({
+  /** An existing guest. Everything else but documents is ignored when this is given. */
+  customerId: uuid.optional(),
+  title: z.string().trim().max(24).optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  email: z.string().trim().email().max(200).optional(),
+  /** As typed; read in the property's country when it has no country prefix. */
+  phone: z.string().trim().max(40).optional(),
+  whatsapp: z.boolean().optional(),
+  nationalityCode: countryCode.optional(),
+  countryCode: countryCode.optional(),
+  state: z.string().trim().max(80).optional(),
+  city: z.string().trim().max(120).optional(),
+  address: z.string().trim().max(300).optional(),
+  zip: z.string().trim().max(20).optional(),
+  gender: z.enum(['male', 'female', 'other']).optional(),
+  dateOfBirth: isoDate.optional(),
+  /** Added to the guest's profile. */
+  documents: z.array(guestDocumentSchema).max(5).optional(),
+  /** Create a new guest even though one with this email or phone exists. */
+  createNew: z.boolean().optional(),
+});
+export type GuestInput = z.infer<typeof guestSchema>;
+
+/** A guest who must be identified: an existing one, or a name for a new one. */
+export const namedGuestSchema = guestSchema.refine((g) => g.customerId || g.name, {
+  message: 'the guest needs a name',
+  path: ['name'],
+});
+
+/** A typed note on a booking; each type shows in one place (housekeeping board, folio, ...). */
+export const remarkSchema = z.object({
+  type: z.enum(REMARK_TYPES).default('general'),
+  text: z.string().trim().min(1).max(1000),
+});
+export type RemarkInput = z.infer<typeof remarkSchema>;
+
+/** "Create Task" on a room line: a job for a department, due now or at check-in / check-out. */
+export const taskSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(1000).optional(),
+  department: z
+    .enum(['housekeeping', 'maintenance', 'front_desk', 'food_beverage', 'transport', 'other'])
+    .default('front_desk'),
+  trigger: z.enum(['instant', 'checkin', 'checkout']).default('instant'),
+  deadline: isoDate.optional(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+});
+export type TaskInput = z.infer<typeof taskSchema>;
+
 /** One room of the reservation — one row of Yanolja's room grid. */
 export const reservationLineSchema = z
   .object({
@@ -42,31 +111,18 @@ export const reservationLineSchema = z
     extraBeds: z.number().int().min(0).max(10).default(0),
     /** A typed rate for this room; omit to sell at the rate calendar's price. */
     rate: rateOverrideSchema.optional(),
+    /** Guest List: this room's own guest. Omitted: the reservation's guest. */
+    guest: namedGuestSchema.optional(),
+    /** Notes for this room only. */
+    remarks: z.array(remarkSchema).max(10).optional(),
+    /** Tasks raised for this room (Pro: work orders). */
+    tasks: z.array(taskSchema).max(10).optional(),
   })
   .refine((l) => l.adults + l.children > 0, { message: 'a room needs at least one guest' })
   .refine((l) => !l.childAges || l.childAges.length <= l.children, {
     message: 'more child ages than children',
     path: ['childAges'],
   });
-
-export const guestSchema = z.object({
-  /** An existing guest. Everything else is ignored when this is given. */
-  customerId: uuid.optional(),
-  title: z.string().trim().max(24).optional(),
-  name: z.string().trim().min(1).max(200).optional(),
-  email: z.string().trim().email().max(200).optional(),
-  /** As typed; read in the property's country when it has no country prefix. */
-  phone: z.string().trim().max(40).optional(),
-  whatsapp: z.boolean().optional(),
-  nationalityCode: countryCode.optional(),
-  countryCode: countryCode.optional(),
-  state: z.string().trim().max(80).optional(),
-  city: z.string().trim().max(120).optional(),
-  address: z.string().trim().max(300).optional(),
-  zip: z.string().trim().max(20).optional(),
-  /** Create a new guest even though one with this email or phone exists. */
-  createNew: z.boolean().optional(),
-});
 
 export const reservationOptionsSchema = z
   .object({
@@ -175,11 +231,10 @@ export type QuoteReservationDto = z.infer<typeof quoteReservationSchema>;
 
 export const createReservationSchema = pricedStaySchema
   .extend({
-    guest: guestSchema.refine((g) => g.customerId || g.name, {
-      message: 'the guest needs a name',
-      path: ['name'],
-    }),
+    guest: namedGuestSchema,
     options: reservationOptionsSchema.optional(),
+    /** Notes for every room of the reservation. */
+    remarks: z.array(remarkSchema).max(10).optional(),
     /** The total the desk was quoted. A different total now is refused with 409 price_changed. */
     expectedTotal: z.number().finite().optional(),
     /** A name for the group card of a multi-room reservation. */
@@ -275,3 +330,36 @@ export const updateRatePlanSchema = z
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
 export type UpdateRatePlanDto = z.infer<typeof updateRatePlanSchema>;
+
+// --- Booking extras: guests, remarks, tasks, documents ----------------------------
+
+export const addBookingGuestSchema = namedGuestSchema;
+export type AddBookingGuestDto = z.infer<typeof addBookingGuestSchema>;
+
+export const createRemarkSchema = remarkSchema;
+export type CreateRemarkDto = z.infer<typeof createRemarkSchema>;
+
+export const createTaskSchema = taskSchema.extend({
+  /** Defaults to the booking's assigned room. */
+  roomUnitId: uuid.nullable().optional(),
+});
+export type CreateTaskDto = z.infer<typeof createTaskSchema>;
+
+export const createDocumentSchema = guestDocumentSchema;
+export type CreateDocumentDto = z.infer<typeof createDocumentSchema>;
+
+export const updateDocumentSchema = guestDocumentSchema
+  .partial()
+  .extend({
+    issuingCountry: countryCode.nullable().optional(),
+    placeOfIssue: z.string().trim().max(120).nullable().optional(),
+    issuedOn: isoDate.nullable().optional(),
+    expiresOn: isoDate.nullable().optional(),
+    visaNumber: z.string().trim().max(40).nullable().optional(),
+    visaType: z.string().trim().max(60).nullable().optional(),
+    visaExpiresOn: isoDate.nullable().optional(),
+    verification: z.enum(['original', 'copy', 'digital']).nullable().optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
+export type UpdateDocumentDto = z.infer<typeof updateDocumentSchema>;

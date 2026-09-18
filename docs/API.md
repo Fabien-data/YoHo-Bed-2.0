@@ -109,8 +109,13 @@ front desk's core job — except where a row says Pro.
 `priceReason`, `approvals { rate_override?, complimentary?, tax_exempt? }`, `couponCode`,
 `referralCode`, `options` (Other Information), `expectedTotal`, `groupName`, a `guest`, and 1–50
 `lines`. A line is one room: `roomId`, `occupancyId` (the rate type), optional `roomUnitId`,
-`adults`, `children`, `childAges`, `extraBeds`, and an optional `rate` override
-(`nightly` | `total` | `per_night` | `discount_pct`, tax-inclusive). At most 90 nights.
+`adults`, `children`, `childAges`, `extraBeds`, an optional `rate` override
+(`nightly` | `total` | `per_night` | `discount_pct`, tax-inclusive), and — from the full Add
+Reservation page (Sprint 4) — the room's own `guest` (Guest List), `remarks` and `tasks`. At most
+90 nights. The reservation-level `remarks` go on every room. A `guest` may carry `documents`
+(ID type, number, expiry, visa details, how it was checked), added to their profile; an Aadhaar
+number is cut to its last four digits. Tasks are work orders and need the Pro plan: a reservation
+with tasks on Starter is refused with **403** and nothing is saved.
 
 **What it creates.** One room is one booking. A reservation of N rooms is N sibling bookings
 referenced `<master>-1 … <master>-n`, plus a booking group (`kind: 'reservation'`) coded with the
@@ -146,19 +151,19 @@ log. A contract rate is pre-agreed and needs neither.
 
 **Errors**
 
-| Status | `reason`                    | When                                                                                                    |
-| ------ | --------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 400    | `checkin_in_past`           | Check-in is before the hotel's business date.                                                           |
-| 400    | `rate_audience`             | A local or foreign rate for a guest of the other residency, or of unknown residency.                    |
-| 400    | `price_reason_required`     | A changed price without `priceReason`.                                                                  |
-| 403    | `approval_required`         | `actions` lists the owner approvals still needed.                                                       |
-| 404    | —                           | Any id (room, rate, source, account, guest, property) that is not this tenant's.                        |
-| 409    | `insufficient_availability` | `roomName`, `date` and the `lines` (0-based) that did not fit. Nothing was saved.                       |
-| 409    | `room_taken`                | The chosen room was taken meanwhile; `line` names it. Nothing was saved.                                |
-| 409    | `room_blocked`              | The chosen room is under maintenance for those dates.                                                   |
-| 409    | `guest_exists`              | A different-named guest has this email or mobile; `candidates` to pick from, or send `guest.createNew`. |
-| 409    | `price_changed`             | The total differs from `expectedTotal`; `total` is the new one.                                         |
-| 409    | `idempotency_key_reused`    | The key was used for a different body.                                                                  |
+| Status | `reason`                    | When                                                                                                                                           |
+| ------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `checkin_in_past`           | Check-in is before the hotel's business date.                                                                                                  |
+| 400    | `rate_audience`             | A local or foreign rate for a guest of the other residency, or of unknown residency.                                                           |
+| 400    | `price_reason_required`     | A changed price without `priceReason`.                                                                                                         |
+| 403    | `approval_required`         | `actions` lists the owner approvals still needed.                                                                                              |
+| 404    | —                           | Any id (room, rate, source, account, guest, property) that is not this tenant's.                                                               |
+| 409    | `insufficient_availability` | `roomName`, `date` and the `lines` (0-based) that did not fit. Nothing was saved.                                                              |
+| 409    | `room_taken`                | The chosen room was taken meanwhile; `line` names it. Nothing was saved.                                                                       |
+| 409    | `room_blocked`              | The chosen room is under maintenance for those dates.                                                                                          |
+| 409    | `guest_exists`              | A different-named guest has this email or mobile; `candidates` to pick from, or send `guest.createNew`. `line` says which room's guest it was. |
+| 409    | `price_changed`             | The total differs from `expectedTotal`; `total` is the new one.                                                                                |
+| 409    | `idempotency_key_reused`    | The key was used for a different body.                                                                                                         |
 
 **Pricing.** Quote and create share one pricer (`ReservationPricer`), so the quoted total is the
 stored total. A night priced from the rate calendar follows the legacy engine exactly (a golden
@@ -235,14 +240,30 @@ lands in Sprint 4; a chip permanently reading zero would be worse than no chip.
 
 ## Reservations, groups & the registration card
 
-| Method & path                                 | Auth       | Purpose                                                                                                                                                        |
-| --------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /reservations?propertyId&date&tab&q`     | JWT+Tenant | One tab's rows **plus every tab's count**. Tabs: `all`, `arrivals`, `departures`, `inhouse`, `cancelled`. `q` searches reference, guest name, email and phone. |
-| `GET /bookings/:id/registration-card`         | JWT+Tenant | Everything a printed GR card needs — guest, property, rooms and charges.                                                                                       |
-| `POST /properties/:propertyId/booking-groups` | JWT+Tenant | Make a group from **two or more** bookings. **400** if any already belongs to a group, unless `force`.                                                         |
-| `GET /booking-groups/:id`                     | JWT+Tenant | The group and its members — the Group Reservation List panel.                                                                                                  |
-| `POST /booking-groups/:id/merge`              | JWT+Tenant | Add more bookings to an existing group.                                                                                                                        |
-| `DELETE /bookings/:id/group`                  | JWT+Tenant | Take one booking out of its group. The group survives even if it empties.                                                                                      |
+| Method & path                                  | Auth       | Purpose                                                                                                                                                                                                  |
+| ---------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /reservations?propertyId&date&tab&…`      | JWT+Tenant | One tab's page of rows, that tab's `total`, and **every tab's count**. Tabs: `all`, `upcoming`, `booked`, `arrivals`, `departures`, `inhouse`, `cancelled`. Paged with `limit` (≤ 200) and `offset`.     |
+| `GET /reservations/export?propertyId&date&tab` | JWT+Tenant | The same filters as the list, **every page**, as CSV (UTF-8 with a byte-order mark, up to 20,000 rows). Text cells starting `=`, `+`, `-` or `@` are prefixed with `'` so a spreadsheet never runs them. |
+| `GET /reservation-groups?propertyId&date&tab`  | JWT+Tenant | Group cards: `upcoming` (nobody arrived yet), `inhouse`, `departed`. Per group: dates, rooms live and total (`2 (3)`), pax, `total`, `paid`, `balance` and `averageRate` per room-night.                 |
+| `POST /reservation-groups/merge`               | JWT+Tenant | `{ targetGroupId, groupIds }` — Merge Group. The target's owner stays the owner; the others are emptied and removed. **409** `group_arrived` once any room has checked in.                               |
+| `GET /bookings/:id/registration-card`          | JWT+Tenant | Everything a printed GR card needs — guest, property, rooms and charges.                                                                                                                                 |
+| `POST /properties/:propertyId/booking-groups`  | JWT+Tenant | Make a group from **two or more** bookings. **400** if any already belongs to a group, unless `force`.                                                                                                   |
+| `GET /booking-groups/:id`                      | JWT+Tenant | The group and its members — the Group Reservation List panel.                                                                                                                                            |
+| `POST /booking-groups/:id/merge`               | JWT+Tenant | Add more bookings to an existing group.                                                                                                                                                                  |
+| `DELETE /bookings/:id/group`                   | JWT+Tenant | Take one booking out of its group. The group survives even if it empties.                                                                                                                                |
+
+**List filters.** `q` searches reference (a master reference finds every room of the
+reservation), voucher, guest name, email and phone (5+ digits also match the normalised mobile).
+`kind` is one reservation type or `holds` (both hold kinds); `origin`, `businessSourceId`,
+`marketSegmentId`, `ledgerAccountId`, `createdBy` (who took it) and `groupsOnly` narrow further.
+`groupId` lists one group's rooms whatever their dates — the tab is ignored. The counts respect
+every filter, so "Holds" counts only holds on each tab. `upcoming` is everything still to come
+from `date` on; `booked` is what was taken on `date` in the hotel's own timezone.
+
+**Each row** carries the pax (`adults`, `children` over its live legs), `extraGuests` and
+`remarks` counts, `roomTypeName`, `rateCode`, `roomCodes`, source and segment names and codes,
+`createdByName`, `voucherNo`, the arrival and departure times, and the money: `total` (room after
+coupon, plus any non-room folio charges), `paid` (received less refunded) and `balance`.
 
 Counts come back on **every** request, not just for the active tab: the numbers are the
 navigation — staff pick a tab _because_ it says 4 — and a stale count sends them to an empty
@@ -254,6 +275,22 @@ keeps its own amount, folio and lifecycle. The group `total` is a presentational
 independent bookings, not a combined folio. That is what lets Yanolja's `3359-1` / `3359-2`
 presentation exist without changing how anything is priced or settled.
 
+### A booking's guests, remarks, tasks and ID documents (Sprint 4)
+
+| Method & path                             | Auth            | Purpose                                                                                                                                                   |
+| ----------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /bookings/:id/guests`                | JWT+Tenant      | `{ primary, others }`: the guest the room is booked for and anyone else sharing it.                                                                       |
+| `POST /bookings/:id/guests`               | JWT+Tenant      | Add someone sharing the room — an existing guest by `customerId`, or name/email/phone (same duplicate check as a reservation). **409** `already_primary`. |
+| `DELETE /bookings/:id/guests/:customerId` | JWT+Tenant      | Take them off the booking; the guest profile stays.                                                                                                       |
+| `GET` / `POST /bookings/:id/remarks`      | JWT+Tenant      | Typed notes: `general`, `front_desk`, `housekeeping`, `accounts`, `kitchen`, `preference`.                                                                |
+| `DELETE /booking-remarks/:id`             | JWT+Tenant      | By the person who wrote it, or the owner (**403** otherwise).                                                                                             |
+| `GET` / `POST /bookings/:id/tasks`        | JWT+Tenant, Pro | Work orders raised from the booking: `department`, `trigger` (`instant`, `checkin`, `checkout`), `deadline`, `priority`. Defaults to the guest's room.    |
+| `GET` / `POST /customers/:id/documents`   | JWT+Tenant      | ID documents. The number is validated for its type (NIC, MyKad, passport…); Aadhaar keeps only its last 4 digits. One `isPrimary` per guest.              |
+| `PATCH` / `DELETE /guest-documents/:id`   | JWT+Tenant      | Change or remove one. A changed type re-checks the number already stored.                                                                                 |
+
+A task due at check-in or check-out is **waiting** until then: the work-order list returns it with
+`waiting: true`, and Room View's work-order badge does not count it.
+
 `PATCH /customers/:id` records the guest depth the card and reporting need — nationality, ID type
 and number, date of birth, address and the VIP flag — plus the regional profile of Development
 Phase 02: title, given/family name, WhatsApp, ISO nationality and country codes, state, zip,
@@ -263,14 +300,14 @@ arrives with a name and little else, and demanding more would block the check-in
 
 ## Room view & housekeeping
 
-| Method & path                                                     | Auth       | Purpose                                                                                                |
-| ----------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
-| `GET /room-view?propertyId&date`                                  | JWT+Tenant | Every room as a card: derived state, housekeeping flag, the stay in it, VIP/balance/work-order badges. |
-| `GET /house-status/summary?propertyId&date`                       | JWT+Tenant | Counts for the status chips.                                                                           |
-| `POST /properties/:propertyId/housekeeping`                       | JWT+Tenant | Set a room's housekeeping state for a date. Upserts — rows are created lazily.                         |
-| `POST /properties/:propertyId/housekeeping/mark-departures-dirty` | JWT+Tenant | The morning sweep: every room a guest left today becomes dirty, and no others.                         |
-| `GET` / `POST /properties/:propertyId/work-orders`                | JWT+Tenant | Maintenance jobs. **Pro and above.**                                                                   |
-| `PATCH /work-orders/:id`                                          | JWT+Tenant | Update or complete one. **409** on reopening a completed order. **Pro and above.**                     |
+| Method & path                                                     | Auth       | Purpose                                                                                                 |
+| ----------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| `GET /room-view?propertyId&date`                                  | JWT+Tenant | Every room as a card: derived state, housekeeping flag, the stay in it, VIP/balance/work-order badges.  |
+| `GET /house-status/summary?propertyId&date`                       | JWT+Tenant | Counts for the status chips.                                                                            |
+| `POST /properties/:propertyId/housekeeping`                       | JWT+Tenant | Set a room's housekeeping state for a date. Upserts — rows are created lazily.                          |
+| `POST /properties/:propertyId/housekeeping/mark-departures-dirty` | JWT+Tenant | The morning sweep: every room a guest left today becomes dirty, and no others.                          |
+| `GET` / `POST /properties/:propertyId/work-orders`                | JWT+Tenant | Maintenance jobs, with `department`, `trigger`, the booking reference and `waiting`. **Pro and above.** |
+| `PATCH /work-orders/:id`                                          | JWT+Tenant | Update or complete one. **409** on reopening a completed order. **Pro and above.**                      |
 
 Room View and the House Status grid share one code path — they are the same data rendered two
 ways, so the two screens cannot disagree about whether room 05 is dirty.

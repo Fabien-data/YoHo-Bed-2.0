@@ -13,6 +13,7 @@ import {
   bookingApprovals,
   bookingDays,
   bookingGroups,
+  bookingRemarks,
   bookingRooms,
   bookings,
   businessSources,
@@ -35,6 +36,7 @@ import {
   roomUnits,
   templates,
   tenants,
+  workOrders,
   type Tx,
 } from '@yohobed/db';
 import {
@@ -54,7 +56,6 @@ import {
   type Residency,
   type TaxLine,
 } from '@yohobed/domain';
-import { normalizePhone } from '@yohobed/locale';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
 import { BillingService } from '../billing/billing.service';
@@ -64,6 +65,7 @@ import { localToday, propertyBusinessDate } from '../common/local-date';
 import { resolveFxRateToLkr } from '../common/fx-rate';
 import { ReservationPricer, type PricedLine, type PricingPolicy } from './pricer';
 import type { PricingSnapshot } from './pricing-snapshot';
+import { resolveGuest, type ResolvedGuest } from './guest-resolver';
 import type { CreateReservationDto, QuoteReservationDto } from './dto';
 
 /** Who is asking — the desk user and their role in the tenant. */
@@ -292,6 +294,16 @@ export class ReservationService {
     // Price authority: staff beyond their limits need an owner's approval on the spot.
     const approvedBy = await this.verifyApprovals(actor, dto, p);
 
+    // Tasks are work orders, which are Pro. Say so before anything is written.
+    if (dto.lines.some((l) => l.tasks?.length)) {
+      const { features } = await this.billing.entitlements(tenantId, tx);
+      if (!features.work_orders) {
+        throw new ForbiddenException(
+          'Tasks are part of the Pro plan (work orders). Save the reservation without them, or upgrade.',
+        );
+      }
+    }
+
     if (dto.expectedTotal !== undefined && Math.abs(dto.expectedTotal - p.totals.due) > 0.004) {
       throw new ConflictException({
         reason: 'price_changed',
@@ -341,8 +353,21 @@ export class ReservationService {
       }
     }
 
-    // 2. The guest.
-    const guest = await this.resolveGuest(tx, tenantId, dto.guest, p.property.countryCode);
+    // 2. The guest, and each room's own guest when the Guest List is used. The reservation's
+    //    guest owns the group; a room without its own guest is booked for them.
+    const country = p.property.countryCode;
+    const guest = await resolveGuest(tx, tenantId, dto.guest, country, { userId: actor.userId });
+    const roomGuests = new Map<number, ResolvedGuest>();
+    for (const l of p.lines) {
+      if (!l.dto.guest) continue;
+      roomGuests.set(
+        l.index,
+        await resolveGuest(tx, tenantId, l.dto.guest, country, {
+          line: l.index,
+          userId: actor.userId,
+        }),
+      );
+    }
 
     // 3. References: one master, `<master>-n` for each room of a multi-room reservation.
     const master = await nextBookingReference(tx, p.calendarToday);
@@ -392,7 +417,7 @@ export class ReservationService {
           propertyId: p.property.id,
           roomId: l.dto.roomId,
           occupancyId: l.dto.occupancyId,
-          customerId: guest.id,
+          customerId: (roomGuests.get(l.index) ?? guest).id,
           groupId,
           businessSourceId: p.businessSourceId,
           ledgerAccountId: p.ledgerAccountId,
@@ -479,6 +504,37 @@ export class ReservationService {
         reason: meta.label,
         actorUserId: actor.userId,
       });
+
+      // Notes for the whole reservation, then this room's own.
+      const remarks = [...(dto.remarks ?? []), ...(l.dto.remarks ?? [])];
+      if (remarks.length > 0) {
+        await tx.insert(bookingRemarks).values(
+          remarks.map((r) => ({
+            tenantId,
+            bookingId: booking!.id,
+            type: r.type,
+            text: r.text,
+            createdByUserId: actor.userId,
+          })),
+        );
+      }
+      if (l.dto.tasks?.length) {
+        await tx.insert(workOrders).values(
+          l.dto.tasks.map((t) => ({
+            tenantId,
+            propertyId: p.property.id,
+            bookingId: booking!.id,
+            roomUnitId: meta.holdsInventory ? (l.unit?.id ?? null) : null,
+            title: t.title,
+            description: t.description ?? null,
+            department: t.department,
+            trigger: t.trigger,
+            priority: t.priority,
+            deadline: t.deadline ?? null,
+            createdByUserId: actor.userId,
+          })),
+        );
+      }
       created.push({ line: l, booking: booking! });
     }
 
@@ -597,6 +653,7 @@ export class ReservationService {
         rateCode: line.priced.rateCode,
         roomUnitId: meta.holdsInventory ? (line.unit?.id ?? null) : null,
         roomCode: meta.holdsInventory ? (line.unit?.code ?? null) : null,
+        guestName: (roomGuests.get(line.index) ?? guest).name,
         amount: booking.amount,
         taxes: booking.taxes,
         discount: booking.discount,
@@ -925,76 +982,6 @@ export class ReservationService {
     return approvedBy;
   }
 
-  /**
-   * The guest: an existing one by id, or a new one. A new guest whose email or mobile already
-   * belongs to someone is reused only when the name matches too — otherwise the desk is asked to
-   * choose, because silently attaching a stay to the wrong person's history is worse than a
-   * question.
-   */
-  private async resolveGuest(
-    tx: Tx,
-    tenantId: string,
-    g: CreateReservationDto['guest'],
-    country: string,
-  ): Promise<{ id: string; name: string; email: string | null; created: boolean }> {
-    if (g.customerId) {
-      const [c] = await tx.select().from(customers).where(eq(customers.id, g.customerId));
-      if (!c) throw new NotFoundException('Guest not found');
-      return { id: c.id, name: c.name, email: c.email, created: false };
-    }
-
-    const name = g.name!.trim();
-    const email = g.email?.trim().toLowerCase() || null;
-    const phone = g.phone ? normalizePhone(g.phone, country) : null;
-    const mobileE164 = phone?.e164 ?? null;
-
-    if (!g.createNew && (email || mobileE164)) {
-      const matches = await tx
-        .select({
-          id: customers.id,
-          name: customers.name,
-          email: customers.email,
-          phone: customers.phone,
-        })
-        .from(customers)
-        .where(
-          sql`(${email !== null ? sql`lower(${customers.email}) = ${email}` : sql`false`})
-            or (${mobileE164 !== null ? sql`${customers.mobileE164} = ${mobileE164}` : sql`false`})`,
-        )
-        .limit(5);
-      const same = matches.find((m) => sameName(m.name, name));
-      if (same) return { id: same.id, name: same.name, email: same.email, created: false };
-      if (matches.length > 0) {
-        throw new ConflictException({
-          reason: 'guest_exists',
-          message:
-            'A guest with this email or mobile already exists under another name. Pick them, or save as a new guest.',
-          candidates: matches,
-        });
-      }
-    }
-
-    const [c] = await tx
-      .insert(customers)
-      .values({
-        tenantId,
-        name,
-        title: g.title ?? null,
-        email,
-        phone: g.phone ?? null,
-        mobileE164,
-        whatsapp: g.whatsapp ?? false,
-        nationalityCode: g.nationalityCode ?? null,
-        countryCode: g.countryCode ?? null,
-        state: g.state ?? null,
-        city: g.city ?? null,
-        address: g.address ?? null,
-        zip: g.zip ?? null,
-      })
-      .returning();
-    return { id: c!.id, name: c!.name, email: c!.email, created: true };
-  }
-
   /** Rooms of each type free on every night (a closed or unopened night counts as none). */
   private async freeRooms(tx: Tx, roomIds: string[], nights: string[]) {
     const out = new Map<string, number>();
@@ -1036,14 +1023,4 @@ export class ReservationService {
       amount: money(e.cents / 100),
     }));
   }
-}
-
-/** Names match ignoring case, spacing and punctuation: "D. Perera" = "d perera". */
-function sameName(a: string, b: string): boolean {
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .trim();
-  return norm(a) === norm(b);
 }

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Post,
@@ -17,9 +18,15 @@ import { ReservationsService } from './reservations.service';
 import {
   makeGroupSchema,
   mergeGroupSchema,
+  mergeGroupsSchema,
+  reservationExportSchema,
+  reservationGroupQuerySchema,
   reservationQuerySchema,
   type MakeGroupDto,
   type MergeGroupDto,
+  type MergeGroupsDto,
+  type ReservationExportDto,
+  type ReservationGroupQueryDto,
   type ReservationQueryDto,
 } from './dto';
 
@@ -35,6 +42,36 @@ export class ReservationsController {
     @Query(new ZodValidationPipe(reservationQuerySchema)) q: ReservationQueryDto,
   ) {
     return this.reservations.search(tenantId, q);
+  }
+
+  /** Every row of a tab as CSV, with the list's filters — not just the page on screen. */
+  @Get('reservations/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Cache-Control', 'no-store')
+  async export(
+    @TenantId() tenantId: string,
+    @Query(new ZodValidationPipe(reservationExportSchema)) q: ReservationExportDto,
+  ) {
+    return this.reservations.exportCsv(tenantId, q);
+  }
+
+  /** Yanolja's group view: one card per group, its rooms added up. */
+  @Get('reservation-groups')
+  groups(
+    @TenantId() tenantId: string,
+    @Query(new ZodValidationPipe(reservationGroupQuerySchema)) q: ReservationGroupQueryDto,
+  ) {
+    return this.reservations.groups(tenantId, q);
+  }
+
+  /** Merge whole groups into one; the kept group's owner stays the owner. */
+  @Post('reservation-groups/merge')
+  @HttpCode(200)
+  mergeGroups(
+    @TenantId() tenantId: string,
+    @Body(new ZodValidationPipe(mergeGroupsSchema)) dto: MergeGroupsDto,
+  ) {
+    return this.reservations.mergeGroups(tenantId, dto);
   }
 
   /** Everything a printed registration card needs — Yanolja's "Print GR". */

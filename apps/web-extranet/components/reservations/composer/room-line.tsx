@@ -28,7 +28,7 @@ const CHILDREN = [0, 1, 2, 3, 4, 5, 6];
 
 /** The grid's column template — shared with the header row so they line up. */
 export const LINE_GRID =
-  'grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_4.5rem_4.5rem_minmax(0,1.1fr)_2rem] sm:items-start';
+  'grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.3fr)_minmax(0,0.9fr)_4rem_4rem_minmax(0,1.1fr)_2rem] sm:items-start';
 
 /**
  * One room of the reservation — one row of Yanolja's grid: Room Type · Rate Type · Room · Adult ·

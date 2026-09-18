@@ -63,6 +63,74 @@ function barGeometry(dates: string[], bar: StayBar) {
   };
 }
 
+/**
+ * Pack bars into rows so none overlaps another: first row with room, else a new row. The
+ * Unassigned and Tentative lanes hold many bookings over the same nights (a five-room group with
+ * no room numbers yet is five bars on the same dates); drawn in one row, all but one were hidden.
+ */
+export function stackBars(bars: StayBar[]): StayBar[][] {
+  const rows: Array<{ end: string; bars: StayBar[] }> = [];
+  for (const b of [...bars].sort(
+    (x, y) => x.from.localeCompare(y.from) || x.to.localeCompare(y.to),
+  )) {
+    const row = rows.find((r) => r.end <= b.from);
+    if (row) {
+      row.bars.push(b);
+      row.end = b.to;
+    } else {
+      rows.push({ end: b.to, bars: [b] });
+    }
+  }
+  return rows.map((r) => r.bars);
+}
+
+function StackedLane({
+  label,
+  bars,
+  dates,
+  onSelect,
+  tone,
+}: {
+  label: string;
+  bars: StayBar[];
+  dates: string[];
+  onSelect: (bar: StayBar) => void;
+  tone: 'low' | 'info';
+}) {
+  const rows = stackBars(bars);
+  const bg = tone === 'low' ? 'bg-low-soft' : 'bg-info-soft';
+  return (
+    <div className={cn('flex border-b border-line', bg)} data-lane={label}>
+      <div
+        className={cn(
+          'sticky left-0 z-10 flex shrink-0 items-start border-r border-line px-3 pt-3',
+          bg,
+        )}
+        style={{ width: LABEL_W, minHeight: ROW_H }}
+      >
+        <span
+          className={cn('text-xs font-bold', tone === 'low' ? 'text-low-ink' : 'text-info-ink')}
+        >
+          {label} ({bars.length})
+        </span>
+      </div>
+      <div className="flex shrink-0 flex-col">
+        {rows.map((row, i) => (
+          <div
+            key={i}
+            className="relative shrink-0"
+            style={{ ...gridBackground(dates), height: ROW_H }}
+          >
+            {row.map((b) => (
+              <Bar key={b.id} bar={b} dates={dates} onSelect={onSelect} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Bar({
   bar,
   dates,
@@ -290,42 +358,26 @@ export function TapeChart({
           </div>
         ))}
 
-        {/* Unassigned — Yanolja's "Default Unmapped Room" row */}
+        {/* Unassigned — Yanolja's "Default Unmapped Room" row, one line per overlapping stay */}
         {data.unassigned.length > 0 && (
-          <div className="flex border-b border-line bg-low-soft">
-            <div
-              className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-low-soft px-3"
-              style={{ width: LABEL_W, height: ROW_H }}
-            >
-              <span className="text-xs font-bold text-low-ink">
-                Unassigned ({data.unassigned.length})
-              </span>
-            </div>
-            <div className="relative shrink-0" style={{ ...gridBackground(dates), height: ROW_H }}>
-              {data.unassigned.map((b) => (
-                <Bar key={b.id} bar={b} dates={dates} onSelect={onSelectBar} />
-              ))}
-            </div>
-          </div>
+          <StackedLane
+            label="Unassigned"
+            bars={data.unassigned}
+            dates={dates}
+            onSelect={onSelectBar}
+            tone="low"
+          />
         )}
 
         {/* Tentative — inquiries hold no room; they are shown, never counted */}
         {(data.tentative?.length ?? 0) > 0 && (
-          <div className="flex border-b border-line bg-info-soft">
-            <div
-              className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-info-soft px-3"
-              style={{ width: LABEL_W, height: ROW_H }}
-            >
-              <span className="text-xs font-bold text-info-ink">
-                Tentative ({data.tentative!.length})
-              </span>
-            </div>
-            <div className="relative shrink-0" style={{ ...gridBackground(dates), height: ROW_H }}>
-              {data.tentative!.map((b) => (
-                <Bar key={b.id} bar={b} dates={dates} onSelect={onSelectBar} />
-              ))}
-            </div>
-          </div>
+          <StackedLane
+            label="Tentative"
+            bars={data.tentative!}
+            dates={dates}
+            onSelect={onSelectBar}
+            tone="info"
+          />
         )}
 
         {/* Sticky metric footer */}

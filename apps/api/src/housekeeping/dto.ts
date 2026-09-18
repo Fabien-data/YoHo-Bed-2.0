@@ -26,6 +26,9 @@ export const createWorkOrderSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
   assignedToUserId: z.string().uuid().optional(),
   deadline: isoDate.optional(),
+  department: z
+    .enum(['housekeeping', 'maintenance', 'front_desk', 'food_beverage', 'transport', 'other'])
+    .optional(),
 });
 export type CreateWorkOrderDto = z.infer<typeof createWorkOrderSchema>;
 

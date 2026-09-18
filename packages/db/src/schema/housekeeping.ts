@@ -1,6 +1,18 @@
-import { pgTable, pgEnum, uuid, text, date, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  date,
+  timestamp,
+  unique,
+  index,
+  check,
+} from 'drizzle-orm/pg-core';
 import { tenants, properties, users } from './identity';
 import { roomUnits } from './inventory';
+import { bookings } from './bookings';
 
 /**
  * The housekeeping cycle every hotel runs on: a departed room is `dirty`, the attendant makes it
@@ -103,10 +115,33 @@ export const workOrders = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The reservation a task was raised from ("Create Task" on a room line): an airport pick-up,
+     * a cot in the room, flowers on arrival. Null for a task about the building.
+     */
+    bookingId: uuid('booking_id').references(() => bookings.id, { onDelete: 'set null' }),
+    /** Who does it. */
+    department: text('department').notNull().default('maintenance'),
+    /**
+     * When it becomes due: straight away, when the guest checks in, or when they check out. A task
+     * waiting for its trigger is not on anyone's list yet. Only a task with a booking can wait;
+     * the API enforces that (a CHECK would make deleting the booking fail, since the link is SET
+     * NULL).
+     */
+    trigger: text('trigger').notNull().default('instant'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     propertyStatusIdx: index('work_orders_property_status_idx').on(t.propertyId, t.status),
+    bookingIdx: index('work_orders_booking_idx').on(t.bookingId),
+    departmentValid: check(
+      'work_orders_department_valid',
+      sql`${t.department} in ('housekeeping', 'maintenance', 'front_desk', 'food_beverage', 'transport', 'other')`,
+    ),
+    triggerValid: check(
+      'work_orders_trigger_valid',
+      sql`${t.trigger} in ('instant', 'checkin', 'checkout')`,
+    ),
   }),
 );

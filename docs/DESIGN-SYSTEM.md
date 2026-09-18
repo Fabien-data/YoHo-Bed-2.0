@@ -127,6 +127,13 @@ Changes to existing components:
 - `Select` ignores the empty-string echo from Radix's hidden native `<select>`.
 - `Checkbox` supports `checked="indeterminate"`.
 - `TagChip`, `TagDot` and `TagColorPicker` use the categorical palette.
+- `DataGrid` (Sprint 4), all optional: `selection` (a checkbox column with select-all for the
+  page), `columnVisibility` from `useColumnVisibility(gridId, hiddenByDefault)` — remembered per
+  grid in the browser — edited by **`ManageColumns`**, server `pagination` (`1–25 of 132`, rows
+  per page, previous/next; turns client sorting off), `rowActions` (a trailing ⋮ column),
+  `stickyFirstColumn`, `density="compact"` for wide operational lists, and `minWidth` below which
+  it scrolls sideways. The scroll box is `relative`, so nothing inside it (a screen-reader-only
+  label) can widen the page on a phone.
 
 Conventions:
 

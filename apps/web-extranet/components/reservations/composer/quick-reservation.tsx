@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, ShieldCheck } from '@phosphor-icons/react';
+import { ArrowSquareOut, Plus, ShieldCheck } from '@phosphor-icons/react';
 import {
   Button,
   Combobox,
@@ -26,12 +26,11 @@ import {
   toast,
   type ComboboxOption,
 } from '@yohobed/ui';
-import { addDaysIso, formatDate } from '@yohobed/locale';
+import { addDaysIso } from '@yohobed/locale';
 import {
   ApiError,
   createReservation,
   getRoomAvailability,
-  quoteReservation,
   type GuestMatch,
   type ReservationCreated,
 } from '@/lib/api';
@@ -52,70 +51,16 @@ import {
 import { LINE_GRID, RoomLine } from './room-line';
 import { GuestFields } from './guest-fields';
 import { ApprovalDialog } from './approval-dialog';
-
-const CATEGORY_LABEL: Record<string, string> = {
-  direct: 'Direct',
-  ota: 'OTA',
-  travel_agent: 'Travel agent',
-  corporate: 'Corporate',
-};
+import {
+  CATEGORY_LABEL,
+  explain,
+  localNowPlus,
+  newIdempotencyKey,
+  useLiveQuote,
+  type ServerError,
+} from './shared';
 
 const QUICK_KINDS: QuickKind[] = ['confirm', 'inquiry', 'hold_confirm'];
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = React.useState(value);
-  React.useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
-function localNowPlus(hours: number) {
-  const d = new Date(Date.now() + hours * 3_600_000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes() - (d.getMinutes() % 5))}`,
-  };
-}
-
-interface ServerError {
-  message: string;
-  /** Per-line messages, by line index. */
-  lines?: Record<number, string>;
-  guests?: Array<{ id: string; name: string; email: string | null; phone: string | null }>;
-}
-
-/** Turn an API refusal into something the desk can act on, next to what caused it. */
-function explain(e: unknown): ServerError {
-  if (!(e instanceof ApiError)) return { message: 'Something went wrong. Try again.' };
-  const d = (e.data ?? {}) as Record<string, unknown>;
-  const reason = d.reason as string | undefined;
-  const message = (d.message as string | undefined) ?? e.message;
-  if (reason === 'insufficient_availability' && Array.isArray(d.lines)) {
-    const lines = Object.fromEntries(
-      (d.lines as number[]).map((i) => [i, `Not enough free on ${formatDate(d.date as string)}`]),
-    );
-    return { message, lines };
-  }
-  if (reason === 'room_taken' || reason === 'room_blocked') {
-    return { message, lines: typeof d.line === 'number' ? { [d.line]: message } : undefined };
-  }
-  if (reason === 'guest_exists') {
-    return {
-      message: 'Choose the existing guest, or save this one as new.',
-      guests: d.candidates as ServerError['guests'],
-    };
-  }
-  if (reason === 'idempotency_key_reused') {
-    return {
-      message:
-        'This reservation may already have been saved on an earlier attempt. Check the Reservations list before trying again.',
-    };
-  }
-  return { message };
-}
 
 /**
  * Yanolja's Quick Reservation — a half-width sheet that takes a reservation without leaving the
@@ -130,11 +75,14 @@ export function QuickReservationSheet({
   prefill,
   onOpenChange,
   onCreated,
+  onMoreOptions,
 }: {
   open: boolean;
   prefill: Prefill | null;
   onOpenChange: (open: boolean) => void;
   onCreated: (r: ReservationCreated) => void;
+  /** Carry this draft to the full Add Reservation page. */
+  onMoreOptions?: (draft: Draft) => void;
 }) {
   const qc = useQueryClient();
   const { propertyId, property } = useActiveProperty();
@@ -193,10 +141,7 @@ export function QuickReservationSheet({
     setShowCoupon(false);
     setTriedSubmit(false);
     setPendingSubmit(false);
-    idempotencyKey.current =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    idempotencyKey.current = newIdempotencyKey();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cfg?.property.id]);
 
@@ -237,26 +182,9 @@ export function QuickReservationSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grid.data]);
 
-  // The live quote. The reason and approvals do not change the price, so typing the reason does
-  // not re-quote on every keystroke.
+  // The live quote, and whether it is for exactly what the form now says.
   const stay = draft && propertyId ? stayBody(propertyId, draft) : null;
-  const body = stay ? { ...stay, priceReason: undefined, approvals: undefined } : null;
-  const bodyKey = useDebounced(body ? JSON.stringify(body) : null, 300);
-  const quote = useQuery({
-    queryKey: ['reservation-quote', bodyKey],
-    queryFn: () => quoteReservation(JSON.parse(bodyKey!)),
-    enabled: open && bodyKey !== null,
-    placeholderData: (prev) => prev,
-    retry: false,
-  });
-  // The quote on screen may be the previous one, kept while the new one loads (placeholder
-  // data). Only a quote for exactly this form may be booked against, or the "expected total"
-  // sent would be the old one and the server would rightly refuse it.
-  const quoteCurrent =
-    Boolean(quote.data) &&
-    !quote.isPlaceholderData &&
-    !quote.isFetching &&
-    bodyKey === (body ? JSON.stringify(body) : null);
+  const { quote, current: quoteCurrent } = useLiveQuote(stay, open);
 
   const save = useMutation({
     mutationFn: () => {
@@ -408,6 +336,19 @@ export function QuickReservationSheet({
                 {pax.children > 0 && `, ${pax.children} child${pax.children === 1 ? '' : 'ren'}`}
               </span>
               <div className="flex-1" />
+              {onMoreOptions && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    onMoreOptions(draft);
+                    onOpenChange(false);
+                  }}
+                >
+                  <ArrowSquareOut size={14} />
+                  More options
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={() => requestClose(false)}>
                 Cancel
               </Button>

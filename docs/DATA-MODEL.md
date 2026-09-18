@@ -265,6 +265,24 @@ same reason the drawer variance is.
 
 | `reservation_requests` | ✅ | Idempotency for `POST /reservations`: `(tenant_id, idempotency_key)` unique, a hash of the body and the first response. Pruned after two days. |
 
+### Guests, documents and remarks (`schema/guests.ts`, migration 0029)
+
+| Table             | RLS | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------- | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `booking_guests`  | ✅  | Anyone sharing a room besides the guest it is booked for (`bookings.customer_id`). `UNIQUE(booking_id, customer_id)`. With the Guest List, each sibling booking already has its own `customer_id`; this table is for the second person in a room.                                                                                                                                                                                                                    |
+| `guest_documents` | ✅  | ID documents checked at the desk: `type` (CHECK: nic, mykad, mypr, aadhaar, passport, driving_licence, voter_id, oci, other), `number`, issuing country, place and dates of issue and expiry, visa number/type/expiry, `verification` (original/copy/digital) with who and when, one `is_primary`. **CHECK: an Aadhaar number is exactly 4 digits** — UIDAI forbids keeping more, so no code path can. Scans go to the private file store (Sprint 5), never `media`. |
+| `booking_remarks` | ✅  | Typed notes on a booking (CHECK: general, front_desk, housekeeping, accounts, kitchen, preference), non-blank, with author and time.                                                                                                                                                                                                                                                                                                                                 |
+
+`work_orders` (housekeeping) gains `booking_id` (SET NULL), `department` (CHECK: housekeeping,
+maintenance, front_desk, food_beverage, transport, other) and `trigger` (CHECK: instant, checkin,
+checkout). A task that waits for check-in or check-out is due only once its booking reaches that
+state — computed in the query, not stored. Only the API requires a booking for a waiting task: a
+CHECK would make deleting the booking fail, because the link is SET NULL.
+
+Every table with a `tenant_id` has RLS, except four documented in `rls.sql` (`audit_log`,
+`cm_room_mappings`, `outbox`, `review_invites`); `packages/db/test/isolation.test.ts` fails if a
+new table appears without a policy.
+
 ### Holding rooms: `inventory_held` (Development Phase 02)
 
 Whether a booking has rooms out of `availability_calendar` is the single most important fact in
