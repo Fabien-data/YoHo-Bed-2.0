@@ -51,6 +51,20 @@ export interface RoomCard {
   openWorkOrders: number;
 }
 
+/**
+ * Whether a work order is due: straight away, or its reservation has reached the moment the task
+ * waits for (check-in, check-out). Named tables, not column interpolation: this runs inside
+ * queries that also join `bookings`.
+ */
+const taskIsDue = sql`(work_orders.trigger = 'instant' or exists (
+  select 1 from bookings tb
+  where tb.id = work_orders.booking_id
+    and (
+      (work_orders.trigger = 'checkin' and tb.status in ('CheckedIn', 'CheckedOut'))
+      or (work_orders.trigger = 'checkout' and tb.status = 'CheckedOut')
+    )
+))`;
+
 @Injectable()
 export class HousekeepingService {
   constructor(private readonly dbs: DatabaseService) {}
@@ -140,6 +154,7 @@ export class HousekeepingService {
             and(
               eq(workOrders.propertyId, propertyId),
               sql`${workOrders.status} in ('open', 'in_progress')`,
+              taskIsDue,
             ),
           )
           .groupBy(workOrders.roomUnitId),
@@ -331,6 +346,13 @@ export class HousekeepingService {
           description: workOrders.description,
           priority: workOrders.priority,
           status: workOrders.status,
+          department: workOrders.department,
+          trigger: workOrders.trigger,
+          bookingId: workOrders.bookingId,
+          bookingReference: bookings.reference,
+          // A task raised on a reservation for check-in (say, flowers in the room) is not due
+          // until the guest arrives; the list shows it, flagged, rather than as open work.
+          waiting: sql<boolean>`not ${taskIsDue}`,
           assignedToUserId: workOrders.assignedToUserId,
           assignedToName: users.name,
           deadline: workOrders.deadline,
@@ -340,6 +362,7 @@ export class HousekeepingService {
         .from(workOrders)
         .leftJoin(roomUnits, eq(roomUnits.id, workOrders.roomUnitId))
         .leftJoin(users, eq(users.id, workOrders.assignedToUserId))
+        .leftJoin(bookings, eq(bookings.id, workOrders.bookingId))
         .where(eq(workOrders.propertyId, propertyId))
         .orderBy(desc(workOrders.createdAt)),
     );

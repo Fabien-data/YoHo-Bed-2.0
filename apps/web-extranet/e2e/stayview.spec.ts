@@ -70,9 +70,10 @@ test('keeps the room column pinned while the dates scroll', async ({ page }) => 
 });
 
 test('opens the reservation slide-over from a bar', async ({ page }) => {
-  // The seed books stays in Aug 2026; jump the window there so bars are on screen.
-  await page.getByLabel(/window start date/i).fill('2026-08-01');
-
+  // The demo data books stays around the day it was seeded, so look in the window that opens.
+  // Count only once the chart has settled: counting straight after a window change caught a bar
+  // from the old window, which then vanished while the click waited for it.
+  await page.waitForLoadState('networkidle');
   const bar = page.locator('button', { hasText: /Direct|OTA|YoHo/ }).first();
   if ((await bar.count()) === 0) test.skip(true, 'no bars in the seeded window');
 

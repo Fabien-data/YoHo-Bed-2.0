@@ -344,6 +344,9 @@ export async function login(email: string, password = PASSWORD): Promise<string>
 export interface Res<T = any> {
   status: number;
   body: T;
+  /** The raw response body — for non-JSON responses such as a CSV export. */
+  text: string;
+  headers: Record<string, string>;
 }
 
 /** Minimal HTTP client against the in-process app (supertest without the chaining ceremony). */
@@ -366,7 +369,12 @@ export async function request<T = any>(
   for (const [k, v] of Object.entries(opts.headers ?? {})) req = req.set(k, v);
   if (opts.body !== undefined) req = req.send(opts.body as object);
   const res = await req;
-  return { status: res.status, body: res.body as T };
+  return {
+    status: res.status,
+    body: res.body as T,
+    text: res.text,
+    headers: res.headers as Record<string, string>,
+  };
 }
 
 /** Open inventory + set a base price for a range — the usual precondition for booking tests. */

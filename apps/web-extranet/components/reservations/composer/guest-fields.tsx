@@ -18,15 +18,7 @@ import {
 import { formatPhone } from '@yohobed/locale';
 import { searchGuests, type GuestMatch } from '@/lib/api';
 import type { GuestDraft } from './draft';
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = React.useState(value);
-  React.useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
+import { useDebounced } from './shared';
 
 /**
  * Title · Full Name · Mobile · Email — and, while the desk types, the returning guests that match.
@@ -40,6 +32,8 @@ export function GuestFields({
   titles,
   country,
   conflict,
+  idPrefix = 'qr',
+  label = 'Guest name',
 }: {
   value: GuestDraft;
   onChange: (next: GuestDraft) => void;
@@ -51,6 +45,9 @@ export function GuestFields({
     | GuestMatch[]
     | Array<{ id: string; name: string; email: string | null; phone: string | null }>
     | null;
+  /** Keeps field ids unique when several guests are on one page (the Guest List). */
+  idPrefix?: string;
+  label?: string;
 }) {
   const [dismissed, setDismissed] = React.useState<string | null>(null);
   const linked = value.customerId !== null;
@@ -105,7 +102,7 @@ export function GuestFields({
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)_minmax(0,1.2fr)]">
-        <Field label="Guest name" required htmlFor="qr-guest-name">
+        <Field label={label} required htmlFor={`${idPrefix}-guest-name`}>
           <div className="flex">
             <Select
               value={value.title || undefined}
@@ -124,7 +121,7 @@ export function GuestFields({
               </SelectContent>
             </Select>
             <Input
-              id="qr-guest-name"
+              id={`${idPrefix}-guest-name`}
               autoComplete="off"
               placeholder="Full name"
               value={value.name}
@@ -134,17 +131,17 @@ export function GuestFields({
             />
           </div>
         </Field>
-        <Field label="Mobile" htmlFor="qr-guest-mobile">
+        <Field label="Mobile" htmlFor={`${idPrefix}-guest-mobile`}>
           <PhoneInput
-            id="qr-guest-mobile"
+            id={`${idPrefix}-guest-mobile`}
             value={value.phone}
             disabled={linked}
             onChange={(phone) => set({ phone })}
           />
         </Field>
-        <Field label="Email" htmlFor="qr-guest-email">
+        <Field label="Email" htmlFor={`${idPrefix}-guest-email`}>
           <Input
-            id="qr-guest-email"
+            id={`${idPrefix}-guest-email`}
             type="email"
             autoComplete="off"
             placeholder="Email"

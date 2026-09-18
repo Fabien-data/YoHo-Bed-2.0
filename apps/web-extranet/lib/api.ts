@@ -876,52 +876,225 @@ export function updateWorkOrder(
 
 // --- Reservations screen -----------------------------------------------------
 
-export type ReservationTab = 'all' | 'arrivals' | 'departures' | 'inhouse' | 'cancelled';
+export type ReservationTab =
+  'all' | 'upcoming' | 'booked' | 'arrivals' | 'departures' | 'inhouse' | 'cancelled';
+
+/** The Type filter: one reservation kind, or both hold kinds together. */
+export type ReservationKindFilter = ReservationKind | 'holds';
 
 export interface ReservationRow {
   id: string;
   reference: string;
   status: string;
+  reservationKind: ReservationKind;
+  inventoryHeld: boolean;
+  holdUntil: string | null;
+  origin: BookingOrigin;
+  voucherNo: string | null;
+  siblingIndex: number | null;
+  businessSourceId: string | null;
+  sourceName: string | null;
+  sourceCode: string | null;
+  sourceColor: string | null;
+  marketSegmentId: string | null;
+  segmentName: string | null;
+  segmentCode: string | null;
   source: string;
   channel: string | null;
   checkin: string;
   checkout: string;
+  /** 'HH:MM:SS', or null for the property's standard time. */
+  arrivalTime: string | null;
+  departureTime: string | null;
   nights: number;
   rooms: number;
+  roomId: string;
+  roomTypeName: string | null;
+  rateCode: string | null;
   amount: string;
+  discount: string;
   currency: string;
   groupId: string | null;
   groupCode: string | null;
   groupName: string | null;
   customerId: string;
   guestName: string;
+  guestTitle: string | null;
   guestEmail: string | null;
   guestPhone: string | null;
   vip: boolean;
-  roomCodes: string[];
-  balanceDue: boolean;
   createdAt: string;
+  createdByUserId: string | null;
+  createdByName: string | null;
+  /** Received less refunded. */
+  paid: string;
+  /** Charges on the bill other than the room. */
+  extras: string;
+  adults: number;
+  children: number;
+  /** People sharing the room besides the guest it is booked for. */
+  extraGuests: number;
+  remarks: number;
+  roomCodes: string[];
+  /** Room (after any coupon) plus extras. */
+  total: string;
+  balance: string;
+  balanceDue: boolean;
 }
 
 export interface ReservationList {
   date: string;
   tab: ReservationTab;
   counts: Record<ReservationTab, number>;
+  total: number;
+  limit: number;
+  offset: number;
   rows: ReservationRow[];
 }
 
-export function getReservations(params: {
+export interface ReservationFilters {
   propertyId: string;
   date: string;
   tab?: ReservationTab;
   q?: string;
+  kind?: ReservationKindFilter;
+  origin?: BookingOrigin;
+  businessSourceId?: string;
+  marketSegmentId?: string;
+  ledgerAccountId?: string;
+  createdBy?: string;
+  /** One group's rooms, whatever the tab. */
+  groupId?: string;
   groupsOnly?: boolean;
-}): Promise<ReservationList> {
+}
+
+function reservationParams(params: ReservationFilters): URLSearchParams {
   const sp = new URLSearchParams({ propertyId: params.propertyId, date: params.date });
-  if (params.tab) sp.set('tab', params.tab);
-  if (params.q) sp.set('q', params.q);
+  for (const k of [
+    'tab',
+    'q',
+    'kind',
+    'origin',
+    'businessSourceId',
+    'marketSegmentId',
+    'ledgerAccountId',
+    'createdBy',
+    'groupId',
+  ] as const) {
+    const v = params[k];
+    if (v) sp.set(k, v);
+  }
   if (params.groupsOnly) sp.set('groupsOnly', 'true');
+  return sp;
+}
+
+export function getReservations(
+  params: ReservationFilters & { limit?: number; offset?: number },
+): Promise<ReservationList> {
+  const sp = reservationParams(params);
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.offset) sp.set('offset', String(params.offset));
   return apiFetch<ReservationList>(`/reservations?${sp.toString()}`);
+}
+
+/**
+ * Every row of a tab as CSV, fetched with the session's token and handed to the browser as a
+ * download. A plain link would not carry the Authorization header.
+ */
+export async function downloadReservationsCsv(params: ReservationFilters): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/reservations/export?${reservationParams(params)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    endSessionIfTokenRejected(res.status, token);
+    throw new ApiError(res.status, 'The export failed. Try again.');
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `reservations-${params.tab ?? 'all'}-${params.date}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export type GroupTab = 'upcoming' | 'inhouse' | 'departed';
+
+/** One card of Yanolja's group view. */
+export interface ReservationGroupCard {
+  id: string;
+  code: string;
+  name: string | null;
+  kind: string;
+  billTo: string | null;
+  ownerName: string | null;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  bookedAt: string;
+  /** Every room, and the rooms still live ("2 (3)"). */
+  roomsTotal: number;
+  roomsLive: number;
+  inHouse: number;
+  departed: number;
+  toCome: number;
+  roomNights: number;
+  roomTotal: string;
+  currency: string;
+  voucherNo: string | null;
+  hasHold: boolean;
+  extras: string;
+  paid: string;
+  adults: number;
+  children: number;
+  sourceCode: string | null;
+  sourceColor: string | null;
+  sourceName: string | null;
+  total: string;
+  balance: string;
+  /** Per room per night. */
+  averageRate: string;
+}
+
+export interface ReservationGroupList {
+  date: string;
+  tab: GroupTab;
+  total: number;
+  limit: number;
+  offset: number;
+  rows: ReservationGroupCard[];
+}
+
+export function getReservationGroups(params: {
+  propertyId: string;
+  date: string;
+  tab: GroupTab;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ReservationGroupList> {
+  const sp = new URLSearchParams({
+    propertyId: params.propertyId,
+    date: params.date,
+    tab: params.tab,
+  });
+  if (params.q) sp.set('q', params.q);
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.offset) sp.set('offset', String(params.offset));
+  return apiFetch(`/reservation-groups?${sp}`);
+}
+
+/** Merge whole groups into `targetGroupId`, whose owner stays the owner. */
+export function mergeReservationGroups(
+  targetGroupId: string,
+  groupIds: string[],
+): Promise<BookingGroup> {
+  return apiFetch('/reservation-groups/merge', {
+    method: 'POST',
+    body: JSON.stringify({ targetGroupId, groupIds }),
+  });
 }
 
 export interface BookingGroup {
@@ -1588,6 +1761,15 @@ export interface ReservationConfig {
     >
   >;
   salesPersons: Array<{ id: string; code: string; name: string }>;
+  /** Travel agents and companies a reservation can be made for. */
+  accounts: Array<{
+    id: string;
+    code: string;
+    name: string;
+    type: 'travel_agent' | 'company';
+    defaultMarketSegmentId: string | null;
+    hasContractRates: boolean;
+  }>;
 }
 
 export function getReservationConfig(propertyId: string): Promise<ReservationConfig> {
@@ -2298,6 +2480,11 @@ export interface ReservationLineInput {
   childAges?: number[];
   extraBeds?: number;
   rate?: RateOverride;
+  /** Guest List: this room's own guest. */
+  guest?: ReservationGuestInput;
+  remarks?: RemarkInput[];
+  /** Pro: work orders. */
+  tasks?: TaskInput[];
 }
 
 export interface ReservationGuestInput {
@@ -2313,6 +2500,9 @@ export interface ReservationGuestInput {
   city?: string;
   address?: string;
   zip?: string;
+  gender?: 'male' | 'female' | 'other';
+  dateOfBirth?: string;
+  documents?: GuestDocumentInput[];
   createNew?: boolean;
 }
 
@@ -2407,6 +2597,8 @@ export interface ReservationOptionsInput {
 export interface CreateReservationInput extends ReservationStayInput {
   guest: ReservationGuestInput;
   options?: ReservationOptionsInput;
+  /** Notes for every room of the reservation. */
+  remarks?: RemarkInput[];
   expectedTotal?: number;
   groupName?: string;
 }
@@ -2434,6 +2626,7 @@ export interface ReservationCreated {
     rateCode: string;
     roomUnitId: string | null;
     roomCode: string | null;
+    guestName: string;
     amount: string;
     taxes: string;
     discount: string;
@@ -2494,4 +2687,156 @@ export function releaseHold(id: string, reason?: string): Promise<Booking> {
     method: 'POST',
     body: JSON.stringify(reason ? { reason } : {}),
   });
+}
+
+// --- A booking's guests, remarks and tasks; guest documents (Phase 02, Sprint 4) ---------
+
+export type RemarkType =
+  'general' | 'front_desk' | 'housekeeping' | 'accounts' | 'kitchen' | 'preference';
+
+export interface RemarkInput {
+  type: RemarkType;
+  text: string;
+}
+
+export type TaskDepartment =
+  'housekeeping' | 'maintenance' | 'front_desk' | 'food_beverage' | 'transport' | 'other';
+export type TaskTrigger = 'instant' | 'checkin' | 'checkout';
+
+export interface TaskInput {
+  title: string;
+  description?: string;
+  department: TaskDepartment;
+  trigger: TaskTrigger;
+  deadline?: string;
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
+}
+
+export type IdDocumentType =
+  | 'nic'
+  | 'mykad'
+  | 'mypr'
+  | 'aadhaar'
+  | 'passport'
+  | 'driving_licence'
+  | 'voter_id'
+  | 'oci'
+  | 'other';
+
+export interface GuestDocumentInput {
+  type: IdDocumentType;
+  number: string;
+  issuingCountry?: string;
+  placeOfIssue?: string;
+  issuedOn?: string;
+  expiresOn?: string;
+  visaNumber?: string;
+  visaType?: string;
+  visaExpiresOn?: string;
+  verification?: 'original' | 'copy' | 'digital';
+  isPrimary?: boolean;
+}
+
+export interface BookingRemark {
+  id: string;
+  type: RemarkType;
+  text: string;
+  createdAt: string;
+  createdByUserId: string | null;
+  createdByName: string | null;
+}
+
+export function getBookingRemarks(bookingId: string): Promise<BookingRemark[]> {
+  return apiFetch(`/bookings/${bookingId}/remarks`);
+}
+
+export function addBookingRemark(bookingId: string, body: RemarkInput): Promise<BookingRemark> {
+  return apiFetch(`/bookings/${bookingId}/remarks`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function deleteBookingRemark(remarkId: string): Promise<{ id: string }> {
+  return apiFetch(`/booking-remarks/${remarkId}`, { method: 'DELETE' });
+}
+
+export interface BookingGuestSummary {
+  id: string;
+  title: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  nationalityCode: string | null;
+  vip: boolean;
+}
+
+export function getBookingGuests(
+  bookingId: string,
+): Promise<{ primary: BookingGuestSummary | null; others: BookingGuestSummary[] }> {
+  return apiFetch(`/bookings/${bookingId}/guests`);
+}
+
+export function addBookingGuest(
+  bookingId: string,
+  body: ReservationGuestInput,
+): Promise<{ customerId: string; name: string; created: boolean }> {
+  return apiFetch(`/bookings/${bookingId}/guests`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function removeBookingGuest(bookingId: string, customerId: string) {
+  return apiFetch(`/bookings/${bookingId}/guests/${customerId}`, { method: 'DELETE' });
+}
+
+export interface BookingTask {
+  id: string;
+  title: string;
+  description: string | null;
+  department: TaskDepartment;
+  trigger: TaskTrigger;
+  priority: string;
+  status: string;
+  deadline: string | null;
+  roomUnitId: string | null;
+  roomCode: string | null;
+  createdAt: string;
+}
+
+export function getBookingTasks(bookingId: string): Promise<BookingTask[]> {
+  return apiFetch(`/bookings/${bookingId}/tasks`);
+}
+
+export function addBookingTask(bookingId: string, body: TaskInput): Promise<BookingTask> {
+  return apiFetch(`/bookings/${bookingId}/tasks`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface GuestDocument extends Required<Pick<GuestDocumentInput, 'type' | 'number'>> {
+  id: string;
+  issuingCountry: string | null;
+  placeOfIssue: string | null;
+  issuedOn: string | null;
+  expiresOn: string | null;
+  visaNumber: string | null;
+  visaType: string | null;
+  visaExpiresOn: string | null;
+  verification: 'original' | 'copy' | 'digital' | null;
+  verifiedAt: string | null;
+  verifiedByName: string | null;
+  isPrimary: boolean;
+  createdAt: string;
+}
+
+export function getGuestDocuments(customerId: string): Promise<GuestDocument[]> {
+  return apiFetch(`/customers/${customerId}/documents`);
+}
+
+export function addGuestDocument(
+  customerId: string,
+  body: GuestDocumentInput,
+): Promise<GuestDocument> {
+  return apiFetch(`/customers/${customerId}/documents`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteGuestDocument(documentId: string) {
+  return apiFetch(`/guest-documents/${documentId}`, { method: 'DELETE' });
 }

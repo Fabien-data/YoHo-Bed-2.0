@@ -88,7 +88,16 @@ export {
 // Patterns
 export { CountedChips, type Chip } from './patterns/counted-chips';
 export { MoneyFooter, MetricFooter, type MetricColumn } from './patterns/footers';
-export { DataGrid, type ColumnDef } from './patterns/data-grid';
+export {
+  DataGrid,
+  ManageColumns,
+  useColumnVisibility,
+  type ColumnDef,
+  type VisibilityState,
+  type GridPagination,
+  type GridSelection,
+  type ManagedColumn,
+} from './patterns/data-grid';
 export { AuditTrailDrawer, type AuditEntry } from './patterns/audit-trail';
 export { StatCard } from './patterns/stat-card';
 export { Toaster, toast } from './patterns/toaster';

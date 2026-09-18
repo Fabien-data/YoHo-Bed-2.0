@@ -167,6 +167,55 @@ room together, or none of them. A reservation of several rooms gets references l
 were typing, the form says which one. Pressing **Esc** asks before throwing away what you
 entered.
 
+### The full Add Reservation page
+
+**More options** in Quick Reservation carries what you typed to the full page; you can also open
+it from the arrow beside **New reservation** on the Reservations screen. Everything Quick
+Reservation has is there, plus:
+
+- **Where it came from.** Booking source (Direct, OTA, Travel agent, Corporate) narrows the
+  business sources. A travel agent or company booking asks for the account and its voucher
+  number; an OTA booking for the OTA's booking ID. Market segment is filled in automatically
+  unless you choose one, and you can name the sales person.
+- **Rate offered.** **Contract** prices from the account's agreed rates (Pro, once the account has
+  some). **Book all available rooms** adds every free room at once. **Quick group booking** asks
+  how many of each room type, at which rate type, and optionally one price per room per night.
+  **Complimentary room** makes every room free (it needs a reason, and an owner unless your
+  property allows staff to give them).
+- **Each room's ⌄ menu.** Remarks for that room, a **task** for another department (Pro: flowers
+  at check-in, an airport pick-up) and the children's ages and extra beds. What a room carries
+  shows as small chips under it.
+- **Group options** (two rooms or more): make every room like room 1, set the guests in every
+  room, give out room numbers, paste a **rooming list** from Excel or WhatsApp (one name per line;
+  a mobile after the name is kept), or change the group owner.
+- **Guest information.** Address, country, state and city, **nationality** — which decides whether
+  the guest is sold resident or foreign rates — and the **ID document** you looked at. For an
+  Aadhaar card only the last four digits are kept. Tick **Guest list** to give every room its own
+  guest; a room left blank is booked for the main guest.
+- **Remarks** for the whole reservation, and **Other information** (voucher emails, the check-out
+  email, guest portal access, hiding the rate on the registration card).
+
+The **Billing Summary** on the right shows the room charges, each tax, any coupon and the amount
+due as you go, and holds **Tax exempt** (with the exemption number) and the reason and owner
+approval when a price is changed. **Reserve** is at the bottom of the screen all the time.
+
+### The Reservations screen
+
+- **Tabs**: Reservations (staying on the date), **Upcoming**, **Booked today**, Arrivals,
+  Departures, In-house, Cancelled — each with its count.
+- **Filters**: type (confirmed, holds, inquiries, online failed), business source, market
+  segment, and **Taken by me**. Search finds a reference (the master reference finds every
+  room), a voucher, a name, an email or a phone number.
+- **Views**: individual or **groups**, as a list or as **cards**. The icons show adults and
+  children; a hold shows when it releases its rooms. **Manage columns** chooses the columns and is
+  remembered on this computer. The list pages 25, 50 or 100 at a time.
+- **⋮ on a row**: open, confirm, check in or out, assign a room, registration card, release a
+  hold, no-show, cancel — whichever apply. Clicking a guest opens the reservation: its money, the
+  other guests in the room, remarks, tasks, ID documents and (Pro) the folio.
+- **Make group** (select two or more) and, in the group view, **Merge groups** before anyone has
+  arrived. Opening a group card lists its rooms.
+- **Export** downloads every row of the tab as a spreadsheet file, not just the page on screen.
+
 ### Managing bookings
 
 Filter chips (All / Pending / Approved / …) and a search box (guest name or reference) sit above

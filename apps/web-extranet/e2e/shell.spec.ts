@@ -36,6 +36,7 @@ const ROUTES: Array<{ path: string; heading: RegExp }> = [
   { path: '/app/night-audit', heading: /night audit/i },
   // Development Phase 02.
   { path: '/app/configuration', heading: /reservation setup/i },
+  { path: '/app/reservations/new', heading: /add reservation/i },
 ];
 
 async function signIn(page: Page) {

@@ -1,0 +1,620 @@
+'use client';
+
+import * as React from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import {
+  ChatText,
+  ClipboardText,
+  IdentificationCard,
+  Trash,
+  UserPlus,
+} from '@phosphor-icons/react';
+import {
+  Badge,
+  Button,
+  Field,
+  InlineAlert,
+  Input,
+  PhoneInput,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Sheet,
+  SheetContent,
+  Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
+  toast,
+  type PhoneValue,
+} from '@yohobed/ui';
+import { ID_DOCUMENT_LABELS, displayMealCode, formatDate, idTypesFor } from '@yohobed/locale';
+import {
+  ApiError,
+  getUser,
+  addBookingGuest,
+  addBookingRemark,
+  addBookingTask,
+  addGuestDocument,
+  deleteBookingRemark,
+  deleteGuestDocument,
+  getBookingGuests,
+  getBookingRemarks,
+  getBookingTasks,
+  getGuestDocuments,
+  removeBookingGuest,
+  type IdDocumentType,
+  type RemarkType,
+  type ReservationConfig,
+  type ReservationRow,
+  type TaskDepartment,
+  type TaskTrigger,
+} from '@/lib/api';
+import { useHasFeature, useTenantRole } from '@/lib/queries';
+import { FolioPanel } from '@/components/folio/folio-panel';
+import { DEPARTMENT_LABEL, REMARK_LABEL, TRIGGER_LABEL } from '../full/line-extras';
+import { Pax, StatusChip, StayWhen, bookedAt } from './bits';
+import { RowActions, useInvalidateReservations } from './row-actions';
+
+const errorText = (e: unknown) =>
+  e instanceof ApiError ? e.message : 'That did not work. Try again.';
+
+/**
+ * One reservation, opened from the list: the stay, the money, and what hangs off it — the other
+ * guests in the room, remarks, tasks and the guest's ID documents — each editable here. The folio
+ * is a tab away for plans that have one.
+ */
+export function ReservationDetailSheet({
+  row,
+  cfg,
+  money,
+  onClose,
+  onCard,
+}: {
+  row: ReservationRow | null;
+  cfg: ReservationConfig;
+  money: (v: string | number) => string;
+  onClose: () => void;
+  onCard: (id: string) => void;
+}) {
+  const hasFolio = useHasFeature('folio');
+  return (
+    <Sheet open={row !== null} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent
+        size="wide"
+        title={row ? `Reservation ${row.reference}` : 'Reservation'}
+        description={
+          row
+            ? `${row.guestName} · ${formatDate(row.checkin)} → ${formatDate(row.checkout)}`
+            : undefined
+        }
+      >
+        {row && (
+          <Tabs defaultValue="details">
+            <TabsList className="mb-4">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              {hasFolio && <TabsTrigger value="folio">Folio</TabsTrigger>}
+            </TabsList>
+            <TabsContent value="details">
+              <Details
+                row={row}
+                cfg={cfg}
+                money={money}
+                onCard={() => onCard(row.id)}
+                onClose={onClose}
+              />
+            </TabsContent>
+            {hasFolio && (
+              <TabsContent value="folio">
+                <FolioPanel bookingId={row.id} />
+              </TabsContent>
+            )}
+          </Tabs>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function Details({
+  row,
+  cfg,
+  money,
+  onCard,
+  onClose,
+}: {
+  row: ReservationRow;
+  cfg: ReservationConfig;
+  money: (v: string | number) => string;
+  onCard: () => void;
+  onClose: () => void;
+}) {
+  const booked = bookedAt(row.createdAt, cfg.property.timezone);
+  const due = Number(row.balance) > 0.004;
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <StatusChip row={row} kinds={cfg.kinds} />
+        <RowActions row={row} today={cfg.today} onCard={onCard} />
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+        <Item label="Arrival">
+          <StayWhen
+            date={row.checkin}
+            time={row.arrivalTime}
+            fallback={cfg.property.checkinTime}
+            format={cfg.settings.timeFormat}
+          />
+        </Item>
+        <Item label="Departure">
+          <StayWhen
+            date={row.checkout}
+            time={row.departureTime}
+            fallback={cfg.property.checkoutTime}
+            format={cfg.settings.timeFormat}
+          />
+        </Item>
+        <Item label="Room">
+          <span className="text-ink">
+            {row.roomCodes.length ? row.roomCodes.join(', ') : 'Unassigned'}
+          </span>
+          <span className="block text-xs text-ink-3">
+            {row.roomTypeName}
+            {row.rateCode && ` · ${displayMealCode(row.rateCode, cfg.settings.mealCodeStyle)}`}
+          </span>
+        </Item>
+        <Item label="Guests">
+          <Pax adults={row.adults} children={row.children} />
+        </Item>
+        <Item label="Source">
+          <span className="text-ink">{row.sourceName ?? row.channel ?? row.source}</span>
+          {row.segmentName && <span className="block text-xs text-ink-3">{row.segmentName}</span>}
+        </Item>
+        <Item label="Voucher">{row.voucherNo ?? '—'}</Item>
+        <Item label="Taken">
+          <span className="text-ink">{row.createdByName ?? '—'}</span>
+          <span className="block font-mono text-xs text-ink-3">
+            {booked.date} {booked.time}
+          </span>
+        </Item>
+        <Item label="Group">{row.groupCode ?? '—'}</Item>
+      </dl>
+
+      <dl className="grid grid-cols-3 gap-3 rounded-lg bg-surface-2 px-4 py-3 text-sm">
+        <Item label="Total">
+          <span className="font-mono tabular-nums text-ink">{money(row.total)}</span>
+        </Item>
+        <Item label="Paid">
+          <span className="font-mono tabular-nums text-ink">{money(row.paid)}</span>
+        </Item>
+        <Item label="Balance">
+          <span
+            className={`font-mono tabular-nums ${due ? 'font-semibold text-closed-ink' : 'text-ink'}`}
+          >
+            {money(row.balance)}
+          </span>
+        </Item>
+      </dl>
+
+      <GuestsBlock bookingId={row.id} country={cfg.property.countryCode} />
+      <RemarksBlock bookingId={row.id} />
+      <TasksBlock bookingId={row.id} />
+      <DocumentsBlock customerId={row.customerId} country={cfg.property.countryCode} />
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Item({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-ink-3">{label}</dt>
+      <dd className="mt-0.5 text-ink">{children}</dd>
+    </div>
+  );
+}
+
+function Block({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+        {icon}
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function GuestsBlock({ bookingId, country }: { bookingId: string; country: string }) {
+  const refresh = useInvalidateReservations();
+  const guests = useQuery({
+    queryKey: ['booking-extras', bookingId, 'guests'],
+    queryFn: () => getBookingGuests(bookingId),
+  });
+  const [name, setName] = React.useState('');
+  const [phone, setPhone] = React.useState<PhoneValue>({ number: '', country });
+  const add = useMutation({
+    mutationFn: () =>
+      addBookingGuest(bookingId, {
+        name: name.trim(),
+        ...(phone.number.trim() ? { phone: phone.number.trim() } : {}),
+      }),
+    onSuccess: () => {
+      setName('');
+      setPhone({ number: '', country });
+      refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (customerId: string) => removeBookingGuest(bookingId, customerId),
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e)),
+  });
+  return (
+    <Block icon={<UserPlus size={16} />} title="Guests in the room">
+      {guests.isLoading ? (
+        <Skeleton className="h-10 w-full" />
+      ) : (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {guests.data?.primary && (
+            <li className="flex items-center gap-2">
+              <span className="text-ink">{guests.data.primary.name}</span>
+              <Badge tone="brand" dot={false}>
+                Booked for
+              </Badge>
+            </li>
+          )}
+          {guests.data?.others.map((g) => (
+            <li key={g.id} className="flex items-center gap-2">
+              <span className="text-ink">{g.name}</span>
+              {g.phone && <span className="text-xs text-ink-3">{g.phone}</span>}
+              <button
+                type="button"
+                aria-label={`Remove ${g.name}`}
+                onClick={() => remove.mutate(g.id)}
+                className="ml-auto rounded p-1 text-ink-3 hover:text-closed-ink"
+              >
+                <Trash size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) add.mutate();
+        }}
+      >
+        <Field
+          label="Add a guest"
+          htmlFor={`bg-name-${bookingId}`}
+          className="min-w-[12rem] flex-1"
+        >
+          <Input
+            id={`bg-name-${bookingId}`}
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <div className="w-56">
+          <PhoneInput value={phone} onChange={setPhone} aria-label="Mobile" />
+        </div>
+        <Button type="submit" variant="outline" disabled={!name.trim()} loading={add.isPending}>
+          Add
+        </Button>
+      </form>
+    </Block>
+  );
+}
+
+function RemarksBlock({ bookingId }: { bookingId: string }) {
+  const refresh = useInvalidateReservations();
+  const me = getUser()?.id;
+  const role = useTenantRole();
+  const remarks = useQuery({
+    queryKey: ['booking-extras', bookingId, 'remarks'],
+    queryFn: () => getBookingRemarks(bookingId),
+  });
+  const [type, setType] = React.useState<RemarkType>('general');
+  const [text, setText] = React.useState('');
+  const add = useMutation({
+    mutationFn: () => addBookingRemark(bookingId, { type, text: text.trim() }),
+    onSuccess: () => {
+      setText('');
+      refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteBookingRemark(id),
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e)),
+  });
+  return (
+    <Block icon={<ChatText size={16} />} title="Remarks">
+      {remarks.data?.length ? (
+        <ul className="flex flex-col gap-2">
+          {remarks.data.map((r) => (
+            <li key={r.id} className="flex items-start gap-2 text-sm">
+              <Badge tone="muted" dot={false} className="shrink-0">
+                {REMARK_LABEL[r.type]}
+              </Badge>
+              <span className="min-w-0 flex-1 whitespace-pre-wrap text-ink">
+                {r.text}
+                <span className="block text-xs text-ink-3">
+                  {r.createdByName ?? 'Someone'} · {new Date(r.createdAt).toLocaleString()}
+                </span>
+              </span>
+              {(role === 'OWNER' || r.createdByUserId === me) && (
+                <button
+                  type="button"
+                  aria-label="Delete remark"
+                  onClick={() => remove.mutate(r.id)}
+                  className="rounded p-1 text-ink-3 hover:text-closed-ink"
+                >
+                  <Trash size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        !remarks.isLoading && <p className="text-sm text-ink-3">No remarks yet.</p>
+      )}
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim()) add.mutate();
+        }}
+      >
+        <div className="flex flex-wrap gap-2">
+          <Select value={type} onValueChange={(v) => setType(v as RemarkType)}>
+            <SelectTrigger aria-label="Remark type" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(REMARK_LABEL) as RemarkType[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {REMARK_LABEL[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Textarea
+            aria-label="Remark"
+            rows={1}
+            maxLength={1000}
+            className="min-w-[14rem] flex-1"
+            placeholder="Add a remark"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <Button type="submit" variant="outline" disabled={!text.trim()} loading={add.isPending}>
+            Add
+          </Button>
+        </div>
+      </form>
+    </Block>
+  );
+}
+
+function TasksBlock({ bookingId }: { bookingId: string }) {
+  const canTask = useHasFeature('work_orders');
+  const refresh = useInvalidateReservations();
+  const tasks = useQuery({
+    queryKey: ['booking-extras', bookingId, 'tasks'],
+    queryFn: () => getBookingTasks(bookingId),
+    enabled: canTask,
+  });
+  const [title, setTitle] = React.useState('');
+  const [department, setDepartment] = React.useState<TaskDepartment>('housekeeping');
+  const [trigger, setTrigger] = React.useState<TaskTrigger>('instant');
+  const add = useMutation({
+    mutationFn: () => addBookingTask(bookingId, { title: title.trim(), department, trigger }),
+    onSuccess: () => {
+      setTitle('');
+      refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  if (!canTask) {
+    return (
+      <Block icon={<ClipboardText size={16} />} title="Tasks">
+        <p className="text-sm text-ink-3">Tasks for other departments are part of the Pro plan.</p>
+      </Block>
+    );
+  }
+  return (
+    <Block icon={<ClipboardText size={16} />} title="Tasks">
+      {tasks.data?.length ? (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {tasks.data.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center gap-2">
+              <span className="text-ink">{t.title}</span>
+              <Badge tone="muted" dot={false}>
+                {DEPARTMENT_LABEL[t.department]}
+              </Badge>
+              <span className="text-xs text-ink-3">
+                {TRIGGER_LABEL[t.trigger]}
+                {t.deadline && ` · by ${formatDate(t.deadline)}`} · {t.status.replace('_', ' ')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        !tasks.isLoading && <p className="text-sm text-ink-3">No tasks.</p>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (title.trim()) add.mutate();
+        }}
+      >
+        <Input
+          aria-label="Task"
+          placeholder="e.g. Airport pick-up at 6 AM"
+          className="min-w-[14rem] flex-1"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Select value={department} onValueChange={(v) => setDepartment(v as TaskDepartment)}>
+          <SelectTrigger aria-label="Department" className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(DEPARTMENT_LABEL) as TaskDepartment[]).map((k) => (
+              <SelectItem key={k} value={k}>
+                {DEPARTMENT_LABEL[k]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={trigger} onValueChange={(v) => setTrigger(v as TaskTrigger)}>
+          <SelectTrigger aria-label="Due" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(TRIGGER_LABEL) as TaskTrigger[]).map((k) => (
+              <SelectItem key={k} value={k}>
+                {TRIGGER_LABEL[k]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="submit" variant="outline" disabled={!title.trim()} loading={add.isPending}>
+          Add
+        </Button>
+      </form>
+    </Block>
+  );
+}
+
+function DocumentsBlock({ customerId, country }: { customerId: string; country: string }) {
+  const refresh = useInvalidateReservations();
+  const docs = useQuery({
+    queryKey: ['booking-extras', customerId, 'documents'],
+    queryFn: () => getGuestDocuments(customerId),
+  });
+  // The hotel's local documents, then a foreigner's (passport first): the guest could be either.
+  const types = Array.from(new Set([...idTypesFor(country, null), ...idTypesFor(country, 'XX')]));
+  const [type, setType] = React.useState<IdDocumentType | ''>('');
+  const [number, setNumber] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const add = useMutation({
+    mutationFn: () =>
+      addGuestDocument(customerId, {
+        type: type as IdDocumentType,
+        number: number.trim(),
+        verification: 'original',
+        isPrimary: !docs.data?.length,
+      }),
+    onSuccess: () => {
+      setNumber('');
+      setError(null);
+      refresh();
+    },
+    onError: (e) => setError(errorText(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteGuestDocument(id),
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e)),
+  });
+  return (
+    <Block icon={<IdentificationCard size={16} />} title="ID documents">
+      {docs.data?.length ? (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {docs.data.map((d) => (
+            <li key={d.id} className="flex flex-wrap items-center gap-2">
+              <span className="text-ink">{ID_DOCUMENT_LABELS[d.type]}</span>
+              <span className="font-mono text-ink">
+                {d.type === 'aadhaar' ? `XXXX XXXX ${d.number}` : d.number}
+              </span>
+              {d.isPrimary && (
+                <Badge tone="brand" dot={false}>
+                  Primary
+                </Badge>
+              )}
+              {d.expiresOn && (
+                <span className="text-xs text-ink-3">expires {formatDate(d.expiresOn)}</span>
+              )}
+              {d.verifiedByName && (
+                <span className="text-xs text-ink-3">checked by {d.verifiedByName}</span>
+              )}
+              <button
+                type="button"
+                aria-label="Delete document"
+                onClick={() => remove.mutate(d.id)}
+                className="ml-auto rounded p-1 text-ink-3 hover:text-closed-ink"
+              >
+                <Trash size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        !docs.isLoading && <p className="text-sm text-ink-3">No documents recorded.</p>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (type && number.trim()) add.mutate();
+        }}
+      >
+        <Select value={type || undefined} onValueChange={(v) => setType(v as IdDocumentType)}>
+          <SelectTrigger aria-label="Document type" className="w-52">
+            <SelectValue placeholder="Document type" />
+          </SelectTrigger>
+          <SelectContent>
+            {types.map((t) => (
+              <SelectItem key={t} value={t}>
+                {ID_DOCUMENT_LABELS[t]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          aria-label="Document number"
+          placeholder={type === 'aadhaar' ? 'Last 4 digits' : 'Number'}
+          className="w-48"
+          value={number}
+          onChange={(e) => setNumber(e.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={!type || !number.trim()}
+          loading={add.isPending}
+        >
+          Add
+        </Button>
+      </form>
+      {error && <InlineAlert tone="error">{error}</InlineAlert>}
+    </Block>
+  );
+}

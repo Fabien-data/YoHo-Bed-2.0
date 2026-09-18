@@ -44,7 +44,7 @@ Every sprint deploys on its own.
 | P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Live**³   |
 | P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴   |
 | P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
-| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ⬜ Not started |
+| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Built**⁶  |
 | P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ⬜ Not started |
 | P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
 | P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
@@ -82,6 +82,24 @@ seen in the 2026-08-29 run); PR #4's CI run passed.
   hotel is told in-app for now.
 
 ⁵ P2-S3 (2026-09-18) — live since 2026-09-18 (PR #4).
+
+⁶ P2-S4 (2026-09-18) — on `feat/phase-02-reservations`, not yet deployed.
+
+- **Add Reservation page** (`/app/reservations/new`, and "More options" from Quick Reservation):
+  booking and business source, travel agent or company with voucher, segment, sales person; Rate
+  Offered (contract, book all available, quick group booking, complimentary); per-room remarks,
+  tasks, child ages and extra beds; Group Options including a pasted rooming list; guest address,
+  nationality (resident or foreign rates) and ID document; a guest per room; Other Information;
+  the live Billing Summary with tax exemption. One request saves it all.
+- **Reservations list**: Upcoming and Booked-today tabs, type/source/segment/"taken by me"
+  filters, server paging, Manage Columns (remembered), card view with pax icons, group cards with
+  Merge Groups, a row menu, a reservation sheet (guests, remarks, tasks, documents, folio) and a
+  server-side CSV of every row.
+- **Migration 0029**: `booking_guests`, `guest_documents` (Aadhaar last-4 enforced by a CHECK),
+  `booking_remarks`; `work_orders` gains booking, department and trigger. A test now fails if any
+  new tenant table lacks RLS.
+- **Fixed on the way**: Stay View drew overlapping unassigned and tentative stays on top of each
+  other (a five-room group without room numbers looked like one booking); they now stack.
 
 - **UI kit.** Calendar, date/time pickers, stay row with an editable Nights chip, stepper,
   searchable combobox, phone and country inputs, inline alert, summary list and confirm dialog.

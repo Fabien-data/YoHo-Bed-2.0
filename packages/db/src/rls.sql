@@ -383,6 +383,26 @@ CREATE POLICY tenant_isolation ON ledger_account_rates
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- The full reservation page (Development Phase 02, Sprint 4).
+
+ALTER TABLE booking_guests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_guests;
+CREATE POLICY tenant_isolation ON booking_guests
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE guest_documents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON guest_documents;
+CREATE POLICY tenant_isolation ON guest_documents
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_remarks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_remarks;
+CREATE POLICY tenant_isolation ON booking_remarks
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 -- Which tenants have reservation-lifecycle work due: a hold past its release time, a hold inside
 -- its reminder window, or an unconfirmed booking past its arrival day at a property that releases
 -- those. The worker runs without a tenant context, so under RLS it can see no bookings at all;

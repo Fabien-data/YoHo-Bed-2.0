@@ -116,8 +116,10 @@ describe('reservations list', () => {
       token: b.token,
       tenantId: b.tenantId,
     });
-    expect(res.status).toBe(200);
-    expect(res.body.rows).toEqual([]);
+    // The list reads the property's timezone first, and under RLS another tenant's property does
+    // not exist — the same 404 as any other foreign id, rather than an empty list.
+    expect(res.status).toBe(404);
+    expect(res.body.rows).toBeUndefined();
   });
 });
 

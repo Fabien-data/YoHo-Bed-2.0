@@ -1,0 +1,458 @@
+'use client';
+
+import * as React from 'react';
+import { Baby, CaretDown, ChatText, ClipboardText, Lock, Trash } from '@phosphor-icons/react';
+import {
+  Badge,
+  Button,
+  DatePicker,
+  Dialog,
+  DialogContent,
+  Field,
+  Input,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+  NumberStepper,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Textarea,
+  Tooltip,
+} from '@yohobed/ui';
+import type { RemarkInput, RemarkType, TaskDepartment, TaskInput, TaskTrigger } from '@/lib/api';
+import type { FullLineDraft } from './full-draft';
+
+export const REMARK_LABEL: Record<RemarkType, string> = {
+  general: 'General',
+  front_desk: 'Front desk',
+  housekeeping: 'Housekeeping',
+  accounts: 'Accounts',
+  kitchen: 'Kitchen',
+  preference: 'Guest preference',
+};
+
+export const DEPARTMENT_LABEL: Record<TaskDepartment, string> = {
+  front_desk: 'Front desk',
+  housekeeping: 'Housekeeping',
+  maintenance: 'Maintenance',
+  food_beverage: 'Food & beverage',
+  transport: 'Transport',
+  other: 'Other',
+};
+
+export const TRIGGER_LABEL: Record<TaskTrigger, string> = {
+  instant: 'Now',
+  checkin: 'At check-in',
+  checkout: 'At check-out',
+};
+
+type Panel = 'remarks' | 'task' | 'children' | null;
+
+/**
+ * The ⌄ menu at the end of a room line — Yanolja's Remarks, Create Task and (ours) child ages and
+ * extra beds. What a line carries shows as small chips under it, so nothing hides in the menu.
+ */
+export function LineExtras({
+  index,
+  line,
+  onChange,
+  canTask,
+  stayDates,
+}: {
+  index: number;
+  line: FullLineDraft;
+  onChange: (patch: Partial<FullLineDraft>) => void;
+  /** Tasks are work orders: Pro. */
+  canTask: boolean;
+  stayDates: { checkin: string; checkout: string; today: string };
+}) {
+  const [panel, setPanel] = React.useState<Panel>(null);
+  const n = index + 1;
+  return (
+    <>
+      <Menu>
+        <MenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`More for room ${n}`}
+            className="mt-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-line-strong text-ink-3 transition duration-1 hover:border-ink-3 hover:text-ink"
+          >
+            <CaretDown size={12} weight="bold" />
+          </button>
+        </MenuTrigger>
+        <MenuContent align="end" className="w-52">
+          <MenuItem onSelect={() => setPanel('remarks')}>
+            <ChatText size={15} /> Remarks
+          </MenuItem>
+          <MenuItem disabled={!canTask} onSelect={() => setPanel('task')}>
+            <ClipboardText size={15} /> Create task
+            {!canTask && <Lock size={12} className="ml-auto" aria-label="Pro plan" />}
+          </MenuItem>
+          <MenuItem onSelect={() => setPanel('children')}>
+            <Baby size={15} /> Child ages & extra beds
+          </MenuItem>
+        </MenuContent>
+      </Menu>
+
+      <RemarksDialog
+        open={panel === 'remarks'}
+        onOpenChange={(o) => setPanel(o ? 'remarks' : null)}
+        title={`Remarks · room ${n}`}
+        remarks={line.remarks}
+        onChange={(remarks) => onChange({ remarks })}
+      />
+      <TaskDialog
+        open={panel === 'task'}
+        onOpenChange={(o) => setPanel(o ? 'task' : null)}
+        roomNumber={n}
+        tasks={line.tasks}
+        stayDates={stayDates}
+        onChange={(tasks) => onChange({ tasks })}
+      />
+      <ChildrenDialog
+        open={panel === 'children'}
+        onOpenChange={(o) => setPanel(o ? 'children' : null)}
+        roomNumber={n}
+        line={line}
+        onChange={onChange}
+      />
+    </>
+  );
+}
+
+/** What a line carries, as chips under it. */
+export function LineExtrasSummary({
+  line,
+  onRemoveTask,
+}: {
+  line: FullLineDraft;
+  onRemoveTask?: (i: number) => void;
+}) {
+  const ages = line.childAges.slice(0, line.children);
+  if (!line.remarks.length && !line.tasks.length && !ages.length && !line.extraBeds) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pl-1 text-xs">
+      {line.remarks.map((r, i) => (
+        <Tooltip key={`r${i}`} label={r.text}>
+          <span>
+            <Badge tone="muted" dot={false}>
+              <ChatText size={11} /> {REMARK_LABEL[r.type]}
+            </Badge>
+          </span>
+        </Tooltip>
+      ))}
+      {line.tasks.map((t, i) => (
+        <Badge key={`t${i}`} tone="brand" dot={false}>
+          <ClipboardText size={11} /> {t.title} · {TRIGGER_LABEL[t.trigger]}
+          {onRemoveTask && (
+            <button
+              type="button"
+              aria-label={`Remove task ${t.title}`}
+              onClick={() => onRemoveTask(i)}
+              className="ml-0.5 opacity-70 hover:opacity-100"
+            >
+              ×
+            </button>
+          )}
+        </Badge>
+      ))}
+      {ages.length > 0 && (
+        <Badge tone="muted" dot={false}>
+          <Baby size={11} /> Ages {ages.join(', ')}
+        </Badge>
+      )}
+      {line.extraBeds > 0 && (
+        <Badge tone="muted" dot={false}>
+          +{line.extraBeds} extra bed{line.extraBeds === 1 ? '' : 's'}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+/** A dialog's own form must not submit the reservation form it sits in (React bubbles through portals). */
+function stop(e: React.FormEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+export function RemarksDialog({
+  open,
+  onOpenChange,
+  title,
+  remarks,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  remarks: RemarkInput[];
+  onChange: (next: RemarkInput[]) => void;
+}) {
+  const [type, setType] = React.useState<RemarkType>('general');
+  const [text, setText] = React.useState('');
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title={title} className="max-w-lg">
+        <form
+          className="flex flex-col gap-4 px-5 py-4"
+          onSubmit={(e) => {
+            stop(e);
+            if (!text.trim()) return;
+            onChange([...remarks, { type, text: text.trim() }]);
+            setText('');
+          }}
+        >
+          {remarks.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {remarks.map((r, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm"
+                >
+                  <Badge tone="muted" dot={false} className="shrink-0">
+                    {REMARK_LABEL[r.type]}
+                  </Badge>
+                  <span className="min-w-0 flex-1 whitespace-pre-wrap text-ink">{r.text}</span>
+                  <button
+                    type="button"
+                    aria-label="Remove remark"
+                    onClick={() => onChange(remarks.filter((_, j) => j !== i))}
+                    className="rounded p-1 text-ink-3 hover:text-closed-ink"
+                  >
+                    <Trash size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Field label="Type" htmlFor="remark-type">
+            <Select value={type} onValueChange={(v) => setType(v as RemarkType)}>
+              <SelectTrigger id="remark-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(REMARK_LABEL) as RemarkType[]).map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {REMARK_LABEL[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field
+            label="Remark"
+            htmlFor="remark-text"
+            hint="Housekeeping remarks show on the housekeeping board; accounts remarks on the folio."
+          >
+            <Textarea
+              id="remark-text"
+              rows={3}
+              maxLength={1000}
+              value={text}
+              placeholder="e.g. Honeymoon couple, arrange a cake"
+              onChange={(e) => setText(e.target.value)}
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
+            <Button type="submit" disabled={!text.trim()}>
+              Add remark
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TaskDialog({
+  open,
+  onOpenChange,
+  roomNumber,
+  tasks,
+  stayDates,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  roomNumber: number;
+  tasks: TaskInput[];
+  stayDates: { checkin: string; checkout: string; today: string };
+  onChange: (next: TaskInput[]) => void;
+}) {
+  const [title, setTitle] = React.useState('');
+  const [department, setDepartment] = React.useState<TaskDepartment>('housekeeping');
+  const [trigger, setTrigger] = React.useState<TaskTrigger>('checkin');
+  const [deadline, setDeadline] = React.useState('');
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title={`Create task · room ${roomNumber}`} className="max-w-lg">
+        <form
+          className="flex flex-col gap-4 px-5 py-4"
+          onSubmit={(e) => {
+            stop(e);
+            if (!title.trim()) return;
+            onChange([
+              ...tasks,
+              {
+                title: title.trim(),
+                department,
+                trigger,
+                ...(deadline ? { deadline } : {}),
+              },
+            ]);
+            setTitle('');
+            setDeadline('');
+            onOpenChange(false);
+          }}
+        >
+          <Field label="Task" htmlFor="task-title" required>
+            <Input
+              id="task-title"
+              value={title}
+              maxLength={200}
+              placeholder="e.g. Flowers and a cake in the room"
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Department" htmlFor="task-department">
+              <Select value={department} onValueChange={(v) => setDepartment(v as TaskDepartment)}>
+                <SelectTrigger id="task-department">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(DEPARTMENT_LABEL) as TaskDepartment[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {DEPARTMENT_LABEL[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Due" htmlFor="task-trigger">
+              <Select value={trigger} onValueChange={(v) => setTrigger(v as TaskTrigger)}>
+                <SelectTrigger id="task-trigger">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(TRIGGER_LABEL) as TaskTrigger[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {TRIGGER_LABEL[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          <Field
+            label="Finish by"
+            htmlFor="task-deadline"
+            hint="A task due at check-in waits off the work list until the guest arrives."
+          >
+            <DatePicker
+              id="task-deadline"
+              aria-label="Task deadline"
+              value={deadline || null}
+              today={stayDates.today}
+              min={stayDates.today}
+              onChange={setDeadline}
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!title.trim()}>
+              Add task
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChildrenDialog({
+  open,
+  onOpenChange,
+  roomNumber,
+  line,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  roomNumber: number;
+  line: FullLineDraft;
+  onChange: (patch: Partial<FullLineDraft>) => void;
+}) {
+  const ages = Array.from({ length: line.children }, (_, i) => line.childAges[i] ?? null);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title={`Children & extra beds · room ${roomNumber}`} className="max-w-md">
+        <div className="flex flex-col gap-4 px-5 py-4">
+          {line.children === 0 ? (
+            <p className="text-sm text-ink-3">
+              No children in this room. Set Child on the room line first.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {ages.map((age, i) => (
+                <Field key={i} label={`Child ${i + 1} age`} htmlFor={`child-age-${i}`}>
+                  <Select
+                    value={age === null ? undefined : String(age)}
+                    onValueChange={(v) => {
+                      const next = ages.map((a, j) => (j === i ? Number(v) : a));
+                      // Ages are sent only once every child has one.
+                      onChange({
+                        childAges: next.every((a) => a !== null) ? (next as number[]) : [],
+                      });
+                    }}
+                  >
+                    <SelectTrigger id={`child-age-${i}`}>
+                      <SelectValue placeholder="Age" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 18 }, (_, a) => (
+                        <SelectItem key={a} value={String(a)}>
+                          {a === 0 ? 'Under 1' : `${a} yr${a === 1 ? '' : 's'}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ))}
+            </div>
+          )}
+          <Field
+            label="Extra beds"
+            htmlFor="extra-beds"
+            hint="Recorded for housekeeping; not priced yet."
+          >
+            <NumberStepper
+              id="extra-beds"
+              aria-label="Extra beds"
+              value={line.extraBeds}
+              min={0}
+              max={4}
+              onChange={(extraBeds) => onChange({ extraBeds })}
+              className="w-28"
+            />
+          </Field>
+          <div className="flex justify-end">
+            <Button type="button" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
