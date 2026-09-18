@@ -37,6 +37,7 @@ import {
   type RoomState,
 } from '@/lib/api';
 import { useActiveProperty } from '@/components/active-property';
+import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 import { todayISO } from '@/lib/format';
 
 const STATE_LABEL: Record<RoomState, string> = {
@@ -308,6 +309,7 @@ function RoomSheet({
   onChanged: () => void;
 }) {
   const [remarks, setRemarks] = React.useState('');
+  const { openComposer } = useReservationComposer();
 
   React.useEffect(() => {
     setRemarks(card?.remarks ?? '');
@@ -349,6 +351,17 @@ function RoomSheet({
                 <Info label="Arrival" value={card.checkin ?? '—'} />
                 <Info label="Departure" value={card.checkout ?? '—'} />
               </div>
+            )}
+
+            {card.state === 'Vacant' && card.unitStatus === 'active' && (
+              <Button
+                onClick={() => {
+                  onClose();
+                  openComposer({ checkin: date, roomId: card.roomId, roomUnitId: card.unitId });
+                }}
+              >
+                New reservation in room {card.code}
+              </Button>
             )}
 
             {card.blockReason && (

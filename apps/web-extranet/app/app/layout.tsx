@@ -7,6 +7,7 @@ import { CurrencyProvider } from '@/components/currency';
 import { Providers } from '@/components/providers';
 import { ActivePropertyProvider } from '@/components/active-property';
 import { AppShell } from '@/components/app-shell';
+import { ReservationComposerProvider } from '@/components/reservations/composer/composer-context';
 import { FeatureDocsLink } from '@/components/feature-docs-link';
 
 /** The owner PMS shell: auth guard + product navigation. Staff are routed to their own console. */
@@ -39,10 +40,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <Providers>
       <CurrencyProvider>
         <ActivePropertyProvider>
-          <AppShell user={user} pending={pending}>
-            {children}
-            <FeatureDocsLink />
-          </AppShell>
+          <ReservationComposerProvider>
+            <AppShell user={user} pending={pending}>
+              {children}
+              <FeatureDocsLink />
+            </AppShell>
+          </ReservationComposerProvider>
         </ActivePropertyProvider>
       </CurrencyProvider>
     </Providers>

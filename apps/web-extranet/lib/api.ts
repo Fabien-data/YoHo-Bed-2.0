@@ -632,6 +632,15 @@ export interface StayBar {
   groupId?: string | null;
   balanceDue?: boolean;
   reason?: string;
+  /** Yanolja's reservation type (Development Phase 02). */
+  reservationKind?: string;
+  /** When a hold gives its rooms back. */
+  holdUntil?: string | null;
+  /** The business source's short code and palette colour. */
+  sourceCode?: string | null;
+  sourceColor?: string | null;
+  /** On a tentative bar: the room the guest asked for. */
+  preferredRoomUnitId?: string | null;
 }
 
 export interface StayUnit {
@@ -667,6 +676,8 @@ export interface StayView {
   dates: string[];
   roomTypes: StayRoomType[];
   unassigned: Array<StayBar & { roomId: string }>;
+  /** Bookings that hold no rooms yet (inquiries) — their own lane, never counted as sold. */
+  tentative?: Array<StayBar & { roomId: string }>;
   footer: StayFooter[];
   counts: {
     all: number;
@@ -2214,4 +2225,273 @@ export function listCustomers(): Promise<CustomerRow[]> {
 }
 export function getCustomer(id: string): Promise<CustomerRow & { history: Booking[] }> {
   return apiFetch(`/customers/${id}`);
+}
+
+// --- Taking reservations (Development Phase 02) -----------------------------------
+
+export type Residency = 'local' | 'foreign';
+export type BookingOrigin = 'direct' | 'ota' | 'travel_agent' | 'corporate';
+
+/** The room grid for a stay: GET /properties/:id/room-availability. */
+export interface RoomAvailability {
+  propertyId: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  currency: CurrencyCode;
+  roomTypes: Array<{
+    roomId: string;
+    name: string;
+    quantity: number;
+    /** Free on every night of the stay. */
+    free: number;
+    closedDates: string[];
+    minStay: number;
+    maxStay: number;
+    rateTypes: Array<{
+      ratePlanId: string;
+      occupancyId: string;
+      rateCode: string;
+      rateName: string;
+      label: string;
+      accommodates: number;
+      audience: 'all' | 'local' | 'foreign';
+      marketSegmentId: string | null;
+      priced: boolean;
+      nightly: Array<{ date: string; price: string | null }>;
+      total: string | null;
+      average: string | null;
+    }>;
+    hiddenRateTypes: number;
+    units: Array<{
+      id: string;
+      code: string;
+      floor: string | null;
+      free: boolean;
+      outOfService: boolean;
+      blocked: boolean;
+    }>;
+  }>;
+}
+
+export function getRoomAvailability(
+  propertyId: string,
+  q: { checkin: string; checkout: string; residency?: Residency | null },
+): Promise<RoomAvailability> {
+  const params = new URLSearchParams({ checkin: q.checkin, checkout: q.checkout });
+  if (q.residency) params.set('residency', q.residency);
+  return apiFetch(`/properties/${propertyId}/room-availability?${params}`);
+}
+
+export type RateOverride =
+  | { mode: 'nightly'; amount: number }
+  | { mode: 'total'; amount: number }
+  | { mode: 'per_night'; amounts: Record<string, number> }
+  | { mode: 'discount_pct'; pct: number };
+
+export interface ReservationLineInput {
+  roomId: string;
+  occupancyId: string;
+  roomUnitId?: string | null;
+  adults: number;
+  children: number;
+  childAges?: number[];
+  extraBeds?: number;
+  rate?: RateOverride;
+}
+
+export interface ReservationGuestInput {
+  customerId?: string;
+  title?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  whatsapp?: boolean;
+  nationalityCode?: string;
+  countryCode?: string;
+  state?: string;
+  city?: string;
+  address?: string;
+  zip?: string;
+  createNew?: boolean;
+}
+
+export type PriceApproval = 'rate_override' | 'complimentary' | 'tax_exempt';
+
+/** What decides the price — shared by a quote and a reservation. */
+export interface ReservationStayInput {
+  propertyId: string;
+  checkin: string;
+  checkout: string;
+  arrivalTime?: string;
+  departureTime?: string;
+  kind: ReservationKind;
+  /** Omitted: the property's default hold length. null: never released. */
+  holdUntil?: string | null;
+  origin?: BookingOrigin;
+  businessSourceId?: string;
+  marketSegmentId?: string;
+  salesPersonId?: string;
+  ledgerAccountId?: string;
+  voucherNo?: string;
+  residency?: Residency;
+  useContractRates?: boolean;
+  complimentary?: boolean;
+  taxExempt?: { exemptionId: string; reason?: string };
+  priceReason?: string;
+  approvals?: Partial<Record<PriceApproval, string>>;
+  couponCode?: string;
+  referralCode?: string;
+  lines: ReservationLineInput[];
+}
+
+export interface ReservationQuote {
+  propertyId: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  currency: CurrencyCode;
+  kind: ReservationKind;
+  holdUntil: string | null;
+  origin: BookingOrigin;
+  marketSegmentId: string | null;
+  lines: Array<{
+    index: number;
+    roomId: string;
+    roomName: string;
+    occupancyId: string;
+    ratePlanId: string;
+    rateCode: string;
+    amount: string;
+    taxes: string;
+    listAmount: string;
+    discountPct: number;
+    rateSource: 'calendar' | 'override' | 'contract' | 'complimentary';
+    couponDiscount: string;
+    nights: Array<{
+      date: string;
+      sellingPrice: string;
+      listSellingPrice: string;
+      tax: string;
+      rateSource: string;
+    }>;
+    free: number;
+    available: boolean;
+  }>;
+  totals: {
+    amount: string;
+    taxes: string;
+    listAmount: string;
+    discount: string;
+    due: string;
+    taxLines: Array<{ key: string; name: string; rate: number; amount: string }>;
+  };
+  approvalsRequired: PriceApproval[];
+  reasonRequired: boolean;
+}
+
+export function quoteReservation(body: ReservationStayInput): Promise<ReservationQuote> {
+  return apiFetch('/reservations/quote', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface ReservationOptionsInput {
+  emailVoucher?: boolean;
+  voucherEmails?: string[];
+  sendCheckoutEmail?: boolean;
+  checkoutTemplate?: string | null;
+  guestPortalAccess?: boolean;
+  suppressRateOnGrCard?: boolean;
+  displayInclusionSeparately?: boolean;
+}
+
+export interface CreateReservationInput extends ReservationStayInput {
+  guest: ReservationGuestInput;
+  options?: ReservationOptionsInput;
+  expectedTotal?: number;
+  groupName?: string;
+}
+
+export interface ReservationCreated {
+  reference: string;
+  groupId: string | null;
+  kind: ReservationKind;
+  status: 'Approved' | 'Pending';
+  holdUntil: string | null;
+  currency: CurrencyCode;
+  total: string;
+  taxes: string;
+  discount: string;
+  due: string;
+  listTotal: string;
+  guest: { id: string; name: string; created: boolean };
+  bookings: Array<{
+    id: string;
+    reference: string;
+    siblingIndex: number | null;
+    roomId: string;
+    roomName: string;
+    occupancyId: string;
+    rateCode: string;
+    roomUnitId: string | null;
+    roomCode: string | null;
+    amount: string;
+    taxes: string;
+    discount: string;
+    nights: number;
+  }>;
+}
+
+/**
+ * Book it. `idempotencyKey` makes a retry (a double-click, a lost response) return the first
+ * reservation instead of making a second one — generate one per attempt at the form, not per call.
+ */
+export function createReservation(
+  body: CreateReservationInput,
+  idempotencyKey: string,
+): Promise<ReservationCreated> {
+  return apiFetch('/reservations', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+}
+
+export interface GuestMatch {
+  id: string;
+  title: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  mobileE164: string | null;
+  whatsapp: boolean;
+  nationalityCode: string | null;
+  countryCode: string | null;
+  vip: boolean;
+  stays: number;
+  lastStay: string | null;
+}
+
+export function searchGuests(q: string, limit = 6): Promise<GuestMatch[]> {
+  return apiFetch(`/customers/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+}
+
+export function confirmBooking(id: string, reason?: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+}
+
+export function holdBooking(
+  id: string,
+  body: { until: string | null; kind?: 'hold_confirm' | 'hold_unconfirm' },
+): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/hold`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function releaseHold(id: string, reason?: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/release-hold`, {
+    method: 'POST',
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
 }

@@ -5,7 +5,7 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { CaretDown, Check } from '@phosphor-icons/react';
+import { CaretDown, Check, Minus } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 
 const CONTROL =
@@ -43,12 +43,20 @@ export interface FieldProps {
   required?: boolean;
   children: React.ReactNode;
   className?: string;
+  /**
+   * Label a control by id instead of wrapping it. Needed for a composite control (a date input
+   * with a calendar button): a wrapping label forwards every click inside it to the first
+   * button, which would open the calendar whenever the text was clicked.
+   */
+  htmlFor?: string;
 }
 
 /** Label + control + hint/error. `error` replaces `hint` so the two never stack and fight. */
-export function Field({ label, hint, error, required, children, className }: FieldProps) {
+export function Field({ label, hint, error, required, children, className, htmlFor }: FieldProps) {
+  const Root = htmlFor ? 'div' : 'label';
+  const Title = htmlFor ? 'label' : 'span';
   return (
-    <label
+    <Root
       className={cn(
         'flex w-full flex-col gap-1.5',
         // An invalid field colors its own control — helper text alone is too easy to miss.
@@ -57,23 +65,42 @@ export function Field({ label, hint, error, required, children, className }: Fie
         className,
       )}
     >
-      <span className="text-sm font-medium text-ink-2">
+      <Title {...(htmlFor ? { htmlFor } : {})} className="text-sm font-medium text-ink-2">
         {label}
         {required && <span className="ml-0.5 text-closed-ink">*</span>}
-      </span>
+      </Title>
       {children}
       {error ? (
         <span className="text-xs font-medium text-closed-ink">{error}</span>
       ) : hint ? (
         <span className="text-xs text-ink-3">{hint}</span>
       ) : null}
-    </label>
+    </Root>
   );
 }
 
 // --- Select ------------------------------------------------------------------
 
-export const Select = SelectPrimitive.Root;
+/**
+ * Radix's Select, minus one echo. Inside a `<form>` Radix renders a hidden native `<select>` for
+ * autofill; when a controlled value arrives before that select has the matching option (a room
+ * type's rate types are still mounting, say), the browser falls back to "" and Radix reports the
+ * resulting change event as if the user had chosen "". No item can have the value "" — Radix
+ * forbids it — so an empty-string change is always that echo, and is dropped here.
+ */
+export function Select({
+  onValueChange,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Root>) {
+  return (
+    <SelectPrimitive.Root
+      {...props}
+      onValueChange={(v) => {
+        if (v !== '') onValueChange?.(v);
+      }}
+    />
+  );
+}
 export const SelectValue = SelectPrimitive.Value;
 
 export const SelectTrigger = React.forwardRef<
@@ -83,7 +110,12 @@ export const SelectTrigger = React.forwardRef<
   return (
     <SelectPrimitive.Trigger
       ref={ref}
-      className={cn(CONTROL, 'flex h-9 items-center justify-between gap-2 py-2', className)}
+      className={cn(
+        CONTROL,
+        // One line, however long the chosen item's label: the trigger never grows or wraps.
+        'flex h-9 items-center justify-between gap-2 whitespace-nowrap py-2 text-left [&>span]:min-w-0 [&>span]:truncate',
+        className,
+      )}
       {...props}
     >
       {children}
@@ -119,8 +151,11 @@ export const SelectContent = React.forwardRef<
 
 export const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(function SelectItem({ className, children, ...props }, ref) {
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+    /** Muted text on the right of the option — "4 left", a price. Shown in the list only. */
+    hint?: React.ReactNode;
+  }
+>(function SelectItem({ className, children, hint, ...props }, ref) {
   return (
     <SelectPrimitive.Item
       ref={ref}
@@ -138,9 +173,30 @@ export const SelectItem = React.forwardRef<
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {hint !== undefined && hint !== null && (
+        <span className="ml-auto pl-3 text-xs tabular-nums text-ink-3">{hint}</span>
+      )}
     </SelectPrimitive.Item>
   );
 });
+
+/** A heading over a run of options, e.g. "OTA" above Booking.com and Agoda. */
+export function SelectGroup({ label, children }: { label?: string; children: React.ReactNode }) {
+  return (
+    <SelectPrimitive.Group>
+      {label && (
+        <SelectPrimitive.Label className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+          {label}
+        </SelectPrimitive.Label>
+      )}
+      {children}
+    </SelectPrimitive.Group>
+  );
+}
+
+export function SelectSeparator() {
+  return <SelectPrimitive.Separator className="my-1 h-px bg-line" />;
+}
 
 // --- Switch / Checkbox -------------------------------------------------------
 
@@ -169,6 +225,7 @@ export const Checkbox = React.forwardRef<
   React.ElementRef<typeof CheckboxPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
 >(function Checkbox({ className, ...props }, ref) {
+  // `checked="indeterminate"` is the "some rows selected" state of a select-all box.
   return (
     <CheckboxPrimitive.Root
       ref={ref}
@@ -177,12 +234,17 @@ export const Checkbox = React.forwardRef<
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass',
         'disabled:cursor-not-allowed disabled:opacity-50',
         'data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:text-white',
+        'data-[state=indeterminate]:border-brand data-[state=indeterminate]:bg-brand data-[state=indeterminate]:text-white',
         className,
       )}
       {...props}
     >
       <CheckboxPrimitive.Indicator className="flex items-center justify-center">
-        <Check size={12} weight="bold" />
+        {props.checked === 'indeterminate' ? (
+          <Minus size={12} weight="bold" />
+        ) : (
+          <Check size={12} weight="bold" />
+        )}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );

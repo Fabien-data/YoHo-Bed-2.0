@@ -1,19 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  listRooms,
-  listRatePlans,
-  listOccupancies,
-  listBookings,
-  createBooking,
-  bookingTransition,
-  amendBooking,
-  ApiError,
-  type Booking,
-  type Room,
-  type Occupancy,
-} from '@/lib/api';
+import { listBookings, bookingTransition, amendBooking, ApiError, type Booking } from '@/lib/api';
 import {
   Badge,
   Button,
@@ -22,16 +10,14 @@ import {
   Field,
   Input,
   PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Sheet,
   SheetContent,
 } from '@yohobed/ui';
-import { todayISO, addDays } from '@/lib/format';
 import { useMoney } from '@/components/currency';
+import {
+  useOnReservationCreated,
+  useReservationComposer,
+} from '@/components/reservations/composer/composer-context';
 
 /** Whole nights between two YYYY-MM-DD dates (0 if invalid or not positive). */
 function nightsBetween(checkin: string, checkout: string): number {
@@ -74,44 +60,15 @@ export default function BookingsPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'avail' | 'closed'; text: string } | null>(null);
 
-  const [showNew, setShowNew] = useState(false);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomId, setRoomId] = useState('');
-  const [occs, setOccs] = useState<Occupancy[]>([]);
-  const [occId, setOccId] = useState('');
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    checkin: todayISO(),
-    checkout: addDays(todayISO(), 2),
-    rooms: 1,
-    couponCode: '',
-    referralCode: '',
-  });
-
   const load = useCallback(async () => setBookings(await listBookings().catch(() => [])), []);
+  const { openComposer } = useReservationComposer();
 
   useEffect(() => {
     load();
-    listRooms()
-      .then((rs) => {
-        setRooms(rs);
-        if (rs[0]) void selectRoom(rs[0].id);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
-  async function selectRoom(id: string) {
-    setRoomId(id);
-    setOccId('');
-    const plans = await listRatePlans(id).catch(() => []);
-    const all: Occupancy[] = [];
-    for (const p of plans) all.push(...(await listOccupancies(p.id).catch(() => [])));
-    setOccs(all);
-    setOccId(all[0]?.id ?? '');
-  }
+  // A reservation saved from the Quick Reservation lands in this list straight away.
+  useOnReservationCreated(() => void load());
 
   const filtered = useMemo(
     () =>
@@ -209,43 +166,6 @@ export default function BookingsPage() {
     }
   }
 
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    if (!roomId || !occId || !form.name.trim()) return;
-    setBusy(true);
-    setMsg(null);
-    try {
-      const b = await createBooking({
-        roomId,
-        occupancyId: occId,
-        customerName: form.name.trim(),
-        ...(form.email.trim() ? { customerEmail: form.email.trim() } : {}),
-        ...(form.phone.trim() ? { customerPhone: form.phone.trim() } : {}),
-        checkin: form.checkin,
-        checkout: form.checkout,
-        rooms: form.rooms,
-        ...(form.couponCode.trim() ? { couponCode: form.couponCode.trim() } : {}),
-        ...(form.referralCode.trim() ? { referralCode: form.referralCode.trim() } : {}),
-      });
-      setShowNew(false);
-      setForm((f) => ({ ...f, name: '', email: '', phone: '', rooms: 1 }));
-      await load();
-      setMsg({ tone: 'avail', text: `Booked ${b.reference} — ${money(b.amount, b.currency)}.` });
-    } catch (err) {
-      setMsg({
-        tone: 'closed',
-        text:
-          err instanceof ApiError
-            ? err.status === 409
-              ? 'No availability for those dates.'
-              : err.message
-            : 'Something went wrong',
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div>
       <PageHeader
@@ -254,154 +174,10 @@ export default function BookingsPage() {
         actions={
           <>
             <span className="font-mono text-sm tabular-nums text-ink-3">{bookings.length}</span>
-            <Button
-              onClick={() => {
-                setMsg(null);
-                setShowNew((v) => !v);
-              }}
-              disabled={occs.length === 0}
-            >
-              + Walk-in booking
-            </Button>
+            <Button onClick={() => openComposer()}>+ New reservation</Button>
           </>
         }
       />
-
-      <Sheet open={showNew} onOpenChange={(o) => !o && setShowNew(false)}>
-        <SheetContent
-          side="right"
-          wide
-          title="New walk-in booking"
-          description="The stay is priced from the rate calendar; availability is reserved atomically."
-          footer={
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-ink-3">
-                {nightsBetween(form.checkin, form.checkout) > 0
-                  ? `${nightsBetween(form.checkin, form.checkout)} night${
-                      nightsBetween(form.checkin, form.checkout) === 1 ? '' : 's'
-                    } · ${form.rooms} room${form.rooms === 1 ? '' : 's'}`
-                  : 'Check-out must be after check-in'}
-              </span>
-              <div className="flex-1" />
-              <Button type="button" variant="outline" onClick={() => setShowNew(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                form="new-booking-form"
-                loading={busy}
-                disabled={!occId || nightsBetween(form.checkin, form.checkout) === 0}
-              >
-                {busy ? 'Booking…' : 'Create booking'}
-              </Button>
-            </div>
-          }
-        >
-          <form
-            id="new-booking-form"
-            onSubmit={create}
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2"
-          >
-            <Field label="Room">
-              <Select value={roomId} onValueChange={selectRoom}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {rooms.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Occupancy / rate plan">
-              <Select value={occId} onValueChange={setOccId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="No occupancies — set up in Setup" />
-                </SelectTrigger>
-                <SelectContent>
-                  {occs.map((o) => (
-                    <SelectItem key={o.id} value={o.id}>
-                      {o.label} (×{o.accommodates})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Guest name" required>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. A. Fernando"
-                required
-              />
-            </Field>
-            <Field label="Rooms">
-              <Input
-                type="number"
-                min={1}
-                value={String(form.rooms)}
-                onChange={(e) => setForm((f) => ({ ...f, rooms: Number(e.target.value) || 1 }))}
-              />
-            </Field>
-            <Field label="Email (optional)">
-              <Input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="guest@example.com"
-              />
-            </Field>
-            <Field label="Phone (optional)">
-              <Input
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="+94 …"
-              />
-            </Field>
-            <Field label="Check-in">
-              <Input
-                type="date"
-                value={form.checkin}
-                onChange={(e) => setForm((f) => ({ ...f, checkin: e.target.value }))}
-              />
-            </Field>
-            <Field label="Check-out">
-              <Input
-                type="date"
-                min={form.checkin}
-                value={form.checkout}
-                onChange={(e) => setForm((f) => ({ ...f, checkout: e.target.value }))}
-              />
-            </Field>
-            <Field label="Coupon (optional)">
-              <Input
-                value={form.couponCode}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, couponCode: e.target.value.toUpperCase() }))
-                }
-                placeholder="SUMMER10"
-              />
-            </Field>
-            <Field label="Referral (optional)">
-              <Input
-                value={form.referralCode}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))
-                }
-                placeholder="LANKA"
-              />
-            </Field>
-            {msg?.tone === 'closed' && (
-              <div className="rounded-lg bg-closed-soft px-3 py-2 text-sm font-medium text-closed-ink sm:col-span-2">
-                {msg.text}
-              </div>
-            )}
-          </form>
-        </SheetContent>
-      </Sheet>
 
       <Sheet open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <SheetContent
@@ -534,7 +310,7 @@ export default function BookingsPage() {
         />
       </div>
 
-      {msg && !showNew && !edit && (
+      {msg && !edit && (
         <div
           className={`mt-4 rounded-lg px-3 py-2 text-sm font-medium ${
             msg.tone === 'avail' ? 'bg-avail-soft text-avail-ink' : 'bg-closed-soft text-closed-ink'

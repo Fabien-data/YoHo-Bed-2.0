@@ -101,6 +101,33 @@ band, optional sticky header), `MoneyFooter` (Total/Paid/red Balance), `MetricFo
 `AuditTrailDrawer`, `StatCard` (KPI tile: tinted icon square + label + tabular number), `Toaster` +
 `toast` (sonner, mounted once in `providers.tsx`).
 
+The reservation desk (Development Phase 02). These components were built to Yanolja's screenshots,
+and each one accepts typing as well as clicking:
+
+- **`Calendar`** — Sunday-first, `« ‹ Sep 2026 › »`. Days before `min` (the hotel's date, not the
+  browser's) are greyed and disabled, today has a brass ring and the chosen day is a navy square.
+  The keyboard moves the focus through the days.
+- **`DatePicker`** — accepts `dd/mm/yyyy` or ISO, plus a calendar popover.
+- **`TimePicker`** — `02:00 PM` or `14:00`, plus Yanolja's hour/minute/AM-PM wheel with **Ok**.
+- **`StayRangeField`** — check-in date and time, an editable **Nights** chip, then check-out date
+  and time.
+- **`NumberStepper`** — a number with up/down buttons.
+- **`Combobox`** — a searchable select with optional groups, a prefix dot and a hint (cmdk).
+- **`CountrySelect`** and **`PhoneInput`** — country code plus number. The phone number is read in
+  the hotel's country and handed back as E.164.
+- **`InlineAlert`** — info, warn, error or success, for feedback inside a form.
+- **`SummaryList`** — label and money rows, for the Billing Summary.
+- **`ConfirmDialog`** — the safe choice is focused first.
+
+Changes to existing components:
+
+- `Sheet` has `size="half"`.
+- `Field` has `htmlFor`, which labels by id instead of wrapping. Use it for composite controls.
+- `SelectItem` has a list-only `hint`, and the trigger never wraps.
+- `Select` ignores the empty-string echo from Radix's hidden native `<select>`.
+- `Checkbox` supports `checked="indeterminate"`.
+- `TagChip`, `TagDot` and `TagColorPicker` use the categorical palette.
+
 Conventions:
 
 - Every page starts with `PageHeader` (eyebrow = its sidebar group).

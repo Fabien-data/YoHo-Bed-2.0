@@ -43,7 +43,7 @@ Every sprint deploys on its own.
 | ------ | --------------------------------------------------------------------- | --------- | -------------- |
 | P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Built**³  |
 | P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Built**⁴  |
-| P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ⬜ Not started |
+| P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Built**⁵  |
 | P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ⬜ Not started |
 | P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ⬜ Not started |
 | P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
@@ -76,6 +76,20 @@ Every sprint deploys on its own.
 - **Open items.** The Quick Reservation UI arrives in S3. Early check-out still holds its
   remaining nights (to fix with S5 check-out). Hold-release emails wait for S6 templates, so the
   hotel is told in-app for now.
+
+⁵ P2-S3 (2026-09-18) — on `feat/phase-02-reservations`, not yet deployed.
+
+- **UI kit.** Calendar, date/time pickers, stay row with an editable Nights chip, stepper,
+  searchable combobox, phone and country inputs, inline alert, summary list and confirm dialog.
+- **Quick Reservation.** A half-width sheet with a live quote, "N left" per room type, typed
+  rates with reason and owner approval, returning-guest matching, hold release time, and an
+  idempotent Reserve.
+- **Entry points.** The header icon, Alt+N, the palette, a Stay View double-click, Room View's
+  vacant rooms, and the Reservations and Bookings screens. The old walk-in sheet is gone.
+- **Stay View.** Inquiries get a tentative lane, and holds carry a brass ring with their release
+  time.
+- **Fixes along the way.** API CORS now allows `Idempotency-Key`. `Select` drops Radix's
+  empty-string echo.
 
 Locked rules:
 
