@@ -4,6 +4,7 @@ import { bookings, bookingDays, customers, rooms, properties } from '@yohobed/db
 import { DatabaseService } from '../database/database.service';
 import { resolveAggCurrency } from '../common/currency';
 import { CONFIRMED_STATUSES } from '../common/booking-status';
+import { propertyToday } from '../common/local-date';
 
 /**
  * The owner's morning screen (Compartment G): who arrives, who leaves, who is in-house,
@@ -13,8 +14,10 @@ import { CONFIRMED_STATUSES } from '../common/booking-status';
 export class DashboardService {
   constructor(private readonly dbs: DatabaseService) {}
 
-  overview(tenantId: string, date: string, propertyId?: string) {
+  /** `requestedDate` defaults to the property's own today (or the tenant's first property's). */
+  overview(tenantId: string, requestedDate: string | undefined, propertyId?: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
+      const date = requestedDate ?? (await propertyToday(tx, propertyId));
       const inProperty = (extra: SQL | undefined) =>
         propertyId ? and(eq(bookings.propertyId, propertyId), extra) : extra;
 
@@ -55,10 +58,34 @@ export class DashboardService {
         .select({ count: sql<number>`count(*)::int` })
         .from(bookings)
         .where(inProperty(eq(bookings.status, 'CheckedIn')));
-      const [pending] = await tx
+      // "Pending" is three different things since Development Phase 02: an inquiry (no rooms
+      // taken), an unconfirmed hold (rooms taken, awaiting confirmation) and a failed online
+      // booking. The total stays for compatibility; the split is what the desk acts on.
+      const pendingRows = await tx
+        .select({ kind: bookings.reservationKind, count: sql<number>`count(*)::int` })
+        .from(bookings)
+        .where(inProperty(eq(bookings.status, 'Pending')))
+        .groupBy(bookings.reservationKind);
+      const pendingByKind = {
+        inquiry: 0,
+        hold_unconfirm: 0,
+        online_failed: 0,
+        ...Object.fromEntries(pendingRows.map((r) => [r.kind, r.count])),
+      } as Record<'inquiry' | 'hold_unconfirm' | 'online_failed', number>;
+      const pending = { count: pendingRows.reduce((s, r) => s + r.count, 0) };
+      // Holds that release their rooms within the next day.
+      const [holdsDue] = await tx
         .select({ count: sql<number>`count(*)::int` })
         .from(bookings)
-        .where(inProperty(eq(bookings.status, 'Pending')));
+        .where(
+          inProperty(
+            and(
+              sql`${bookings.holdUntil} is not null`,
+              sql`${bookings.holdUntil} <= now() + interval '24 hours'`,
+              inArray(bookings.status, ['Pending', 'Approved']),
+            ),
+          ),
+        );
 
       // Tonight's occupancy = confirmed rooms staying the night ÷ physical rooms.
       const roomFilter = propertyId ? eq(rooms.propertyId, propertyId) : undefined;
@@ -136,7 +163,9 @@ export class DashboardService {
         arrivals,
         departures,
         inHouse: inHouse!.count,
-        pendingApprovals: pending!.count,
+        pendingApprovals: pending.count,
+        pendingByKind,
+        holdsReleasingSoon: holdsDue?.count ?? 0,
         occupancy: {
           totalRooms,
           occupied,

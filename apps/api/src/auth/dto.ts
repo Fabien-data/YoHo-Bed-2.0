@@ -32,6 +32,23 @@ export const changePasswordSchema = z.object({
 });
 export type ChangePasswordDto = z.infer<typeof changePasswordSchema>;
 
+/**
+ * What an owner can approve on the spot for a desk user (Development Phase 02):
+ * - rate_override: a nightly rate below the property's staff discount limit
+ * - complimentary: a free room when staff may not comp
+ * - tax_exempt: removing taxes from a reservation
+ */
+export const STEP_UP_ACTIONS = ['rate_override', 'complimentary', 'tax_exempt'] as const;
+export type StepUpAction = (typeof STEP_UP_ACTIONS)[number];
+
+export const stepUpSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  action: z.enum(STEP_UP_ACTIONS),
+  reason: z.string().max(300).optional(),
+});
+export type StepUpDto = z.infer<typeof stepUpSchema>;
+
 /** The shape carried in the JWT and attached to the request as `req.user`. */
 export interface AuthPrincipal {
   sub: string;

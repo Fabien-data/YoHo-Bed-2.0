@@ -41,6 +41,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     size = 'md',
     asChild = false,
     loading = false,
+    disabled,
     className,
     children,
     ...props
@@ -60,17 +61,20 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     // Radix Slot requires exactly one element child, so the spinner cannot be injected here —
     // `loading` is a real-<button> affordance only.
     return (
-      <Slot ref={ref} className={classes} {...props}>
+      <Slot ref={ref} className={classes} {...{ disabled }} {...props}>
         {children}
       </Slot>
     );
   }
 
+  // `disabled` is destructured, not spread: a caller passing `disabled={false}` must not be able
+  // to switch a loading button back on (the double-submit it caused on the walk-in form).
   return (
     <button
       ref={ref}
       className={classes}
-      disabled={loading || (props as { disabled?: boolean }).disabled}
+      disabled={loading || disabled}
+      aria-busy={loading || undefined}
       {...props}
     >
       {loading && (

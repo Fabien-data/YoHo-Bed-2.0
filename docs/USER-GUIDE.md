@@ -127,18 +127,45 @@ Pending → Approved → Checked in → Checked out
    ↘ Rejected / Cancelled            ↘ (guest never arrived: No-show)
 ```
 
-- **Walk-in bookings you create start as Pending** — approve them to confirm.
+- **A reservation's type decides where it starts** (see _Taking a reservation_ below): a
+  **Confirm** booking is confirmed at once, an **Inquiry** holds no room, and a **Hold** keeps the
+  rooms until its release time.
 - **OTA bookings arrive already Approved** — the guest has already paid the channel.
 - **Rejecting or cancelling returns the rooms to your calendar** automatically. A **no-show**
-  does not (the night was held and lost — it stays in your revenue).
+  keeps the night the guest missed (you may charge it) and puts the rest of the stay back on sale.
 - **Checking out a guest automatically emails them a review invitation.**
 
-### Creating a walk-in (Bookings → + Walk-in booking)
+### Taking a reservation (Quick Reservation)
 
-Pick the room and occupancy, enter the guest's name and dates, optionally a **coupon code** or
-**referral code**, and save. You'll see the reference (like `2607170001`) and the amount. If the
-dates don't fit — not enough rooms, minimum stay not met, no price set — the form tells you
-exactly why.
+Open it from wherever you are:
+
+- the calendar-plus icon in the top bar, or **Alt+N**;
+- **New reservation** in the search palette (**Ctrl+K**), or on the Reservations and Bookings
+  screens;
+- a **double-click on an empty night in Stay View**, which picks that room and date for you;
+- **New reservation in room …** on a vacant room in Room View.
+
+Then fill it in, top to bottom:
+
+1. **Dates.** Type them (`17/09/2026` works, and so does `2026-09-17`) or pick them from the
+   calendar. Times take `2pm` or `14:00`. Click the dark **Nights** box to type the number of
+   nights instead of a check-out date.
+2. **Room(s), type and source.** The **Reservation type** is **Confirm**, **Inquiry** (no room
+   is taken yet) or **Hold** (the rooms are kept until the release time you set, then go back on
+   sale automatically; you are reminded before). The **Business source** list is searchable.
+3. **Rooms.** One row per room: room type (with how many are left), rate type, a specific room
+   if you want one, and adults and children. The **Rate** shows what the stay costs for that
+   room, taxes included. Type over it to change the price. You then need to give a reason, and
+   a discount beyond your limit needs an owner to approve it on the spot.
+4. **The guest.** Title, full name, mobile (a local number needs no country code) and email. As
+   you type, **returning guests** who match are offered: pick one to link the stay to their
+   history.
+
+The **Total** updates as you go and is the amount that will be saved. **Reserve** books every
+room together, or none of them. A reservation of several rooms gets references like
+`2609180001-1`, `-2`, and they appear together in Reservations. If a room was taken while you
+were typing, the form says which one. Pressing **Esc** asks before throwing away what you
+entered.
 
 ### Managing bookings
 

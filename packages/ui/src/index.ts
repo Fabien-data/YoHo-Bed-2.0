@@ -64,6 +64,8 @@ export {
   SelectTrigger,
   SelectContent,
   SelectItem,
+  SelectGroup,
+  SelectSeparator,
   Switch,
   Checkbox,
   Tabs,
@@ -90,3 +92,33 @@ export { DataGrid, type ColumnDef } from './patterns/data-grid';
 export { AuditTrailDrawer, type AuditEntry } from './patterns/audit-trail';
 export { StatCard } from './patterns/stat-card';
 export { Toaster, toast } from './patterns/toaster';
+export { TagChip, TagDot, TagColorPicker, TAG_COLOR_KEYS, tagBarClasses } from './patterns/tag';
+
+// Reservation desk (Development Phase 02)
+export { Calendar, type CalendarProps } from './patterns/calendar';
+export {
+  DatePicker,
+  TimePicker,
+  StayRangeField,
+  type DatePickerProps,
+  type TimePickerProps,
+  type StayRange,
+  type StayRangeFieldProps,
+} from './patterns/date-time';
+export {
+  NumberStepper,
+  Combobox,
+  CountrySelect,
+  countryOptions,
+  PhoneInput,
+  InlineAlert,
+  SummaryList,
+  type NumberStepperProps,
+  type ComboboxOption,
+  type ComboboxProps,
+  type PhoneValue,
+  type PhoneInputProps,
+  type AlertTone,
+  type SummaryRow,
+} from './patterns/inputs';
+export { ConfirmDialog, type ConfirmDialogProps } from './patterns/confirm-dialog';

@@ -44,6 +44,11 @@ export interface SheetContentProps extends React.ComponentPropsWithoutRef<
   /** Rendered on the header row, right of the title — for actions like Export or Audit Trail. */
   headerActions?: React.ReactNode;
   wide?: boolean;
+  /**
+   * `half`: half the screen on a desktop — Yanolja's Quick Reservation, wide enough for a room
+   * grid while the tape chart behind it stays in view. Full width on a phone.
+   */
+  size?: 'default' | 'wide' | 'half';
 }
 
 export const SheetContent = React.forwardRef<
@@ -58,6 +63,7 @@ export const SheetContent = React.forwardRef<
     footer,
     headerActions,
     wide,
+    size = 'default',
     className,
     children,
     ...props
@@ -81,7 +87,8 @@ export const SheetContent = React.forwardRef<
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=open]:duration-3 data-[state=closed]:duration-2 ease-smooth',
           SIDES[side],
-          wide && side !== 'bottom' && 'sm:max-w-3xl',
+          (wide || size === 'wide') && side !== 'bottom' && 'sm:max-w-3xl',
+          size === 'half' && side !== 'bottom' && 'sm:max-w-3xl lg:w-1/2 lg:max-w-none',
           className,
         )}
         {...props}

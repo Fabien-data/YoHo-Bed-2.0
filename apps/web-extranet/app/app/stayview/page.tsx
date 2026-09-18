@@ -29,6 +29,7 @@ import { useActiveProperty } from '@/components/active-property';
 import { todayISO } from '@/lib/format';
 import { TapeChart } from '@/components/stayview/tape-chart';
 import { FolioPanel } from '@/components/folio/folio-panel';
+import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 
 /** Yanolja shows a fortnight at a time; wide enough to plan, narrow enough to read. */
 const WINDOW_NIGHTS = 15;
@@ -44,6 +45,7 @@ type Filter = 'all' | 'vacant' | 'occupied' | 'reserved' | 'blocked' | 'dueOut';
 export default function StayViewPage() {
   const qc = useQueryClient();
   const { propertyId } = useActiveProperty();
+  const { openComposer } = useReservationComposer();
 
   const [from, setFrom] = React.useState(() => todayISO());
   const [filter, setFilter] = React.useState<Filter>('all');
@@ -132,7 +134,15 @@ export default function StayViewPage() {
             No rooms set up yet. Add them under Configuration &rarr; Property setup.
           </p>
         ) : (
-          <TapeChart data={filtered} onSelectBar={setSelected} />
+          <TapeChart
+            data={filtered}
+            onSelectBar={setSelected}
+            // Double-click an empty night: a new reservation for that room from that date.
+            onSelectEmpty={(unitId, date) => {
+              const rt = chart.data?.roomTypes.find((r) => r.units.some((u) => u.id === unitId));
+              openComposer({ checkin: date, roomId: rt?.roomId, roomUnitId: unitId });
+            }}
+          />
         )}
       </Card>
 

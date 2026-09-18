@@ -252,3 +252,63 @@ describe('night audit entitlement', () => {
     expect(allowed.status).toBe(200);
   });
 });
+
+describe('night audit and the reservation lifecycle (Development Phase 02)', () => {
+  it('releases a hold that is due before it marks no-shows, and never charges it', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const today = (await businessDate(fx)).body.currentDate;
+    await openAndPrice(fx, today, day(today, 10), { roomsToSell: 3 });
+    const res = await request('POST', '/reservations', {
+      token: fx.token,
+      body: {
+        propertyId: fx.propertyId,
+        checkin: today,
+        checkout: day(today, 2),
+        kind: 'hold_confirm',
+        holdUntil: new Date(Date.now() + 1500).toISOString(),
+        guest: { name: 'Held past its time' },
+        lines: [{ roomId: fx.roomId, occupancyId: fx.occupancyId, adults: 2 }],
+      },
+    });
+    expect(res.status).toBe(201);
+    await new Promise((r) => setTimeout(r, 2000));
+
+    const audit = await run(fx);
+    expect(audit.status).toBe(201);
+    expect(audit.body.summary.holdsReleased).toEqual([res.body.reference]);
+    expect(audit.body.summary.noShowReferences).toEqual([]);
+    expect(audit.body.roomsCharged).toBe(0);
+
+    const row = await request('GET', `/bookings/${res.body.bookings[0].id}`, { token: fx.token });
+    expect(row.body.status).toBe('Cancelled');
+  });
+
+  it('marks a no-show with a trail entry and gives the rest of the stay back', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const today = (await businessDate(fx)).body.currentDate;
+    await openAndPrice(fx, today, day(today, 10), { roomsToSell: 3 });
+    const res = await request('POST', '/reservations', {
+      token: fx.token,
+      body: {
+        propertyId: fx.propertyId,
+        checkin: today,
+        checkout: day(today, 3),
+        guest: { name: 'Never arrived' },
+        lines: [{ roomId: fx.roomId, occupancyId: fx.occupancyId, adults: 2 }],
+      },
+    });
+    const id = res.body.bookings[0].id;
+
+    const audit = await run(fx);
+    expect(audit.body.summary.noShowReferences).toEqual([res.body.reference]);
+    const row = await request('GET', `/bookings/${id}`, { token: fx.token });
+    expect(row.body.status).toBe('NoShow');
+    expect(row.body.trail.map((t: any) => t.action)).toContain('no_show');
+
+    const avail = (d: string) =>
+      request('GET', `/rooms/${fx.roomId}/availability?from=${d}&to=${d}`, { token: fx.token });
+    expect((await avail(today)).body[0].roomsToSell).toBe(2);
+    expect((await avail(day(today, 1))).body[0].roomsToSell).toBe(3);
+    expect((await avail(day(today, 2))).body[0].roomsToSell).toBe(3);
+  });
+});

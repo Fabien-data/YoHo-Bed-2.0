@@ -3,10 +3,11 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Command } from 'cmdk';
-import { MagnifyingGlass } from '@phosphor-icons/react';
+import { CalendarPlus, MagnifyingGlass } from '@phosphor-icons/react';
 import { Dialog, DialogContent, Kbd } from '@yohobed/ui';
 import { NAV } from '@/lib/nav';
 import { useEntitlements } from '@/lib/queries';
+import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 
 /**
  * The omni-search — Yanolja's "Search reservations, guests and more".
@@ -26,6 +27,7 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const { openComposer } = useReservationComposer();
 
   // Same entitlement filter as the sidebar — the palette must not be a back door into modules
   // the tenant's plan hides (the backend 403s anyway; a raw error beats no gate, but not by much).
@@ -41,10 +43,16 @@ export function CommandPalette({
         e.preventDefault();
         onOpenChange(!open);
       }
+      // Alt+N: a new reservation from anywhere. `code`, not `key`: on a Mac, Option+N types "˜".
+      if (e.code === 'KeyN' && e.altKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        onOpenChange(false);
+        openComposer();
+      }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, openComposer]);
 
   function go(href: string) {
     onOpenChange(false);
@@ -76,6 +84,26 @@ export function CommandPalette({
               Nothing matches that.
             </Command.Empty>
 
+            <Command.Group
+              heading="Actions"
+              className="pb-1 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3"
+            >
+              <Command.Item
+                value="New reservation booking walk-in quick"
+                onSelect={() => {
+                  onOpenChange(false);
+                  openComposer();
+                }}
+                className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink-2 outline-none transition duration-1 data-[selected=true]:bg-surface-2 data-[selected=true]:text-ink"
+              >
+                <CalendarPlus size={16} className="shrink-0 text-ink-3" />
+                New reservation
+                <span className="ml-auto flex gap-1">
+                  <Kbd>Alt</Kbd>
+                  <Kbd>N</Kbd>
+                </span>
+              </Command.Item>
+            </Command.Group>
             {visibleGroups.map((group) => (
               <Command.Group
                 key={group.label}

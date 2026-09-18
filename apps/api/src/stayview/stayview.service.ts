@@ -4,6 +4,7 @@ import {
   availabilityCalendar,
   bookingRooms,
   bookings,
+  businessSources,
   customers,
   housekeepingStatus,
   maintenanceBlocks,
@@ -35,6 +36,15 @@ export interface StayBar {
   groupId?: string | null;
   balanceDue?: boolean;
   reason?: string;
+  /** Yanolja's reservation type (Development Phase 02). */
+  reservationKind?: string;
+  /** When a hold gives its rooms back — the bar's tooltip. */
+  holdUntil?: string | null;
+  /** The business source's short code and palette colour, which colour the bar. */
+  sourceCode?: string | null;
+  sourceColor?: string | null;
+  /** On a tentative bar: the room the guest asked for. */
+  preferredRoomUnitId?: string | null;
 }
 
 /**
@@ -136,6 +146,9 @@ export class StayViewService {
       // --- index everything by the keys the assembly needs -----------------
       const barsByUnit = new Map<string, StayBar[]>();
       const unassigned: StayBar[] = [];
+      // Bookings that hold no rooms (inquiries, failed online bookings) get their own lane: they
+      // are on the hotel's radar, but they occupy nothing and are never counted as sold.
+      const tentative: Array<StayBar & { roomId: string }> = [];
       for (const l of legRows) {
         const bar: StayBar = {
           kind: 'booking',
@@ -150,7 +163,15 @@ export class StayViewService {
           channel: l.channel,
           groupId: l.groupId,
           balanceDue: Number(l.amount) > Number(l.paid ?? 0),
+          reservationKind: l.reservationKind,
+          holdUntil: l.holdUntil?.toISOString() ?? null,
+          sourceCode: l.sourceCode,
+          sourceColor: l.sourceColor,
         };
+        if (!l.inventoryHeld) {
+          tentative.push({ ...bar, roomId: l.roomId, preferredRoomUnitId: l.preferredRoomUnitId });
+          continue;
+        }
         if (l.roomUnitId) {
           const list = barsByUnit.get(l.roomUnitId) ?? [];
           list.push(bar);
@@ -194,8 +215,9 @@ export class StayViewService {
 
       // --- footers -----------------------------------------------------------
       const activeUnits = unitRows.filter((u) => u.status === 'active').length;
+      const heldLegs = legRows.filter((l) => l.inventoryHeld);
       const footer = dates.map((d) => {
-        const sold = legRows.filter((l) => l.checkin <= d && d < l.checkout).length;
+        const sold = heldLegs.filter((l) => l.checkin <= d && d < l.checkout).length;
         const blocked = blockRows.filter((b) => b.blockFrom <= d && d < b.blockTo).length;
         // Yanolja divides by SELLABLE rooms, not physical ones: an 8-room property with one
         // blocked shows 5 sold as 71% (5/7), not 63%. Reproduced exactly.
@@ -218,8 +240,15 @@ export class StayViewService {
         roomTypes,
         /** Legs with no room yet — Yanolja's "Default Unmapped Room" row. */
         unassigned,
+        /** Bookings that hold no rooms yet (inquiries), drawn in their own lane. */
+        tentative,
         footer,
-        counts: { ...this.countsFor(from, legRows, blockRows, activeUnits), dirty, dueOut },
+        counts: {
+          ...this.countsFor(from, heldLegs, blockRows, activeUnits),
+          tentative: tentative.filter((t) => t.from <= from && from < t.to).length,
+          dirty,
+          dueOut,
+        },
       };
     });
   }
@@ -261,6 +290,12 @@ export class StayViewService {
         roomId: bookings.roomId,
         reference: bookings.reference,
         status: bookings.status,
+        reservationKind: bookings.reservationKind,
+        inventoryHeld: bookings.inventoryHeld,
+        holdUntil: bookings.holdUntil,
+        preferredRoomUnitId: bookingRooms.preferredRoomUnitId,
+        sourceCode: businessSources.shortCode,
+        sourceColor: businessSources.palette,
         source: bookings.source,
         groupId: bookings.groupId,
         amount: bookings.amount,
@@ -275,6 +310,7 @@ export class StayViewService {
       .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
       .innerJoin(customers, eq(customers.id, bookings.customerId))
       .leftJoin(otaReservations, eq(otaReservations.bookingId, bookings.id))
+      .leftJoin(businessSources, eq(businessSources.id, bookings.businessSourceId))
       .where(
         and(
           eq(bookings.propertyId, propertyId),

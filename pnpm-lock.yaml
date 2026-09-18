@@ -44,6 +44,9 @@ importers:
       '@yohobed/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@yohobed/locale':
+        specifier: workspace:*
+        version: link:../../packages/locale
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -142,6 +145,9 @@ importers:
       '@yohobed/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@yohobed/locale':
+        specifier: workspace:*
+        version: link:../../packages/locale
       '@yohobed/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -228,6 +234,9 @@ importers:
       '@yohobed/domain':
         specifier: workspace:*
         version: link:../domain
+      '@yohobed/locale':
+        specifier: workspace:*
+        version: link:../locale
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -261,6 +270,22 @@ importers:
         version: 2.1.9(@types/node@22.20.1)(terser@5.49.0)
 
   packages/domain:
+    devDependencies:
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(@swc/core@1.15.43)(jiti@1.21.7)(postcss@8.5.16)(tsx@4.23.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(terser@5.49.0)
+
+  packages/locale:
+    dependencies:
+      libphonenumber-js:
+        specifier: ^1.11.17
+        version: 1.13.13
     devDependencies:
       tsup:
         specifier: ^8.3.5
@@ -310,9 +335,15 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.11.2
         version: 3.14.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@yohobed/locale':
+        specifier: workspace:*
+        version: link:../locale
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      cmdk:
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -2575,6 +2606,7 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -3197,6 +3229,9 @@ packages:
 
   jws@3.2.3:
     resolution: {integrity: sha512-byiJ0FLRdLdSVSReO/U4E7RoEyOCKnEnEPMjq3HxWtvzLsV08/i5RQKsFVNkCldrCaPr2vDNAOMsfs8T/Hze7g==}
+
+  libphonenumber-js@1.13.13:
+    resolution: {integrity: sha512-hV6SmWnyQ8U1QXhhqbqYBHIStNnscG7A5XbGodgdHhf/8N5PwhYpJA5U/yHDjYwPYTd8uNGXqq416XctuvK2PA==}
 
   lilconfig@3.1.3:
     resolution: {integrity: sha512-/vlFKAoH5Cgt3Ie+JLhRbwOsCQePABiU3tJ1egGvyQ+33R/vcwM2Zl2QR/LzjsBeItPt3oSVXapn+m4nQDvpzw==}
@@ -6882,6 +6917,8 @@ snapshots:
     dependencies:
       jwa: 1.4.2
       safe-buffer: 5.2.1
+
+  libphonenumber-js@1.13.13: {}
 
   lilconfig@3.1.3: {}
 

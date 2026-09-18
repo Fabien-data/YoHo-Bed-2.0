@@ -79,6 +79,8 @@ function Bar({
       <button
         type="button"
         onClick={() => onSelect(bar)}
+        // A double-click on the row opens a new reservation; on a bar it must not.
+        onDoubleClick={(e) => e.stopPropagation()}
         title={bar.reason}
         className={cn(
           'absolute top-1 flex h-[calc(100%-8px)] items-center gap-1.5 overflow-hidden rounded px-2',
@@ -113,6 +115,17 @@ function Bar({
           <div className="text-ink-3">
             {bar.from} → {bar.to}
           </div>
+          {bar.holdUntil && (
+            <div className="font-semibold text-brass-ink">
+              Hold releases{' '}
+              {new Date(bar.holdUntil).toLocaleString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </div>
+          )}
           {bar.balanceDue && <div className="font-semibold text-closed-ink">Payment pending</div>}
         </div>
       }
@@ -120,10 +133,12 @@ function Bar({
       <button
         type="button"
         onClick={() => onSelect(bar)}
+        onDoubleClick={(e) => e.stopPropagation()}
         className={cn(
           'absolute top-1 flex h-[calc(100%-8px)] items-center gap-1.5 overflow-hidden px-2',
           'text-left text-xs font-semibold shadow-sm transition hover:brightness-110',
           barTone(bar),
+          bar.holdUntil && 'ring-2 ring-inset ring-brass',
           g.startsBefore ? 'rounded-l-none' : 'rounded-l',
           g.endsAfter ? 'rounded-r-none' : 'rounded-r',
         )}
@@ -255,6 +270,9 @@ export function TapeChart({
                 <div
                   className="relative shrink-0"
                   style={{ ...gridBackground(dates), height: ROW_H }}
+                  data-unit-id={u.id}
+                  data-unit-code={u.code}
+                  title="Double-click an empty night to reserve this room"
                   onDoubleClick={(e) => {
                     if (!onSelectEmpty) return;
                     const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -285,6 +303,25 @@ export function TapeChart({
             </div>
             <div className="relative shrink-0" style={{ ...gridBackground(dates), height: ROW_H }}>
               {data.unassigned.map((b) => (
+                <Bar key={b.id} bar={b} dates={dates} onSelect={onSelectBar} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tentative — inquiries hold no room; they are shown, never counted */}
+        {(data.tentative?.length ?? 0) > 0 && (
+          <div className="flex border-b border-line bg-info-soft">
+            <div
+              className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-info-soft px-3"
+              style={{ width: LABEL_W, height: ROW_H }}
+            >
+              <span className="text-xs font-bold text-info-ink">
+                Tentative ({data.tentative!.length})
+              </span>
+            </div>
+            <div className="relative shrink-0" style={{ ...gridBackground(dates), height: ROW_H }}>
+              {data.tentative!.map((b) => (
                 <Bar key={b.id} bar={b} dates={dates} onSelect={onSelectBar} />
               ))}
             </div>

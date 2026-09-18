@@ -1,0 +1,269 @@
+'use client';
+
+import * as React from 'react';
+import { ArrowCounterClockwise, X } from '@phosphor-icons/react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tooltip,
+  cn,
+} from '@yohobed/ui';
+import type { ReservationQuote, RoomAvailability } from '@/lib/api';
+import { freeFor, type LineDraft } from './draft';
+
+const AUTO = '__auto';
+
+/** "24390.25" → "24,390.25" for reading; the field shows the raw number while editing. */
+function grouped(v: string) {
+  const n = Number(v.replace(/,/g, ''));
+  return Number.isFinite(n)
+    ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : v;
+}
+const ADULTS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+const CHILDREN = [0, 1, 2, 3, 4, 5, 6];
+
+/** The grid's column template — shared with the header row so they line up. */
+export const LINE_GRID =
+  'grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_4.5rem_4.5rem_minmax(0,1.1fr)_2rem] sm:items-start';
+
+/**
+ * One room of the reservation — one row of Yanolja's grid: Room Type · Rate Type · Room · Adult ·
+ * Child · Rate (tax inclusive). The rate shows the quoted stay total for the room; typing over it
+ * sets the price for the room (the pricer spreads it across the nights), and the arrow puts the
+ * calendar price back.
+ */
+export function RoomLine({
+  index,
+  line,
+  lines,
+  grid,
+  takesRooms,
+  quote,
+  money,
+  error,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  line: LineDraft;
+  lines: LineDraft[];
+  grid: RoomAvailability | undefined;
+  /** Whether the reservation type takes rooms — an inquiry may pick a sold-out type. */
+  takesRooms: boolean;
+  quote: ReservationQuote['lines'][number] | undefined;
+  money: (v: string | number) => string;
+  error?: string | null;
+  onChange: (patch: Partial<LineDraft>) => void;
+  onRemove?: () => void;
+}) {
+  const n = index + 1;
+  const roomType = grid?.roomTypes.find((r) => r.roomId === line.roomId);
+  const rateTypes = roomType?.rateTypes ?? [];
+  const takenUnits = new Set(
+    lines.filter((l, i) => i !== index && l.roomUnitId).map((l) => l.roomUnitId),
+  );
+  const units = (roomType?.units ?? []).filter(
+    (u) => u.id === line.roomUnitId || (u.free && !takenUnits.has(u.id)),
+  );
+  const [editingRate, setEditingRate] = React.useState(false);
+  const typed = line.rate.trim() !== '';
+
+  function chooseRoomType(roomId: string) {
+    const rt = grid?.roomTypes.find((r) => r.roomId === roomId);
+    const rate =
+      rt?.rateTypes.find((t) => t.priced && t.accommodates >= line.adults) ??
+      rt?.rateTypes.find((t) => t.priced) ??
+      rt?.rateTypes[0];
+    onChange({ roomId, occupancyId: rate?.occupancyId ?? null, roomUnitId: '', rate: '' });
+  }
+
+  return (
+    <div className={LINE_GRID} data-testid={`room-line-${n}`}>
+      <Select value={line.roomId ?? undefined} onValueChange={chooseRoomType}>
+        <SelectTrigger aria-label={`Room type, room ${n}`} className="col-span-2 sm:col-span-1">
+          <SelectValue placeholder="-Select-" />
+        </SelectTrigger>
+        <SelectContent>
+          {grid?.roomTypes.map((rt) => {
+            const left = freeFor(grid, lines, index, rt.roomId);
+            const soldOut = takesRooms && left === 0 && rt.roomId !== line.roomId;
+            return (
+              <SelectItem
+                key={rt.roomId}
+                value={rt.roomId}
+                disabled={soldOut}
+                hint={
+                  <span
+                    className={cn(
+                      left === 0 ? 'text-closed-ink' : left <= 2 ? 'text-low-ink' : 'text-ink-3',
+                    )}
+                  >
+                    {left === 0 ? 'Sold out' : `${left} left`}
+                  </span>
+                }
+              >
+                {rt.name}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={line.occupancyId ?? undefined}
+        onValueChange={(occupancyId) => onChange({ occupancyId, rate: '' })}
+        disabled={!roomType}
+      >
+        <SelectTrigger aria-label={`Rate type, room ${n}`} className="col-span-2 sm:col-span-1">
+          <SelectValue placeholder="-Select-" />
+        </SelectTrigger>
+        <SelectContent>
+          {rateTypes.map((t) => (
+            <SelectItem
+              key={t.occupancyId}
+              value={t.occupancyId}
+              disabled={!t.priced}
+              hint={t.priced ? `${money(t.average!)}/night` : 'No price'}
+            >
+              {t.rateCode} · {t.label}
+              {t.audience !== 'all' ? (t.audience === 'local' ? ' · Resident' : ' · Foreign') : ''}
+            </SelectItem>
+          ))}
+          {roomType && roomType.hiddenRateTypes > 0 && (
+            <div className="px-2.5 py-1.5 text-xs text-ink-3">
+              {roomType.hiddenRateTypes} resident/foreign rate
+              {roomType.hiddenRateTypes === 1 ? '' : 's'} hidden
+            </div>
+          )}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={line.roomUnitId || AUTO}
+        onValueChange={(v) => onChange({ roomUnitId: v === AUTO ? '' : v })}
+        disabled={!roomType}
+      >
+        <SelectTrigger aria-label={`Room, room ${n}`} className={cn(error && 'border-closed')}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={AUTO}>{takesRooms ? 'Any room' : 'No preference'}</SelectItem>
+          {units.map((u) => (
+            <SelectItem key={u.id} value={u.id} hint={u.floor ? `fl ${u.floor}` : undefined}>
+              {u.code}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={String(line.adults)} onValueChange={(v) => onChange({ adults: Number(v) })}>
+        <SelectTrigger aria-label={`Adults, room ${n}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {ADULTS.map((a) => (
+            <SelectItem key={a} value={String(a)}>
+              {/* A string: Radix drops a falsy label, so the number 0 would show as blank. */}
+              {String(a)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={String(line.children)}
+        onValueChange={(v) => onChange({ children: Number(v) })}
+      >
+        <SelectTrigger aria-label={`Children, room ${n}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {CHILDREN.map((c) => (
+            <SelectItem key={c} value={String(c)}>
+              {String(c)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <div className="col-span-2 sm:col-span-1">
+        <div
+          className={cn(
+            'flex h-9 items-center rounded-lg border bg-surface text-sm transition duration-1 focus-within:border-brass focus-within:ring-2 focus-within:ring-brass-soft',
+            typed ? 'border-brass' : 'border-line-strong',
+          )}
+        >
+          <input
+            aria-label={`Rate for the stay, tax inclusive, room ${n}`}
+            inputMode="decimal"
+            disabled={!line.occupancyId}
+            value={
+              editingRate
+                ? line.rate
+                : typed
+                  ? grouped(line.rate)
+                  : quote
+                    ? grouped(quote.amount)
+                    : ''
+            }
+            placeholder="0.00"
+            onFocus={(e) => {
+              setEditingRate(true);
+              if (!typed && quote) onChange({ rate: quote.amount });
+              requestAnimationFrame(() => e.target.select());
+            }}
+            onBlur={() => {
+              setEditingRate(false);
+              // Typing the calendar price back is the same as not typing one.
+              if (quote && Number(line.rate) === Number(quote.listAmount)) onChange({ rate: '' });
+            }}
+            onChange={(e) => onChange({ rate: e.target.value.replace(/[^\d.,]/g, '') })}
+            className="h-full w-full min-w-0 bg-transparent px-3 text-right font-mono tabular-nums text-ink outline-none disabled:opacity-50"
+          />
+          {typed && (
+            <Tooltip label="Back to the calendar price">
+              <button
+                type="button"
+                aria-label={`Use the calendar price, room ${n}`}
+                onClick={() => onChange({ rate: '' })}
+                className="px-2 text-ink-3 transition duration-1 hover:text-ink"
+              >
+                <ArrowCounterClockwise size={13} />
+              </button>
+            </Tooltip>
+          )}
+        </div>
+        {quote && (typed || quote.rateSource !== 'calendar') && (
+          <p className="mt-1 text-right text-[11px] text-ink-3">
+            List <span className="font-mono line-through">{money(quote.listAmount)}</span>
+            {quote.discountPct !== 0 && (
+              <span className={cn('ml-1', quote.discountPct > 0 ? 'text-low-ink' : 'text-ink-3')}>
+                {quote.discountPct > 0
+                  ? `−${quote.discountPct.toFixed(1)}%`
+                  : `+${(-quote.discountPct).toFixed(1)}%`}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+
+      <div className="hidden justify-center pt-1.5 sm:flex">
+        {onRemove && (
+          <button
+            type="button"
+            aria-label={`Remove room ${n}`}
+            onClick={onRemove}
+            className="rounded-md p-1 text-ink-3 transition duration-1 hover:bg-surface-2 hover:text-ink"
+          >
+            <X size={15} />
+          </button>
+        )}
+      </div>
+      {error && <p className="col-span-full -mt-1 text-xs font-medium text-closed-ink">{error}</p>}
+    </div>
+  );
+}

@@ -33,17 +33,6 @@ export const settleLedgerSchema = z.object({
 });
 export type SettleLedgerDto = z.infer<typeof settleLedgerSchema>;
 
-export const createBusinessSourceSchema = z.object({
-  shortCode: z.string().min(1).max(16),
-  name: z.string().min(1).max(120),
-  /** Hex, used directly as the Stay View bar colour. */
-  color: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, 'expected a hex colour like #5b7cfa')
-    .default('#5b7cfa'),
-});
-export type CreateBusinessSourceDto = z.infer<typeof createBusinessSourceSchema>;
-
 export const createDrawerSchema = z.object({ name: z.string().min(1).max(80) });
 export type CreateDrawerDto = z.infer<typeof createDrawerSchema>;
 

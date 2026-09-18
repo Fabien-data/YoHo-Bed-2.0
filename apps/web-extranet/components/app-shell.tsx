@@ -44,13 +44,13 @@ import { NotificationsBell } from '@/components/notifications-bell';
 import { ThemeToggle } from '@/components/theme';
 import { CurrencyPicker } from '@/components/currency';
 import { CommandPalette } from '@/components/command-palette';
+import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 import { Logo } from '@/components/logo';
 
 const NAV_COLLAPSED_KEY = 'yhb_nav_collapsed';
 
 /** The header quick-action strip — Yanolja's five icons, mapped to our routes. */
 const QUICK_ACTIONS = [
-  { href: '/app/bookings', label: 'Add booking', icon: CalendarPlus, feature: undefined },
   { href: '/app/stayview', label: 'Stay view', icon: CalendarCheck, feature: 'stay_view' },
   { href: '/app/reservations', label: 'Reservations', icon: CalendarBlank, feature: undefined },
   {
@@ -90,6 +90,7 @@ export function AppShell({
   const { property, properties, switchProperty } = useActiveProperty();
   const { data: entitlements } = useEntitlements();
   const active = activeNavItem(pathname);
+  const { openComposer } = useReservationComposer();
 
   // Restore persisted UI state after mount (SSR renders the default).
   React.useEffect(() => {
@@ -104,6 +105,21 @@ export function AppShell({
   React.useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
+
+  // Keep the current item in sight: the Configuration group sits below the fold on a laptop.
+  // Only the tree scrolls — scrollIntoView would drag the page along with it.
+  const navScroll = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const box = navScroll.current;
+    const link = box?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!box || !link) return;
+    const b = box.getBoundingClientRect();
+    const l = link.getBoundingClientRect();
+    if (l.top < b.top || l.bottom > b.bottom) {
+      box.scrollTop += l.top - b.top - (b.height - l.height) / 2;
+    }
+    // Entitlements hide items once they load, which moves the rest of the tree.
+  }, [active?.href, entitlements]);
 
   function toggleNav() {
     // One button, two meanings: below xl it opens the overlay drawer; at xl+ it pins/unpins.
@@ -215,6 +231,16 @@ export function AppShell({
 
           {/* Quick actions — the Yanolja icon strip, entitlement-filtered like the sidebar. */}
           <div className="hidden items-center gap-0.5 lg:flex">
+            <Tooltip label="New reservation (Alt+N)">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="New reservation"
+                onClick={() => openComposer()}
+              >
+                <CalendarPlus size={18} />
+              </Button>
+            </Tooltip>
             {QUICK_ACTIONS.filter(
               (qa) => !qa.feature || entitlements?.features[qa.feature] !== false,
             ).map((qa) => (
@@ -326,7 +352,7 @@ export function AppShell({
           )}
           style={{ height: 'calc(100vh - 3.5rem)' }}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+          <div ref={navScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             {visibleGroups.map((group) => (
               <div key={group.label} className="mb-5">
                 <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-3">

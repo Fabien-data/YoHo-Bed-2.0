@@ -190,3 +190,52 @@ the consolidation currency.
 A leading **`≈`** means the figure is not exact, from either of two causes: the viewer picked a
 display currency other than the amount's own, or the server consolidated a multi-currency aggregate
 (`approximate: true`). Amounts in templates render via `{{amount}}` with two decimals.
+
+## 12. Changing the price at the desk (Development Phase 02)
+
+The rate calendar gives every night a **list price** (after any last-minute drop). A reservation
+may replace it. Every path runs through one pricer (`apps/api/src/reservations/pricer.ts`), and
+the new maths lives in new files (`packages/domain/src/rate-policy.ts`, `money.ts`,
+`tax-split.ts`) — nothing in §1–§11 changed. A night priced from the calendar stores exactly what
+it always did; a golden test pins `POST /reservations` to `POST /bookings`.
+
+**What each night stores** (`booking_days`): the charged `selling_price`, `tax`, `base_price` and
+`commission`, beside the `list_selling_price` and a `rate_source` — `calendar`, `override`,
+`contract` or `complimentary` — plus `tax_lines`, the night's tax split per tax.
+
+**A typed rate (override).** The desk enters a tax-inclusive price: `nightly`, a stay `total`
+(spread across the nights in proportion to their list prices), `per_night`, or `discount_pct`.
+Tax is decomposed from the new price exactly as for any night (`taxFromSelling`). Then:
+
+- **YoHo-distributed:** base and commission scale with the price by
+  `r = new tax-exclusive ÷ list tax-exclusive`, each rounded **half-up** (never round-up). What is
+  left is the OTA's margin, and it is clamped so it can never go negative.
+  _Example:_ list Rs 24,390.25 (base 18,000 + commission 2,000) typed down to Rs 12,195.13 →
+  r ≈ 0.5 → base 9,000.00, commission 1,000.00, OTA margin 2,195.13.
+- **Standalone:** no commission; the property keeps the whole tax-exclusive price.
+
+A night whose typed price equals its list price stays a calendar night.
+
+**Contract rates** (Pro): a travel agent's or company's rate for the room type — a fixed
+tax-inclusive nightly rate, or a percentage off the list — priced like an override but recorded
+as `contract`, and needing no approval. Nights no contract row covers fall back to the account's
+standing `discount_pct`, else to the list.
+
+**Complimentary:** every night is zero — selling, tax, base and commission — and the room is
+still taken out of inventory.
+
+**Tax exemption:** the night's tax is split per tax (`splitInclusiveTax`: the same compounding as
+the engine — service charge on the net, the second slot on net + service charge, VAT on all of
+it — with the cents apportioned so the lines add up to the stored tax exactly). The taxes marked
+`exemptible` are removed from both the price and the tax; base and commission are untouched,
+because the tax was never theirs. A service charge is never exemptible.
+
+_Worked split (Sri Lanka, 10% SC → 2.5% SSCL → 18% VAT on a Rs 10,000 night):_ tax 2,483.75 =
+SC 751.63 + SSCL 206.70 + VAT 1,525.42.
+
+**Amending** re-prices under the same terms (`bookings.pricing`): a nightly rate or percentage
+carries over; a stay total or per-night prices become a nightly rate at the average the guest was
+paying; a contract, a complimentary room and an exemption stay as they were.
+
+**Coupons across several rooms:** the discount is computed on the reservation total, exactly as
+the walk-in did for one room, and shared across the rooms in proportion to their price.

@@ -1,3 +1,6 @@
+import { asc, eq } from 'drizzle-orm';
+import { businessDates, properties, type Tx } from '@yohobed/db';
+
 /**
  * Today as 'YYYY-MM-DD' in a property's own timezone.
  *
@@ -12,4 +15,34 @@ export function localToday(timezone: string | null | undefined): string {
     // An invalid stored timezone must not take the endpoint down; UTC is the least-wrong fallback.
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
   }
+}
+
+/**
+ * The calendar today of a property — or, when no property is named, of the tenant's oldest one
+ * (the tenant-wide screens have no better anchor). Must run inside a tenant transaction.
+ */
+export async function propertyToday(tx: Tx, propertyId?: string | null): Promise<string> {
+  const q = tx.select({ timezone: properties.timezone }).from(properties);
+  const [p] = await (propertyId
+    ? q.where(eq(properties.id, propertyId))
+    : q.orderBy(asc(properties.createdAt)).limit(1));
+  return localToday(p?.timezone);
+}
+
+/**
+ * The hotel's operating date: the night-audit business date when the property runs night audit,
+ * otherwise its calendar today. Read-only — it never creates the business-date row (only night
+ * audit does), so a Starter property simply follows the calendar.
+ */
+export async function propertyBusinessDate(
+  tx: Tx,
+  propertyId: string,
+  timezone: string | null | undefined,
+): Promise<{ date: string; source: 'night_audit' | 'calendar' }> {
+  const [bd] = await tx
+    .select({ currentDate: businessDates.currentDate })
+    .from(businessDates)
+    .where(eq(businessDates.propertyId, propertyId));
+  if (bd) return { date: bd.currentDate, source: 'night_audit' };
+  return { date: localToday(timezone), source: 'calendar' };
 }

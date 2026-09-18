@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   listProperties,
   createProperty,
@@ -222,6 +223,12 @@ export default function SetupPage() {
               Add
             </Button>
           </form>
+          <Link
+            href="/app/configuration?tab=property"
+            className="mt-3 text-sm font-medium text-info-ink hover:underline"
+          >
+            Address, check-in times and tax registration →
+          </Link>
           {propertyId && (
             <PhotoManager
               target="property"

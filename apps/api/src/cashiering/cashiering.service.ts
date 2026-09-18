@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import {
-  businessSources,
   cashDrawers,
   drawerSessions,
   expenseVouchers,
@@ -22,7 +21,6 @@ import { DatabaseService } from '../database/database.service';
 import type {
   ChargeToLedgerDto,
   CloseDrawerDto,
-  CreateBusinessSourceDto,
   CreateDrawerDto,
   CreateExpenseDto,
   CreateLedgerAccountDto,
@@ -225,31 +223,6 @@ export class CashieringService {
         })
         .returning();
       return entry;
-    });
-  }
-
-  // --- Business sources ------------------------------------------------------
-
-  listBusinessSources(tenantId: string) {
-    return this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(businessSources).orderBy(asc(businessSources.name)),
-    );
-  }
-
-  createBusinessSource(tenantId: string, dto: CreateBusinessSourceDto) {
-    return this.dbs.withTenant(tenantId, async (tx) => {
-      try {
-        const [created] = await tx
-          .insert(businessSources)
-          .values({ tenantId, shortCode: dto.shortCode, name: dto.name, color: dto.color })
-          .returning();
-        return created;
-      } catch (e) {
-        if ((e as { code?: string })?.code === '23505') {
-          throw new ConflictException(`A source with code "${dto.shortCode}" already exists`);
-        }
-        throw e;
-      }
     });
   }
 

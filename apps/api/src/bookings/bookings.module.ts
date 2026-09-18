@@ -5,9 +5,10 @@ import { BookingService } from './booking.service';
 import { ReservationsService } from './reservations.service';
 import { BookingsController } from './bookings.controller';
 import { ReservationsController } from './reservations.controller';
+import { ReservationPricingModule } from '../reservations/pricing.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ReservationPricingModule],
   controllers: [BookingsController, ReservationsController],
   providers: [BookingService, ReservationsService, TenantGuard],
   exports: [BookingService],

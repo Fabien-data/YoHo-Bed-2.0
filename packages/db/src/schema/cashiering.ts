@@ -1,17 +1,27 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   pgEnum,
   uuid,
   text,
   numeric,
+  integer,
   boolean,
+  date,
   timestamp,
   unique,
   index,
+  check,
 } from 'drizzle-orm/pg-core';
 import { tenants, properties, users } from './identity';
 import { bookings } from './bookings';
 import { folios } from './folio';
+import { marketSegments } from './configuration';
+import { rooms } from './inventory';
+import { ratePlans } from './rates';
+
+/** The commission plans a travel agent or business source can carry (COMMISSION_PLANS). */
+const COMMISSION_PLAN_CHECK = sql`in ('none', 'pct_all_nights', 'pct_first_night', 'fixed_per_night', 'fixed_per_stay')`;
 
 /**
  * Who the hotel bills other than the guest in front of them — the city ledger.
@@ -51,10 +61,94 @@ export const ledgerAccounts = pgTable(
     creditLimit: numeric('credit_limit', { precision: 14, scale: 2 }).notNull().default('0'),
     currency: text('currency').notNull().default('LKR'),
     active: boolean('active').notNull().default(true),
+
+    /**
+     * Profile depth for invoicing and agent terms (Development Phase 02). The legal name and
+     * registration numbers print on a company's tax invoice; the commission plan and discount are
+     * a travel agent's contract terms.
+     */
+    legalName: text('legal_name'),
+    countryCode: text('country_code'),
+    stateCode: text('state_code'),
+    city: text('city'),
+    zip: text('zip'),
+    mobile: text('mobile'),
+    registrationNo: text('registration_no'),
+    commissionPlan: text('commission_plan').notNull().default('none'),
+    commissionValue: numeric('commission_value', { precision: 12, scale: 4 })
+      .notNull()
+      .default('0'),
+    discountPct: numeric('discount_pct', { precision: 6, scale: 3 }).notNull().default('0'),
+    defaultMarketSegmentId: uuid('default_market_segment_id').references(() => marketSegments.id, {
+      onDelete: 'set null',
+    }),
+    paymentTermsDays: integer('payment_terms_days').notNull().default(0),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => ({ codeUnique: unique('ledger_accounts_tenant_code_uq').on(t.tenantId, t.code) }),
+  (t) => ({
+    codeUnique: unique('ledger_accounts_tenant_code_uq').on(t.tenantId, t.code),
+    commissionPlanValid: check(
+      'ledger_accounts_commission_plan_valid',
+      sql`${t.commissionPlan} ${COMMISSION_PLAN_CHECK}`,
+    ),
+  }),
+);
+
+/**
+ * A travel agent's or company's contract rates — Yanolja's "Rate Offered: Contract"
+ * (Development Phase 02, Pro).
+ *
+ * A row prices one room type (optionally one meal plan) over a date range, either as a fixed
+ * tax-inclusive nightly rate or as a percentage off the list rate. When several rows cover a
+ * night, the one naming the meal plan wins, then the one starting latest.
+ */
+export const ledgerAccountRates = pgTable(
+  'ledger_account_rates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    ledgerAccountId: uuid('ledger_account_id')
+      .notNull()
+      .references(() => ledgerAccounts.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    /** Null = every meal plan of the room type. */
+    ratePlanId: uuid('rate_plan_id').references(() => ratePlans.id, { onDelete: 'cascade' }),
+    /** Inclusive on both ends. */
+    validFrom: date('valid_from').notNull(),
+    validTo: date('valid_to').notNull(),
+    /** fixed: `value` is the tax-inclusive nightly rate. discount_pct: `value` percent off the list. */
+    mode: text('mode').notNull().default('fixed'),
+    value: numeric('value', { precision: 12, scale: 2 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    lookupIdx: index('ledger_account_rates_lookup_idx').on(
+      t.ledgerAccountId,
+      t.roomId,
+      t.validFrom,
+    ),
+    rangeValid: check('ledger_account_rates_range_valid', sql`${t.validTo} >= ${t.validFrom}`),
+    modeValid: check(
+      'ledger_account_rates_mode_valid',
+      sql`${t.mode} in ('fixed', 'discount_pct')`,
+    ),
+    valueValid: check(
+      'ledger_account_rates_value_valid',
+      sql`${t.value} >= 0 and (${t.mode} <> 'discount_pct' or ${t.value} <= 100)`,
+    ),
+  }),
 );
 
 /** `debit` increases what the account owes us; `credit` is money they have paid. */
@@ -101,13 +195,48 @@ export const businessSources = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     shortCode: text('short_code').notNull(),
     name: text('name').notNull(),
-    /** Hex, used directly as the bar colour on Stay View. */
+    /**
+     * Legacy free hex colour (Sprint 6). Superseded by `palette`, which resolves to theme-aware
+     * tokens; kept so nothing that still reads it breaks.
+     */
     color: text('color').notNull().default('#5b7cfa'),
     active: boolean('active').notNull().default(true),
+
+    /**
+     * Yanolja's "Booking Source" is the category of a business source: a reservation picks the
+     * category first, then a source within it (Development Phase 02).
+     * direct | ota | travel_agent | corporate
+     */
+    category: text('category').notNull().default('direct'),
+    registrationNo: text('registration_no'),
+    /** The segment a reservation from this source starts with (the user may change it). */
+    defaultMarketSegmentId: uuid('default_market_segment_id').references(() => marketSegments.id, {
+      onDelete: 'set null',
+    }),
+    commissionPlan: text('commission_plan').notNull().default('none'),
+    commissionValue: numeric('commission_value', { precision: 12, scale: 4 })
+      .notNull()
+      .default('0'),
+    /** A TAG_COLORS key — the bar and chip colour on Stay View and the reservation list. */
+    palette: text('palette').notNull().default('slate'),
+    /** The channel already collected Malaysia's tourism tax, so the hotel must not charge it. */
+    collectsTourismTax: boolean('collects_tourism_tax').notNull().default(false),
+    sort: integer('sort').notNull().default(0),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => ({ codeUnique: unique('business_sources_tenant_code_uq').on(t.tenantId, t.shortCode) }),
+  (t) => ({
+    codeUnique: unique('business_sources_tenant_code_uq').on(t.tenantId, t.shortCode),
+    categoryValid: check(
+      'business_sources_category_valid',
+      sql`${t.category} in ('direct', 'ota', 'travel_agent', 'corporate')`,
+    ),
+    commissionPlanValid: check(
+      'business_sources_commission_plan_valid',
+      sql`${t.commissionPlan} ${COMMISSION_PLAN_CHECK}`,
+    ),
+  }),
 );
 
 /** A physical till. A property may run several — front desk, restaurant, spa. */

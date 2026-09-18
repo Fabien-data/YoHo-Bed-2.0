@@ -1,15 +1,23 @@
 'use client';
 
+import * as React from 'react';
 import { useQuery, useMutation, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import {
   getEntitlements,
   getTenantPlan,
+  getUser,
   listPlans,
   listProperties,
   getProfile,
   getUnreadCount,
   listNotifications,
   markAllNotificationsRead,
+  getReservationConfig,
+  getPropertySettings,
+  listBusinessSources,
+  listMarketSegments,
+  listPaymentMethods,
+  listSalesPersons,
   type Entitlements,
 } from './api';
 
@@ -32,6 +40,14 @@ export const queryKeys = {
   profile: ['profile'] as const,
   notifications: ['notifications'] as const,
   unreadCount: ['notifications', 'unread-count'] as const,
+  // Reservation configuration: one family, so any master-list edit refreshes the desk's view.
+  config: ['config'] as const,
+  reservationConfig: (propertyId: string) => ['config', 'reservation', propertyId] as const,
+  propertySettings: (propertyId: string) => ['config', 'settings', propertyId] as const,
+  businessSources: ['config', 'business-sources'] as const,
+  marketSegments: ['config', 'market-segments'] as const,
+  paymentMethods: ['config', 'payment-methods'] as const,
+  salesPersons: ['config', 'sales-persons'] as const,
 };
 
 // --- Entitlements ------------------------------------------------------------
@@ -93,6 +109,54 @@ export function useNotifications(enabled = true) {
     enabled,
     staleTime: 10_000,
   });
+}
+
+// --- Reservation configuration -------------------------------------------------
+
+/** Everything the reservation screens need for one property, in one request. */
+export function useReservationConfig(propertyId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.reservationConfig(propertyId ?? ''),
+    queryFn: () => getReservationConfig(propertyId!),
+    enabled: Boolean(propertyId),
+    staleTime: 60_000,
+  });
+}
+
+export function usePropertySettings(propertyId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.propertySettings(propertyId ?? ''),
+    queryFn: () => getPropertySettings(propertyId!),
+    enabled: Boolean(propertyId),
+  });
+}
+
+export function useBusinessSources() {
+  return useQuery({ queryKey: queryKeys.businessSources, queryFn: listBusinessSources });
+}
+
+export function useMarketSegments() {
+  return useQuery({ queryKey: queryKeys.marketSegments, queryFn: listMarketSegments });
+}
+
+export function usePaymentMethods() {
+  return useQuery({ queryKey: queryKeys.paymentMethods, queryFn: listPaymentMethods });
+}
+
+export function useSalesPersons() {
+  return useQuery({ queryKey: queryKeys.salesPersons, queryFn: listSalesPersons });
+}
+
+/**
+ * The signed-in user's role in the active tenant ('OWNER' | 'OWNER_STAFF'), read after mount
+ * because the session lives in localStorage. Screens use it to hide controls the API would refuse.
+ */
+export function useTenantRole(): string | null {
+  const [role, setRole] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setRole(getUser()?.memberships.find((m) => m.tenantId !== null)?.role ?? null);
+  }, []);
+  return role;
 }
 
 export function useMarkAllNotificationsRead() {

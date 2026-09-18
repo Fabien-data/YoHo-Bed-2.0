@@ -26,13 +26,11 @@ import {
 } from '@yohobed/ui';
 import {
   closeDrawerSession,
-  createBusinessSource,
   createDrawer,
   createExpense,
   createLedgerAccount,
   getDrawerReport,
   getLedgerStatement,
-  listBusinessSources,
   listDrawers,
   listExpenses,
   listLedgerAccounts,
@@ -61,7 +59,6 @@ export default function CashieringPage() {
           <TabsTrigger value="ledger">City ledger</TabsTrigger>
           <TabsTrigger value="drawers">Cash drawers</TabsTrigger>
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
-          <TabsTrigger value="sources">Business sources</TabsTrigger>
         </TabsList>
 
         <TabsContent value="ledger">
@@ -73,10 +70,8 @@ export default function CashieringPage() {
         <TabsContent value="expenses">
           {propertyId && <ExpensesTab propertyId={propertyId} />}
         </TabsContent>
-        <TabsContent value="sources">
-          <SourcesTab />
-        </TabsContent>
       </Tabs>
+      {/* Business sources moved to Configuration › Reservation setup (Development Phase 02). */}
     </div>
   );
 }
@@ -744,99 +739,6 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
             </tbody>
           </table>
         </Card>
-      )}
-    </div>
-  );
-}
-
-/**
- * Default swatch for a new business source. `<input type="color">` only accepts a literal hex,
- * so a token class cannot be used here — this mirrors the light-theme `--info` token, the
- * nearest tone in the design system.
- */
-const DEFAULT_SOURCE_COLOR = '#3e6db5';
-
-/** Where the business came from — the colours the tape chart uses. */
-function SourcesTab() {
-  const qc = useQueryClient();
-  const [form, setForm] = React.useState({ shortCode: '', name: '', color: DEFAULT_SOURCE_COLOR });
-  const sources = useQuery({ queryKey: ['business-sources'], queryFn: listBusinessSources });
-  const add = useMutation({
-    mutationFn: () =>
-      createBusinessSource({
-        shortCode: form.shortCode.trim(),
-        name: form.name.trim(),
-        color: form.color,
-      }),
-    onSuccess: () => {
-      setForm({ shortCode: '', name: '', color: DEFAULT_SOURCE_COLOR });
-      qc.invalidateQueries({ queryKey: ['business-sources'] });
-    },
-  });
-
-  const rows = sources.data ?? [];
-
-  return (
-    <div>
-      <Card className="mb-3 p-3">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            add.mutate();
-          }}
-          className="flex flex-wrap items-end gap-3"
-        >
-          <Field label="Code" className="w-28">
-            <Input
-              value={form.shortCode}
-              onChange={(e) => setForm({ ...form, shortCode: e.target.value })}
-              placeholder="BDC"
-              required
-            />
-          </Field>
-          <Field label="Name" className="w-52">
-            <Input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Booking.com"
-              required
-            />
-          </Field>
-          <Field label="Colour" className="w-28">
-            <Input
-              type="color"
-              value={form.color}
-              onChange={(e) => setForm({ ...form, color: e.target.value })}
-              className="h-9 p-1"
-            />
-          </Field>
-          <Button type="submit" size="sm" disabled={add.isPending}>
-            <Plus size={14} />
-            Add source
-          </Button>
-          {add.isError && (
-            <span className="text-sm text-closed-ink">{(add.error as Error).message}</span>
-          )}
-        </form>
-      </Card>
-
-      {rows.length === 0 ? (
-        <Card className="p-10 text-center text-sm text-ink-3">
-          No sources yet. They colour the bars on Stay view.
-        </Card>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {rows.map((s) => (
-            <span
-              key={s.id}
-              className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm"
-            >
-              <span className="h-3 w-3 rounded" style={{ background: s.color }} />
-              <span className="font-semibold text-ink">{s.name}</span>
-              <span className="font-mono text-xs text-ink-3">{s.shortCode}</span>
-            </span>
-          ))}
-        </div>
       )}
     </div>
   );

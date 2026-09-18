@@ -17,8 +17,10 @@ export class DashboardController {
     @Query('date') date?: string,
     @Query('propertyId') propertyId?: string,
   ) {
-    const day = date ?? new Date().toISOString().slice(0, 10);
-    if (!ISO_DATE.test(day)) throw new BadRequestException('date must be YYYY-MM-DD');
-    return this.dashboard.overview(tenantId, day, propertyId || undefined);
+    if (date !== undefined && !ISO_DATE.test(date)) {
+      throw new BadRequestException('date must be YYYY-MM-DD');
+    }
+    // No date means the hotel's today, which only the service can resolve (it needs the timezone).
+    return this.dashboard.overview(tenantId, date, propertyId || undefined);
   }
 }

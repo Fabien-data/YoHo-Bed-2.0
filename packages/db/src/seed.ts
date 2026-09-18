@@ -11,6 +11,7 @@ import {
 import { createDb } from './client';
 import { seedDefaultTemplates } from './default-templates';
 import { seedDefaultPlans } from './default-plans';
+import { seedDefaultMasters } from './masters';
 import {
   tenants,
   users,
@@ -110,6 +111,10 @@ try {
       .returning();
     await db.insert(memberships).values({ userId: user!.id, tenantId, role: 'OWNER' });
   }
+
+  // Reservation master lists (market segments, business sources, payment methods). Seeded once;
+  // an owner's later edits to the demo tenant's lists are not reset by re-seeding.
+  await seedDefaultMasters(db, tenantId, 'LK');
 
   // Reset the demo tenant's inventory so the seed is deterministic even after ad-hoc test data.
   // (Dev seed only — cascades to rooms, rate plans, availability, bookings, etc. for this tenant.)

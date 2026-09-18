@@ -126,18 +126,20 @@ describe('city ledger', () => {
 });
 
 describe('business sources', () => {
+  // Every tenant is seeded with its country's sources (BDC, AGD …), so these use a code no preset
+  // carries. The full behaviour lives in configuration.e2e.test.ts.
   it('creates a colour-coded source and refuses a duplicate code', async () => {
     const fx = await makeTenant();
     const created = await request('POST', '/business-sources', {
       token: fx.token,
-      body: { shortCode: 'BDC', name: 'Booking.com', color: '#003580' },
+      body: { shortCode: 'HBD', name: 'Hotelbeds', color: '#003580' },
     });
     expect(created.status).toBe(201);
     expect(created.body.color).toBe('#003580');
 
     const dup = await request('POST', '/business-sources', {
       token: fx.token,
-      body: { shortCode: 'BDC', name: 'Something else' },
+      body: { shortCode: 'hbd', name: 'Something else' },
     });
     expect(dup.status).toBe(409);
   });

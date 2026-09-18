@@ -4,6 +4,7 @@ import {
   bookingGroups,
   bookingRooms,
   bookings,
+  businessSources,
   customers,
   otaReservations,
   properties,
@@ -96,6 +97,14 @@ export class ReservationsService {
         id: bookings.id,
         reference: bookings.reference,
         status: bookings.status,
+        reservationKind: bookings.reservationKind,
+        inventoryHeld: bookings.inventoryHeld,
+        holdUntil: bookings.holdUntil,
+        origin: bookings.origin,
+        voucherNo: bookings.voucherNo,
+        siblingIndex: bookings.siblingIndex,
+        sourceCode: businessSources.shortCode,
+        sourceColor: businessSources.palette,
         source: bookings.source,
         channel: otaReservations.channel,
         checkin: bookings.checkin,
@@ -128,6 +137,7 @@ export class ReservationsService {
       .innerJoin(customers, eq(customers.id, bookings.customerId))
       .leftJoin(bookingGroups, eq(bookingGroups.id, bookings.groupId))
       .leftJoin(otaReservations, eq(otaReservations.bookingId, bookings.id))
+      .leftJoin(businessSources, eq(businessSources.id, bookings.businessSourceId))
       .where(
         and(
           eq(bookings.propertyId, q.propertyId),
@@ -251,6 +261,8 @@ export class ReservationsService {
         id: bookings.id,
         reference: bookings.reference,
         status: bookings.status,
+        reservationKind: bookings.reservationKind,
+        holdUntil: bookings.holdUntil,
         checkin: bookings.checkin,
         checkout: bookings.checkout,
         rooms: bookings.rooms,

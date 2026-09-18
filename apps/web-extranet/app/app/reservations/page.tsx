@@ -7,6 +7,7 @@ import {
   DownloadSimple,
   ListDashes,
   MagnifyingGlass,
+  Plus,
   Printer,
   Table,
   UsersThree,
@@ -36,6 +37,7 @@ import {
 import { useActiveProperty } from '@/components/active-property';
 import { todayISO } from '@/lib/format';
 import { RegistrationCardSheet } from '@/components/reservations/registration-card';
+import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 
 const TABS: Array<{ value: ReservationTab; label: string }> = [
   { value: 'all', label: 'Reservations' },
@@ -58,6 +60,7 @@ const STATUS_TONE: Record<string, Tone> = {
 export default function ReservationsPage() {
   const qc = useQueryClient();
   const { propertyId } = useActiveProperty();
+  const { openComposer } = useReservationComposer();
 
   const [date, setDate] = React.useState(() => todayISO());
   const [tab, setTab] = React.useState<ReservationTab>('all');
@@ -186,6 +189,10 @@ export default function ReservationsPage() {
             <Button variant="secondary" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
               <DownloadSimple size={14} />
               Export
+            </Button>
+            <Button size="sm" onClick={() => openComposer({ checkin: date })}>
+              <Plus size={14} />
+              New reservation
             </Button>
           </>
         }

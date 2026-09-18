@@ -80,7 +80,8 @@ export function DataGrid<T>({
 
   return (
     <div className={cn('overflow-x-auto', className)}>
-      <table className="w-full border-collapse text-sm">
+      {/* On a phone the table scrolls sideways rather than crushing every column to a word. */}
+      <table className="w-full min-w-[40rem] border-collapse text-sm md:min-w-0">
         <thead className={cn(stickyHeader && 'sticky top-0 z-10')}>
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-line bg-surface-2">
@@ -95,10 +96,12 @@ export function DataGrid<T>({
                     className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2 first:rounded-l-lg last:rounded-r-lg"
                   >
                     {header.isPlaceholder ? null : sortable ? (
+                      // Preflight resets text-transform on buttons, so the header's capitals are
+                      // restated here.
                       <button
                         type="button"
                         onClick={header.column.getToggleSortingHandler()}
-                        className="inline-flex items-center gap-1 transition duration-1 hover:text-ink"
+                        className="inline-flex items-center gap-1 uppercase transition duration-1 hover:text-ink"
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {dir === 'asc' ? (

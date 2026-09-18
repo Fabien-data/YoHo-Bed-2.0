@@ -1,9 +1,14 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import {
+  bookingApprovals,
   bookingDays,
   bookings,
   businessDates,
+  enqueueOutbox,
+  noShowReleaseFrom,
+  releaseBookingInventory,
+  sweepReservationLifecycle,
   folioCharges,
   folios,
   nightAuditRuns,
@@ -149,6 +154,10 @@ export class NightAuditService {
         throw new ConflictException(`The audit for ${date} has already been run`);
       }
 
+      // 0. Holds past their release time give their rooms back first, so a released hold is
+      //    neither charged for tonight nor marked a no-show below (Development Phase 02).
+      const swept = await sweepReservationLifecycle(tx, tenantId);
+
       const p = await this.plan(tx, propertyId, date);
 
       // 1. Post the night's room charges onto each stay's folio.
@@ -202,12 +211,33 @@ export class NightAuditService {
         posted += 1;
       }
 
-      // 2. No-show anything that was due to arrive and did not.
-      if (p.noShowIds.length > 0) {
+      // 2. No-show anything that was due to arrive and did not. The night just charged stays
+      //    held; the rest of the stay goes back on sale. An OTA booking also tells the channel.
+      for (const id of p.noShowIds) {
+        const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
+        if (!b || b.status !== 'Approved') continue;
         await tx
           .update(bookings)
           .set({ status: 'NoShow', updatedAt: new Date() })
-          .where(sql`${bookings.id} in ${p.noShowIds}`);
+          .where(eq(bookings.id, id));
+        const from = noShowReleaseFrom(b.checkin, b.checkout, date);
+        if (from) await releaseBookingInventory(tx, b, { from, origin: 'no_show' });
+        await tx.insert(bookingApprovals).values({
+          tenantId,
+          bookingId: id,
+          action: 'no_show',
+          reason: `night audit ${date}`,
+          actorUserId: userId,
+        });
+        if (b.source === 'OTA') {
+          await enqueueOutbox(tx, {
+            tenantId,
+            aggregate: 'booking',
+            aggregateId: b.id,
+            eventType: 'booking.no_show',
+            payload: { propertyId: b.propertyId, bookingId: b.id, reference: b.reference },
+          });
+        }
       }
 
       // 3. Close any till left open — the date cannot roll under a live shift.
@@ -237,6 +267,8 @@ export class NightAuditService {
               roomsPosted: posted,
               roomsSkipped: skipped,
               noShowReferences: p.noShows,
+              holdsReleased: swept.released.map((r) => r.reference),
+              unconfirmedCancelled: swept.expired.map((r) => r.reference),
             },
             runByUserId: userId,
             runFromIp: ip,

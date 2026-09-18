@@ -13,7 +13,10 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: (process.env.CORS_ORIGINS ?? 'http://localhost:3000').split(','),
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    // Idempotency-Key makes a retried POST /reservations safe; without it here the browser's
+    // preflight refuses the request before it is ever sent.
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'Idempotency-Key'],
+    exposedHeaders: ['Idempotent-Replayed'],
   });
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);

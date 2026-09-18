@@ -17,11 +17,43 @@ export interface SessionUser {
   memberships: Membership[];
 }
 
+/** Registration numbers a property prints on its documents (sparse). */
+export interface PropertyTaxIds {
+  tin?: string;
+  ssclRegNo?: string;
+  sltdaRegNo?: string;
+  gstin?: string;
+  sstNo?: string;
+  ttxNo?: string;
+  brn?: string;
+}
+
 export interface Property {
   id: string;
   name: string;
-  /** Base currency the property prices/settles in (LKR or USD). */
+  /** Base currency the property prices/settles in. */
   currency?: CurrencyCode;
+  code?: string | null;
+  legalName?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  /** ISO 3166-1 alpha-2; selects the regional preset. */
+  countryCode?: string;
+  /** ISO subdivision (LK/MY) or GST state code (IN). */
+  stateCode?: string | null;
+  timezone?: string;
+  /** 'HH:MM:SS' */
+  checkinTime?: string;
+  checkoutTime?: string;
+  starRating?: number | null;
+  taxIds?: PropertyTaxIds;
+  branchCode?: string | null;
+  fyStartMonth?: number;
+  invoicePrefix?: string | null;
 }
 
 export interface Room {
@@ -600,6 +632,15 @@ export interface StayBar {
   groupId?: string | null;
   balanceDue?: boolean;
   reason?: string;
+  /** Yanolja's reservation type (Development Phase 02). */
+  reservationKind?: string;
+  /** When a hold gives its rooms back. */
+  holdUntil?: string | null;
+  /** The business source's short code and palette colour. */
+  sourceCode?: string | null;
+  sourceColor?: string | null;
+  /** On a tentative bar: the room the guest asked for. */
+  preferredRoomUnitId?: string | null;
 }
 
 export interface StayUnit {
@@ -635,6 +676,8 @@ export interface StayView {
   dates: string[];
   roomTypes: StayRoomType[];
   unassigned: Array<StayBar & { roomId: string }>;
+  /** Bookings that hold no rooms yet (inquiries) — their own lane, never counted as sold. */
+  tentative?: Array<StayBar & { roomId: string }>;
   footer: StayFooter[];
   counts: {
     all: number;
@@ -1217,24 +1260,352 @@ export function chargeFolioToLedger(
   });
 }
 
+// --- Reservation configuration (Development Phase 02) --------------------------
+
+export type SourceCategory = 'direct' | 'ota' | 'travel_agent' | 'corporate';
+export type CommissionPlan =
+  'none' | 'pct_all_nights' | 'pct_first_night' | 'fixed_per_night' | 'fixed_per_stay';
+export type MarketSegmentGroup = 'transient' | 'group' | 'contract' | 'non_revenue';
+export type PaymentCategory =
+  | 'cash'
+  | 'card'
+  | 'bank_transfer'
+  | 'qr'
+  | 'wallet'
+  | 'cheque'
+  | 'city_ledger'
+  | 'online'
+  | 'other';
+
 export interface BusinessSource {
   id: string;
   shortCode: string;
   name: string;
+  /** Legacy hex colour; the UI uses `palette`. */
   color: string;
   active: boolean;
+  category: SourceCategory;
+  registrationNo: string | null;
+  defaultMarketSegmentId: string | null;
+  commissionPlan: CommissionPlan;
+  commissionValue: string;
+  palette: string;
+  collectsTourismTax: boolean;
+  sort: number;
+}
+
+export interface BusinessSourceInput {
+  shortCode?: string;
+  name?: string;
+  category?: SourceCategory;
+  palette?: string;
+  registrationNo?: string | null;
+  defaultMarketSegmentId?: string | null;
+  commissionPlan?: CommissionPlan;
+  commissionValue?: number;
+  collectsTourismTax?: boolean;
+  sort?: number;
+  active?: boolean;
 }
 
 export function listBusinessSources(): Promise<BusinessSource[]> {
   return apiFetch<BusinessSource[]>('/business-sources');
 }
 
-export function createBusinessSource(body: {
-  shortCode: string;
-  name: string;
-  color?: string;
-}): Promise<BusinessSource> {
+export function createBusinessSource(
+  body: BusinessSourceInput & { shortCode: string; name: string },
+): Promise<BusinessSource> {
   return apiFetch('/business-sources', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateBusinessSource(
+  id: string,
+  body: Omit<BusinessSourceInput, 'shortCode'>,
+): Promise<BusinessSource> {
+  return apiFetch(`/business-sources/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export interface MarketSegment {
+  id: string;
+  code: string;
+  name: string;
+  grp: MarketSegmentGroup;
+  palette: string;
+  excludedFromSold: boolean;
+  sort: number;
+  active: boolean;
+}
+
+export interface MarketSegmentInput {
+  code?: string;
+  name?: string;
+  group?: MarketSegmentGroup;
+  palette?: string;
+  excludedFromSold?: boolean;
+  sort?: number;
+  active?: boolean;
+}
+
+export function listMarketSegments(): Promise<MarketSegment[]> {
+  return apiFetch('/market-segments');
+}
+
+export function createMarketSegment(
+  body: MarketSegmentInput & { code: string; name: string },
+): Promise<MarketSegment> {
+  return apiFetch('/market-segments', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateMarketSegment(
+  id: string,
+  body: Omit<MarketSegmentInput, 'code'>,
+): Promise<MarketSegment> {
+  return apiFetch(`/market-segments/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export interface PaymentMethod {
+  id: string;
+  propertyId: string | null;
+  code: string;
+  name: string;
+  shortName: string;
+  category: PaymentCategory;
+  requiresReference: boolean;
+  isDefaultCash: boolean;
+  isGuestAdvance: boolean;
+  currency: string | null;
+  sort: number;
+  active: boolean;
+}
+
+export interface PaymentMethodInput {
+  code?: string;
+  name?: string;
+  shortName?: string;
+  category?: PaymentCategory;
+  propertyId?: string | null;
+  requiresReference?: boolean;
+  isDefaultCash?: boolean;
+  isGuestAdvance?: boolean;
+  currency?: string | null;
+  sort?: number;
+  active?: boolean;
+}
+
+export function listPaymentMethods(): Promise<PaymentMethod[]> {
+  return apiFetch('/payment-methods');
+}
+
+export function createPaymentMethod(
+  body: PaymentMethodInput & {
+    code: string;
+    name: string;
+    shortName: string;
+    category: PaymentCategory;
+  },
+): Promise<PaymentMethod> {
+  return apiFetch('/payment-methods', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updatePaymentMethod(
+  id: string,
+  body: Omit<PaymentMethodInput, 'code'>,
+): Promise<PaymentMethod> {
+  return apiFetch(`/payment-methods/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export interface SalesPerson {
+  id: string;
+  code: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  countryCode: string | null;
+  active: boolean;
+}
+
+export interface SalesPersonInput {
+  code?: string;
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  mobile?: string | null;
+  countryCode?: string | null;
+  active?: boolean;
+}
+
+export function listSalesPersons(): Promise<SalesPerson[]> {
+  return apiFetch('/sales-persons');
+}
+
+export function createSalesPerson(
+  body: SalesPersonInput & { code: string; name: string },
+): Promise<SalesPerson> {
+  return apiFetch('/sales-persons', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateSalesPerson(
+  id: string,
+  body: Omit<SalesPersonInput, 'code'>,
+): Promise<SalesPerson> {
+  return apiFetch(`/sales-persons/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function applyCountryPreset(
+  country: 'LK' | 'MY' | 'IN',
+): Promise<{ marketSegments: number; businessSources: number; paymentMethods: number }> {
+  return apiFetch('/configuration/apply-preset', {
+    method: 'POST',
+    body: JSON.stringify({ country }),
+  });
+}
+
+export type ReservationKind =
+  'confirm' | 'inquiry' | 'online_failed' | 'hold_confirm' | 'hold_unconfirm';
+
+export interface PropertySettings {
+  timeFormat: '12h' | '24h';
+  mealCodeStyle: 'international' | 'indian';
+  hold: { defaultHours: number; reminderHours: number };
+  unconfirmedPolicy: 'never' | 'arrival_day_end';
+  rateControl: { staffMaxDiscountPct: number; staffCanComp: boolean };
+  requireDocumentsAtCheckin: boolean;
+  kindOverrides: Partial<Record<ReservationKind, { label?: string; color?: string }>>;
+  titles: string[] | null;
+}
+
+export type PropertySettingsPatch = Partial<
+  Omit<PropertySettings, 'hold' | 'rateControl'> & {
+    hold: Partial<PropertySettings['hold']>;
+    rateControl: Partial<PropertySettings['rateControl']>;
+  }
+>;
+
+export interface PropertyProfilePatch {
+  name?: string;
+  legalName?: string | null;
+  code?: string | null;
+  countryCode?: string;
+  stateCode?: string | null;
+  state?: string | null;
+  address?: string | null;
+  city?: string | null;
+  zip?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  timezone?: string;
+  /** 'HH:MM' */
+  checkinTime?: string;
+  checkoutTime?: string;
+  starRating?: number | null;
+  /** Send '' for a key to clear it. */
+  taxIds?: Partial<Record<keyof PropertyTaxIds, string>>;
+  branchCode?: string | null;
+  fyStartMonth?: number;
+  invoicePrefix?: string | null;
+}
+
+export function updatePropertyProfile(id: string, body: PropertyProfilePatch): Promise<Property> {
+  return apiFetch(`/properties/${id}/profile`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function getPropertySettings(id: string): Promise<PropertySettings> {
+  return apiFetch(`/properties/${id}/settings`);
+}
+
+export function updatePropertySettings(
+  id: string,
+  body: PropertySettingsPatch,
+): Promise<PropertySettings> {
+  return apiFetch(`/properties/${id}/settings`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export interface ReservationKindOption {
+  kind: ReservationKind;
+  label: string;
+  shortLabel: string;
+  color: string;
+  holdsInventory: boolean;
+  isHold: boolean;
+  quick: boolean;
+}
+
+export interface ReservationConfig {
+  property: {
+    id: string;
+    name: string;
+    code: string | null;
+    legalName: string | null;
+    countryCode: string;
+    stateCode: string | null;
+    currency: CurrencyCode;
+    timezone: string;
+    /** 'HH:MM' */
+    checkinTime: string;
+    checkoutTime: string;
+  };
+  /** The operating date: night audit's business date, or the property's calendar today. */
+  today: string;
+  todaySource: 'night_audit' | 'calendar';
+  calendarToday: string;
+  settings: PropertySettings;
+  kinds: ReservationKindOption[];
+  titles: string[];
+  region: { country: string; cityLedgerLabel: string; taxRegistrationLabel: string };
+  businessSources: Array<
+    Pick<
+      BusinessSource,
+      | 'id'
+      | 'shortCode'
+      | 'name'
+      | 'category'
+      | 'palette'
+      | 'defaultMarketSegmentId'
+      | 'collectsTourismTax'
+    >
+  >;
+  marketSegments: Array<{
+    id: string;
+    code: string;
+    name: string;
+    group: MarketSegmentGroup;
+    palette: string;
+    excludedFromSold: boolean;
+  }>;
+  paymentMethods: Array<
+    Pick<
+      PaymentMethod,
+      | 'id'
+      | 'code'
+      | 'name'
+      | 'shortName'
+      | 'category'
+      | 'requiresReference'
+      | 'isDefaultCash'
+      | 'isGuestAdvance'
+      | 'currency'
+    >
+  >;
+  salesPersons: Array<{ id: string; code: string; name: string }>;
+}
+
+export function getReservationConfig(propertyId: string): Promise<ReservationConfig> {
+  return apiFetch(`/properties/${propertyId}/reservation-config`);
+}
+
+export function stepUpApproval(body: {
+  email: string;
+  password: string;
+  action: 'rate_override' | 'complimentary' | 'tax_exempt';
+  reason?: string;
+}): Promise<{
+  approvalToken: string;
+  action: string;
+  approver: { id: string; name: string; email: string };
+  expiresAt: string;
+}> {
+  return apiFetch('/auth/step-up', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export interface CashDrawer {
@@ -1854,4 +2225,273 @@ export function listCustomers(): Promise<CustomerRow[]> {
 }
 export function getCustomer(id: string): Promise<CustomerRow & { history: Booking[] }> {
   return apiFetch(`/customers/${id}`);
+}
+
+// --- Taking reservations (Development Phase 02) -----------------------------------
+
+export type Residency = 'local' | 'foreign';
+export type BookingOrigin = 'direct' | 'ota' | 'travel_agent' | 'corporate';
+
+/** The room grid for a stay: GET /properties/:id/room-availability. */
+export interface RoomAvailability {
+  propertyId: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  currency: CurrencyCode;
+  roomTypes: Array<{
+    roomId: string;
+    name: string;
+    quantity: number;
+    /** Free on every night of the stay. */
+    free: number;
+    closedDates: string[];
+    minStay: number;
+    maxStay: number;
+    rateTypes: Array<{
+      ratePlanId: string;
+      occupancyId: string;
+      rateCode: string;
+      rateName: string;
+      label: string;
+      accommodates: number;
+      audience: 'all' | 'local' | 'foreign';
+      marketSegmentId: string | null;
+      priced: boolean;
+      nightly: Array<{ date: string; price: string | null }>;
+      total: string | null;
+      average: string | null;
+    }>;
+    hiddenRateTypes: number;
+    units: Array<{
+      id: string;
+      code: string;
+      floor: string | null;
+      free: boolean;
+      outOfService: boolean;
+      blocked: boolean;
+    }>;
+  }>;
+}
+
+export function getRoomAvailability(
+  propertyId: string,
+  q: { checkin: string; checkout: string; residency?: Residency | null },
+): Promise<RoomAvailability> {
+  const params = new URLSearchParams({ checkin: q.checkin, checkout: q.checkout });
+  if (q.residency) params.set('residency', q.residency);
+  return apiFetch(`/properties/${propertyId}/room-availability?${params}`);
+}
+
+export type RateOverride =
+  | { mode: 'nightly'; amount: number }
+  | { mode: 'total'; amount: number }
+  | { mode: 'per_night'; amounts: Record<string, number> }
+  | { mode: 'discount_pct'; pct: number };
+
+export interface ReservationLineInput {
+  roomId: string;
+  occupancyId: string;
+  roomUnitId?: string | null;
+  adults: number;
+  children: number;
+  childAges?: number[];
+  extraBeds?: number;
+  rate?: RateOverride;
+}
+
+export interface ReservationGuestInput {
+  customerId?: string;
+  title?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  whatsapp?: boolean;
+  nationalityCode?: string;
+  countryCode?: string;
+  state?: string;
+  city?: string;
+  address?: string;
+  zip?: string;
+  createNew?: boolean;
+}
+
+export type PriceApproval = 'rate_override' | 'complimentary' | 'tax_exempt';
+
+/** What decides the price — shared by a quote and a reservation. */
+export interface ReservationStayInput {
+  propertyId: string;
+  checkin: string;
+  checkout: string;
+  arrivalTime?: string;
+  departureTime?: string;
+  kind: ReservationKind;
+  /** Omitted: the property's default hold length. null: never released. */
+  holdUntil?: string | null;
+  origin?: BookingOrigin;
+  businessSourceId?: string;
+  marketSegmentId?: string;
+  salesPersonId?: string;
+  ledgerAccountId?: string;
+  voucherNo?: string;
+  residency?: Residency;
+  useContractRates?: boolean;
+  complimentary?: boolean;
+  taxExempt?: { exemptionId: string; reason?: string };
+  priceReason?: string;
+  approvals?: Partial<Record<PriceApproval, string>>;
+  couponCode?: string;
+  referralCode?: string;
+  lines: ReservationLineInput[];
+}
+
+export interface ReservationQuote {
+  propertyId: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  currency: CurrencyCode;
+  kind: ReservationKind;
+  holdUntil: string | null;
+  origin: BookingOrigin;
+  marketSegmentId: string | null;
+  lines: Array<{
+    index: number;
+    roomId: string;
+    roomName: string;
+    occupancyId: string;
+    ratePlanId: string;
+    rateCode: string;
+    amount: string;
+    taxes: string;
+    listAmount: string;
+    discountPct: number;
+    rateSource: 'calendar' | 'override' | 'contract' | 'complimentary';
+    couponDiscount: string;
+    nights: Array<{
+      date: string;
+      sellingPrice: string;
+      listSellingPrice: string;
+      tax: string;
+      rateSource: string;
+    }>;
+    free: number;
+    available: boolean;
+  }>;
+  totals: {
+    amount: string;
+    taxes: string;
+    listAmount: string;
+    discount: string;
+    due: string;
+    taxLines: Array<{ key: string; name: string; rate: number; amount: string }>;
+  };
+  approvalsRequired: PriceApproval[];
+  reasonRequired: boolean;
+}
+
+export function quoteReservation(body: ReservationStayInput): Promise<ReservationQuote> {
+  return apiFetch('/reservations/quote', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface ReservationOptionsInput {
+  emailVoucher?: boolean;
+  voucherEmails?: string[];
+  sendCheckoutEmail?: boolean;
+  checkoutTemplate?: string | null;
+  guestPortalAccess?: boolean;
+  suppressRateOnGrCard?: boolean;
+  displayInclusionSeparately?: boolean;
+}
+
+export interface CreateReservationInput extends ReservationStayInput {
+  guest: ReservationGuestInput;
+  options?: ReservationOptionsInput;
+  expectedTotal?: number;
+  groupName?: string;
+}
+
+export interface ReservationCreated {
+  reference: string;
+  groupId: string | null;
+  kind: ReservationKind;
+  status: 'Approved' | 'Pending';
+  holdUntil: string | null;
+  currency: CurrencyCode;
+  total: string;
+  taxes: string;
+  discount: string;
+  due: string;
+  listTotal: string;
+  guest: { id: string; name: string; created: boolean };
+  bookings: Array<{
+    id: string;
+    reference: string;
+    siblingIndex: number | null;
+    roomId: string;
+    roomName: string;
+    occupancyId: string;
+    rateCode: string;
+    roomUnitId: string | null;
+    roomCode: string | null;
+    amount: string;
+    taxes: string;
+    discount: string;
+    nights: number;
+  }>;
+}
+
+/**
+ * Book it. `idempotencyKey` makes a retry (a double-click, a lost response) return the first
+ * reservation instead of making a second one — generate one per attempt at the form, not per call.
+ */
+export function createReservation(
+  body: CreateReservationInput,
+  idempotencyKey: string,
+): Promise<ReservationCreated> {
+  return apiFetch('/reservations', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+}
+
+export interface GuestMatch {
+  id: string;
+  title: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  mobileE164: string | null;
+  whatsapp: boolean;
+  nationalityCode: string | null;
+  countryCode: string | null;
+  vip: boolean;
+  stays: number;
+  lastStay: string | null;
+}
+
+export function searchGuests(q: string, limit = 6): Promise<GuestMatch[]> {
+  return apiFetch(`/customers/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+}
+
+export function confirmBooking(id: string, reason?: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+}
+
+export function holdBooking(
+  id: string,
+  body: { until: string | null; kind?: 'hold_confirm' | 'hold_unconfirm' },
+): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/hold`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function releaseHold(id: string, reason?: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/release-hold`, {
+    method: 'POST',
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
 }

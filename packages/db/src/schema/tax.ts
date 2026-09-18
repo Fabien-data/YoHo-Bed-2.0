@@ -1,4 +1,14 @@
-import { pgTable, uuid, text, integer, numeric, date, timestamp, check } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  numeric,
+  boolean,
+  date,
+  timestamp,
+  check,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { tenants, properties } from './identity';
 
@@ -20,6 +30,11 @@ export const taxTypes = pgTable('tax_types', {
     .notNull()
     .references(() => tenants.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  /**
+   * Whether a tax-exempt reservation (an embassy, a diplomat) is excused from this tax
+   * (Development Phase 02). A service charge is the hotel's, not the state's, so it never is.
+   */
+  exemptible: boolean('exemptible').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

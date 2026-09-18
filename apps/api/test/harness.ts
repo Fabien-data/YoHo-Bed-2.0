@@ -19,6 +19,7 @@ import {
   taxDurations,
   propertyTaxTypes,
   seedDefaultTemplates,
+  seedDefaultMasters,
   type Database,
 } from '@yohobed/db';
 import { AppModule } from '../src/app.module';
@@ -93,6 +94,8 @@ export async function makeTenant(
      * rates keep their arithmetic easy to read.
      */
     taxed?: boolean;
+    /** The property's country (ISO alpha-2); selects the seeded master-list preset. */
+    country?: 'LK' | 'MY' | 'IN';
   } = {},
 ): Promise<TenantFixture> {
   const db = admin();
@@ -134,6 +137,7 @@ export async function makeTenant(
   await db.insert(memberships).values({ userId: user!.id, tenantId: tenant!.id, role: 'OWNER' });
   // Mirror what /auth/register provisions, so fixtures behave like real tenants.
   await seedDefaultTemplates(db, tenant!.id);
+  await seedDefaultMasters(db, tenant!.id, opts.country ?? 'LK');
 
   const [property] = await db
     .insert(properties)
@@ -142,6 +146,7 @@ export async function makeTenant(
       name: 'E2E Property',
       commissionType: 'percentage',
       commissionPercentage: String(opts.commissionPercentage ?? 10),
+      countryCode: opts.country ?? 'LK',
     })
     .returning();
 
@@ -298,6 +303,25 @@ export async function openAndPriceProperty(
   if (price.status !== 200) throw new Error(`setPrice failed: ${JSON.stringify(price.body)}`);
 }
 
+/** A front-desk user (OWNER_STAFF) inside an existing tenant — for owner-only route tests. */
+export async function addDeskUser(fx: TenantFixture) {
+  const db = admin();
+  const email = `${uniq('desk')}@test.yohobed.local`;
+  const [user] = await db
+    .insert(users)
+    .values({
+      tenantId: fx.tenantId,
+      email,
+      name: 'E2E Desk',
+      passwordHash: await bcrypt.hash(PASSWORD, 10),
+    })
+    .returning();
+  await db
+    .insert(memberships)
+    .values({ userId: user!.id, tenantId: fx.tenantId, role: 'OWNER_STAFF' });
+  return { userId: user!.id, email, token: await login(email, PASSWORD) };
+}
+
 /** A cross-tenant YoHo staff user (tenantId null), for RBAC tests. */
 export async function makeStaff(role: 'YOHO_STAFF' | 'YOHO_ADMIN' = 'YOHO_STAFF') {
   const db = admin();
@@ -390,4 +414,111 @@ export function book(
       ...body,
     },
   });
+}
+
+export interface RoomTypeFixture {
+  roomId: string;
+  ratePlanId: string;
+  occupancyId: string;
+}
+
+/**
+ * Add another room type to the tenant's first property (Development Phase 02), with its own rate
+ * plan and occupancy, optionally for one audience only. Priced and opened through the API like
+ * `openAndPrice`, when `from`/`to` are given.
+ */
+export async function addRoomType(
+  fx: TenantFixture,
+  opts: {
+    name?: string;
+    quantity?: number;
+    rateCode?: string;
+    audience?: 'all' | 'local' | 'foreign';
+    accommodates?: number;
+    from?: string;
+    to?: string;
+    base?: number;
+    roomsToSell?: number;
+  } = {},
+): Promise<RoomTypeFixture> {
+  const db = admin();
+  const [room] = await db
+    .insert(rooms)
+    .values({
+      tenantId: fx.tenantId,
+      propertyId: fx.propertyId,
+      name: opts.name ?? 'E2E Suite',
+      quantity: opts.quantity ?? 5,
+    })
+    .returning();
+  const code = opts.rateCode ?? 'BB';
+  let [rc] = await db.select().from(rateCodes).where(eq(rateCodes.code, code));
+  if (!rc) {
+    [rc] = await db.insert(rateCodes).values({ code, name: code, sortOrder: 9 }).returning();
+  }
+  const [plan] = await db
+    .insert(ratePlans)
+    .values({
+      tenantId: fx.tenantId,
+      propertyId: fx.propertyId,
+      roomId: room!.id,
+      rateCodeId: rc!.id,
+      audience: opts.audience ?? 'all',
+    })
+    .returning();
+  const [occ] = await db
+    .insert(occupancies)
+    .values({
+      tenantId: fx.tenantId,
+      ratePlanId: plan!.id,
+      label: 'Double',
+      accommodates: opts.accommodates ?? 2,
+    })
+    .returning();
+  const rt = { roomId: room!.id, ratePlanId: plan!.id, occupancyId: occ!.id };
+  if (opts.from && opts.to) {
+    await openAndPriceProperty(
+      fx,
+      { propertyId: fx.propertyId, roomId: rt.roomId, occupancyId: rt.occupancyId },
+      opts.from,
+      opts.to,
+      { roomsToSell: opts.roomsToSell ?? opts.quantity ?? 5, base: opts.base ?? 18000 },
+    );
+  }
+  return rt;
+}
+
+/** Create physical rooms ("101", "102"…) for a room type, through the API. */
+export async function addUnits(fx: TenantFixture, roomId: string, codes: string[]) {
+  const ids: string[] = [];
+  for (const code of codes) {
+    const res = await request('POST', `/properties/${fx.propertyId}/room-units`, {
+      token: fx.token,
+      body: { roomId, code },
+    });
+    if (res.status !== 201) throw new Error(`addUnits failed: ${JSON.stringify(res.body)}`);
+    ids.push(res.body.id);
+  }
+  return ids;
+}
+
+/** POST /reservations, defaulting the property to the tenant's first. */
+export function reserve(
+  fx: TenantFixture,
+  body: Record<string, unknown>,
+  opts: { token?: string; idempotencyKey?: string } = {},
+) {
+  return request('POST', '/reservations', {
+    token: opts.token ?? fx.token,
+    body: { propertyId: fx.propertyId, ...body },
+    headers: opts.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {},
+  });
+}
+
+/** Rooms left to sell on one night. */
+export async function roomsToSell(fx: TenantFixture, roomId: string, date: string) {
+  const res = await request('GET', `/rooms/${roomId}/availability?from=${date}&to=${date}`, {
+    token: fx.token,
+  });
+  return res.body[0]?.roomsToSell as number;
 }
