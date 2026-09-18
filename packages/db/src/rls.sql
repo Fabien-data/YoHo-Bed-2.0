@@ -369,6 +369,81 @@ CREATE POLICY tenant_isolation ON payment_methods
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- The reservation engine (Development Phase 02, Sprint 2).
+
+ALTER TABLE reservation_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON reservation_requests;
+CREATE POLICY tenant_isolation ON reservation_requests
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE ledger_account_rates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON ledger_account_rates;
+CREATE POLICY tenant_isolation ON ledger_account_rates
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Which tenants have reservation-lifecycle work due: a hold past its release time, a hold inside
+-- its reminder window, or an unconfirmed booking past its arrival day at a property that releases
+-- those. The worker runs without a tenant context, so under RLS it can see no bookings at all;
+-- this function is the one narrow window it gets, and it returns tenant ids only. Everything the
+-- sweep then reads or writes happens inside that tenant's own RLS-scoped transaction.
+--
+-- A property's timezone is text an owner once typed; a bad one must not stop every tenant's
+-- sweep, so it falls back to UTC.
+CREATE OR REPLACE FUNCTION yhb_local_date(at timestamptz, tz text) RETURNS date
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  RETURN (at AT TIME ZONE tz)::date;
+EXCEPTION WHEN others THEN
+  RETURN (at AT TIME ZONE 'UTC')::date;
+END
+$$;
+
+-- The reminder window in hours, as resolvePropertySettings reads it: default 6, 0 = off.
+CREATE OR REPLACE FUNCTION yhb_hold_reminder_hours(settings jsonb) RETURNS numeric
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT CASE
+    WHEN jsonb_typeof(settings #> '{hold,reminderHours}') = 'number'
+      THEN least(greatest((settings #>> '{hold,reminderHours}')::numeric, 0), 720)
+    ELSE 6
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION lifecycle_due_tenants(at timestamptz) RETURNS SETOF uuid
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT b.tenant_id
+    FROM bookings b
+   WHERE b.hold_until IS NOT NULL
+     AND b.hold_until <= at
+     AND b.status IN ('Pending', 'Approved')
+  UNION
+  SELECT b.tenant_id
+    FROM bookings b
+    JOIN properties p ON p.id = b.property_id
+   WHERE b.hold_until IS NOT NULL
+     AND b.hold_until > at
+     AND b.hold_reminded_at IS NULL
+     AND b.status IN ('Pending', 'Approved')
+     AND yhb_hold_reminder_hours(p.settings) > 0
+     AND b.hold_until - make_interval(secs => yhb_hold_reminder_hours(p.settings) * 3600) <= at
+  UNION
+  SELECT b.tenant_id
+    FROM bookings b
+    JOIN properties p ON p.id = b.property_id
+   WHERE b.status = 'Pending'
+     AND p.settings ->> 'unconfirmedPolicy' = 'arrival_day_end'
+     AND b.checkin < yhb_local_date(at, p.timezone)
+$$;
+REVOKE ALL ON FUNCTION lifecycle_due_tenants(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle_due_tenants(timestamptz) TO yoho_app;
+
 -- Business date + night audit log (Yanolja-parity Sprint 7).
 
 ALTER TABLE business_dates ENABLE ROW LEVEL SECURITY;

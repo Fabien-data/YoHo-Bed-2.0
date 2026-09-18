@@ -22,7 +22,8 @@
         "RESEND_API_KEY",
         "EMAIL_FROM",
         "WEB_URL",
-        "MEDIA_DIR"
+        "MEDIA_DIR",
+        "HOLD_SWEEP_INTERVAL_MS"
       ]
     },
     "typecheck": {

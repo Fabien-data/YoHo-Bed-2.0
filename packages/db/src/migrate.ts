@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { sql } from 'drizzle-orm';
+import { normalizePhone } from '@yohobed/locale';
 import { createDb } from './client';
 import { seedDefaultPlans } from './default-plans';
 import { seedDefaultMasters } from './masters';
@@ -72,6 +73,29 @@ try {
   }
   if (seeded > 0) {
     console.log(`  seeded reservation master lists for ${seeded} tenant(s)`);
+  }
+
+  /**
+   * Normalise guest phone numbers into `customers.mobile_e164` (Development Phase 02), which the
+   * guest search and duplicate check key on. A number without a country prefix is read in the
+   * tenant's home country, as the desk that typed it meant. Numbers that cannot be read stay
+   * null and are simply tried again next time — there are few, and nothing depends on them.
+   */
+  const countryByTenant = new Map(tenantRows.map((t) => [t.id, t.country ?? 'LK']));
+  const phones = (await db.execute(sql`
+    select id, tenant_id as "tenantId", phone from customers
+    where phone is not null and mobile_e164 is null
+    limit 50000
+  `)) as unknown as Array<{ id: string; tenantId: string; phone: string }>;
+  let normalised = 0;
+  for (const c of phones) {
+    const parsed = normalizePhone(c.phone, countryByTenant.get(c.tenantId) ?? 'LK');
+    if (!parsed) continue;
+    await db.execute(sql`update customers set mobile_e164 = ${parsed.e164} where id = ${c.id}`);
+    normalised += 1;
+  }
+  if (normalised > 0) {
+    console.log(`  normalised ${normalised} guest phone number(s)`);
   }
 
   console.log('✓ Database migrated and secured.');

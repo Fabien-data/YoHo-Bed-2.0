@@ -20,3 +20,8 @@ export * from './template';
 export * from './palette';
 export * from './reservation-kinds';
 export * from './property-settings';
+export * from './money';
+export * from './tax-split';
+export * from './rate-policy';
+export * from './residency';
+export * from './reservation-options';

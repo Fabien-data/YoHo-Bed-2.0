@@ -10,6 +10,7 @@ import {
 } from '@yohobed/db';
 import { resolveAdapter } from '@yohobed/cm-adapter';
 import { fetchAndStoreRates, DEFAULT_FX_URL } from './fx';
+import { sweepHolds } from './holds';
 
 // The API fails fast on a bad environment (Zod schema); the worker must not be the one process
 // that boots happily onto dev-port fallbacks and then errors every 1.5s in a log nobody watches.
@@ -40,6 +41,16 @@ const FX_INTERVAL_MS = (() => {
   if (Number.isFinite(n)) return n;
   console.warn(`[worker] WARNING: FX_FETCH_INTERVAL_MS="${raw}" is not a number — using 6h`);
   return 6 * 60 * 60 * 1000;
+})();
+
+// How often holds are checked for their release time. A hold should give its rooms back within a
+// minute of the time the desk promised the guest; 0 disables the sweep (night audit still runs it).
+const HOLD_SWEEP_INTERVAL_MS = (() => {
+  const raw = process.env.HOLD_SWEEP_INTERVAL_MS;
+  const n = Number(raw ?? 60_000);
+  if (Number.isFinite(n) && n >= 0) return n;
+  console.warn(`[worker] WARNING: HOLD_SWEEP_INTERVAL_MS="${raw}" is not a number — using 60s`);
+  return 60_000;
 })();
 
 const redisUrl = new URL(REDIS_URL);
@@ -189,6 +200,25 @@ if (FX_INTERVAL_MS > 0) {
   fxTimer = setInterval(() => void fetchAndStoreRates(db, { url: FX_URL }), FX_INTERVAL_MS);
 }
 
+// Reservation lifecycle: release holds on time. Never overlapping: a slow sweep skips a tick.
+let holdTimer: NodeJS.Timeout | undefined;
+let sweeping = false;
+async function holdTick(): Promise<void> {
+  if (sweeping) return;
+  sweeping = true;
+  try {
+    await sweepHolds(db);
+  } catch (e) {
+    console.error('[holds] error', e);
+  } finally {
+    sweeping = false;
+  }
+}
+if (HOLD_SWEEP_INTERVAL_MS > 0) {
+  holdTimer = setInterval(() => void holdTick(), HOLD_SWEEP_INTERVAL_MS);
+  void holdTick();
+}
+
 console.log(
   `[worker] YoHoBed CM worker started — queue=${QUEUE} redis=${REDIS_URL} provider=${adapter.provider} ` +
     `fx=${FX_INTERVAL_MS > 0 ? `${FX_URL} every ${Math.round(FX_INTERVAL_MS / 3600000)}h` : 'disabled'}`,
@@ -204,6 +234,7 @@ async function shutdown(): Promise<void> {
   shuttingDown = true;
   clearInterval(relayTimer);
   if (fxTimer) clearInterval(fxTimer);
+  if (holdTimer) clearInterval(holdTimer);
   try {
     await worker.close();
     await queue.close();

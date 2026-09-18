@@ -258,6 +258,13 @@ export class RoomUnitsService {
     if (b.status === 'Cancelled' || b.status === 'Rejected') {
       throw new BadRequestException(`Cannot assign a room to a ${b.status} booking`);
     }
+    // An inquiry has taken no room out of inventory, so it cannot occupy a physical one either:
+    // assigning it would block a room the hotel is still selling. Confirm or hold it first.
+    if (!b.inventoryHeld) {
+      throw new BadRequestException(
+        `${b.reference} does not hold rooms yet. Confirm it or put it on hold before assigning a room.`,
+      );
+    }
     return b;
   }
 

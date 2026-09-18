@@ -4,6 +4,7 @@ export * from './inventory';
 export * from './rates';
 export * from './tax';
 export * from './bookings';
+export * from './reservations';
 export * from './commercial';
 export * from './finance';
 export * from './fx';

@@ -82,6 +82,89 @@ plan-gated** — every plan takes reservations. Writes are **owner-only** (`403`
 Every write re-reads the ids it references (segment, property) under the tenant's RLS context:
 RLS checks the row being written, but a foreign-key check does not.
 
+## Taking reservations (Development Phase 02)
+
+Yanolja's Quick Reservation and Add Reservation. Open to every plan — taking a reservation is the
+front desk's core job — except where a row says Pro.
+
+| Method & path                                                      | Auth                   | Purpose                                                                                                                                                                                             |
+| ------------------------------------------------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /properties/:id/room-availability?checkin&checkout&residency` | JWT+Tenant             | The room grid: per room type, rooms free on **every** night, arrival min/max stay, the rate types the guest may be sold (list prices per night and for the stay) and which physical rooms are free. |
+| `POST /reservations/quote`                                         | JWT+Tenant             | Price a reservation without booking it — the live Billing Summary. Same body as create; `guest` optional. Returns per-room prices, per-tax totals, `approvalsRequired`.                             |
+| `POST /reservations`                                               | JWT+Tenant             | Book every room of the reservation in **one** transaction. Send `Idempotency-Key`; a retry returns the first response (`Idempotent-Replayed: true`).                                                |
+| `POST /bookings/:id/confirm`                                       | JWT+Tenant             | Any unconfirmed kind → Confirm Booking. An inquiry takes its rooms now (**409** if they are gone) and goes into the room it asked for if still free.                                                |
+| `POST /bookings/:id/hold`                                          | JWT+Tenant             | `{ until: ISO datetime \| null, kind? }` — put on hold, or move the release time. A confirmed booking can only become a confirmed hold.                                                             |
+| `POST /bookings/:id/release-hold`                                  | JWT+Tenant             | Release a hold now: Cancelled, rooms back on sale, trail action `released`.                                                                                                                         |
+| `POST /reservations/:groupId/confirm`                              | JWT+Tenant             | Confirm every live room of a multi-room reservation; all or nothing.                                                                                                                                |
+| `POST /reservations/:groupId/cancel`                               | JWT+Tenant             | Cancel every room that has not arrived; all or nothing.                                                                                                                                             |
+| `GET /ledger-accounts/:id/rates`                                   | JWT+Tenant, Pro        | A travel agent's or company's contract rates.                                                                                                                                                       |
+| `POST /ledger-accounts/:id/rates`                                  | JWT+Tenant, Pro, owner | Add one: a room type (optionally one meal plan), a date range, and a fixed tax-inclusive nightly rate or a `discount_pct` off the list.                                                             |
+| `PATCH /ledger-accounts/:id/rates/:rateId`                         | JWT+Tenant, Pro, owner | Change or deactivate one.                                                                                                                                                                           |
+| `PATCH /rate-plans/:id`                                            | JWT+Tenant, owner      | `audience` (`all` \| `local` \| `foreign`), `status`, and the plan's default `marketSegmentId`.                                                                                                     |
+
+**The request** (`POST /reservations`): `propertyId`, `checkin`, `checkout`, optional
+`arrivalTime`/`departureTime` (`HH:mm`), `kind` (default `confirm`), `holdUntil`, `origin`,
+`businessSourceId`, `marketSegmentId`, `salesPersonId`, `ledgerAccountId`, `voucherNo`,
+`residency`, `useContractRates`, `complimentary`, `taxExempt { exemptionId, reason? }`,
+`priceReason`, `approvals { rate_override?, complimentary?, tax_exempt? }`, `couponCode`,
+`referralCode`, `options` (Other Information), `expectedTotal`, `groupName`, a `guest`, and 1–50
+`lines`. A line is one room: `roomId`, `occupancyId` (the rate type), optional `roomUnitId`,
+`adults`, `children`, `childAges`, `extraBeds`, and an optional `rate` override
+(`nightly` | `total` | `per_night` | `discount_pct`, tax-inclusive). At most 90 nights.
+
+**What it creates.** One room is one booking. A reservation of N rooms is N sibling bookings
+referenced `<master>-1 … <master>-n`, plus a booking group (`kind: 'reservation'`) coded with the
+master reference and owned by the guest. One reservation gets one notification and one
+confirmation email, and one channel-manager event per room type.
+
+**Reservation kinds** — fixed behaviour; owners may rename and recolour them only.
+
+| Kind             | Status   | Takes rooms | Release time                                              |
+| ---------------- | -------- | ----------- | --------------------------------------------------------- |
+| `confirm`        | Approved | yes         | —                                                         |
+| `hold_confirm`   | Approved | yes         | default: now + the property's hold length; `null` = never |
+| `hold_unconfirm` | Pending  | yes         | as above                                                  |
+| `inquiry`        | Pending  | no          | —                                                         |
+| `online_failed`  | Pending  | no          | —                                                         |
+
+A booking that takes no rooms still has its leg (for pax), but it is not assigned a room — a
+requested room is kept as a preference — it is drawn in Stay View's tentative lane, and it is
+never counted as sold. Checking a hold in confirms it. A released hold is Cancelled with trail
+action `released`.
+
+**Price authority.** Owners are never limited. For desk staff (`OWNER_STAFF`):
+
+- a typed rate more than the property's `rateControl.staffMaxDiscountPct` below the list needs
+  approval `rate_override`;
+- a complimentary reservation needs approval `complimentary` unless `staffCanComp` is on;
+- a tax exemption always needs approval `tax_exempt`.
+
+An approval is a token from `POST /auth/step-up` (the owner signs in on the desk's screen), sent
+in `approvals`. Any typed rate, complimentary room or exemption also needs a `priceReason`. The
+decision, the reason and the approver are stored on each booking (`pricing`) and in the audit
+log. A contract rate is pre-agreed and needs neither.
+
+**Errors**
+
+| Status | `reason`                    | When                                                                                                    |
+| ------ | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 400    | `checkin_in_past`           | Check-in is before the hotel's business date.                                                           |
+| 400    | `rate_audience`             | A local or foreign rate for a guest of the other residency, or of unknown residency.                    |
+| 400    | `price_reason_required`     | A changed price without `priceReason`.                                                                  |
+| 403    | `approval_required`         | `actions` lists the owner approvals still needed.                                                       |
+| 404    | —                           | Any id (room, rate, source, account, guest, property) that is not this tenant's.                        |
+| 409    | `insufficient_availability` | `roomName`, `date` and the `lines` (0-based) that did not fit. Nothing was saved.                       |
+| 409    | `room_taken`                | The chosen room was taken meanwhile; `line` names it. Nothing was saved.                                |
+| 409    | `room_blocked`              | The chosen room is under maintenance for those dates.                                                   |
+| 409    | `guest_exists`              | A different-named guest has this email or mobile; `candidates` to pick from, or send `guest.createNew`. |
+| 409    | `price_changed`             | The total differs from `expectedTotal`; `total` is the new one.                                         |
+| 409    | `idempotency_key_reused`    | The key was used for a different body.                                                                  |
+
+**Pricing.** Quote and create share one pricer (`ReservationPricer`), so the quoted total is the
+stored total. A night priced from the rate calendar follows the legacy engine exactly (a golden
+test pins `POST /reservations` to `POST /bookings`). See PRICING.md §12 for overrides, contract
+rates, complimentary rooms and tax exemption.
+
 ## Rooms, room types, availability (inventory)
 
 | Method & path                                                 | Auth       | Purpose                                                                                                                                                                          |
@@ -143,7 +226,10 @@ the same arithmetic is visible in the screenshots. `availableInventory` follows 
 `(totalRooms - blocked) - soldRooms`.
 
 Legs with no room yet come back in a separate `unassigned` array rather than attached to a room —
-Yanolja's "Default Unmapped Room" strip. `counts` is computed for the **first date** in the
+Yanolja's "Default Unmapped Room" strip. Bookings that hold no rooms (inquiries, failed online
+bookings) come back in `tentative` — a lane of their own, never on a room and never counted as
+sold (Development Phase 02). Every bar carries its `reservationKind`, a hold's `holdUntil`, and
+the business source's `sourceCode` and `sourceColor` (a palette key). `counts` is computed for the **first date** in the
 window, which is the business date the user picked. There is no `dirty` count until housekeeping
 lands in Sprint 4; a chip permanently reading zero would be worse than no chip.
 
@@ -169,7 +255,10 @@ independent bookings, not a combined folio. That is what lets Yanolja's `3359-1`
 presentation exist without changing how anything is priced or settled.
 
 `PATCH /customers/:id` records the guest depth the card and reporting need — nationality, ID type
-and number, date of birth, address and the VIP flag. Every field is optional: an OTA booking
+and number, date of birth, address and the VIP flag — plus the regional profile of Development
+Phase 02: title, given/family name, WhatsApp, ISO nationality and country codes, state, zip,
+gender, occupation, company and tax number, and privacy consent (`consentVersion`; the server
+stamps the time). A phone is stored as typed and normalised to `mobileE164`. Every field is optional: an OTA booking
 arrives with a name and little else, and demanding more would block the check-in this supports.
 
 ## Room view & housekeeping
@@ -286,11 +375,11 @@ transaction, so a "handled" duplicate would still break the rest of the run.
 | `GET /bookings/:id`            | JWT+Tenant | One booking + per-night price snapshot (`days`) + lifecycle audit `trail`.                                                                                                                                                |
 | `POST /bookings`               | JWT+Tenant | Create a walk-in. See rules below.                                                                                                                                                                                        |
 | `PATCH /bookings/:id`          | JWT+Tenant | Amend: guest details in any live status; dates/rooms only while Pending/Approved — re-prices on the same occupancy and swaps inventory atomically (`409` if the new dates don't fit). Keeps the original coupon discount. |
-| `POST /bookings/:id/approve`   | JWT+Tenant | Pending → Approved.                                                                                                                                                                                                       |
-| `POST /bookings/:id/reject`    | JWT+Tenant | Pending → Rejected. **Releases inventory.**                                                                                                                                                                               |
-| `POST /bookings/:id/cancel`    | JWT+Tenant | Pending/Approved → Cancelled. **Releases inventory.**                                                                                                                                                                     |
-| `POST /bookings/:id/no-show`   | JWT+Tenant | Approved → NoShow (inventory stays consumed, matching legacy revenue treatment).                                                                                                                                          |
-| `POST /bookings/:id/check-in`  | JWT+Tenant | Approved → CheckedIn (stamps `checkedInAt`).                                                                                                                                                                              |
+| `POST /bookings/:id/approve`   | JWT+Tenant | Pending → Approved. An unconfirmed hold stays a hold (confirmed); an inquiry takes its rooms now (`409` if gone).                                                                                                         |
+| `POST /bookings/:id/reject`    | JWT+Tenant | Pending → Rejected. **Releases inventory** if the booking held any.                                                                                                                                                       |
+| `POST /bookings/:id/cancel`    | JWT+Tenant | Pending/Approved → Cancelled. **Releases inventory** if the booking held any.                                                                                                                                             |
+| `POST /bookings/:id/no-show`   | JWT+Tenant | Approved → NoShow. Keeps the missed night; the nights after it go back on sale. An OTA booking also queues `booking.no_show`.                                                                                             |
+| `POST /bookings/:id/check-in`  | JWT+Tenant | Approved → CheckedIn (stamps `checkedInAt`). Checking in a hold confirms it.                                                                                                                                              |
 | `POST /bookings/:id/check-out` | JWT+Tenant | CheckedIn → CheckedOut (stamps `checkedOutAt`); mints a single-use review invite and queues the review email.                                                                                                             |
 
 **Create rules (`POST /bookings`)** — the request carries `roomId` + `occupancyId` (the pricing
@@ -307,6 +396,10 @@ key) + guest + dates + rooms + optional `couponCode`/`referralCode`:
 8. A CM outbox row is queued in the same transaction (fixes BUG #3).
 9. The guest is reused by email or created; the owner gets a notification; a confirmation email
    is queued from the tenant's template.
+10. A walk-in is created as an unconfirmed hold with no release time (`hold_unconfirm`); an OTA
+    import as `confirm`. Since Development Phase 02 the pricing runs through `ReservationPricer`
+    unchanged, and every transition locks the booking row first, so two desks cancelling the same
+    booking cannot both return its rooms.
 
 **Status machine**
 
@@ -329,9 +422,9 @@ stateDiagram-v2
 
 ## Dashboard
 
-| Method & path                    | Auth       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| -------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /dashboard?date&propertyId` | JWT+Tenant | Front-desk aggregate for a date (default today): arrivals, departures, in-house count, pending approvals, occupancy % (confirmed room-nights ÷ physical rooms), month-to-view gross (from per-night snapshots, so multi-month stays land in the right month), recent bookings. `month.currency` + `month.approximate` denominate the gross: exact when scoped to one property, consolidated to LKR when it spans base currencies. |
+| Method & path                    | Auth       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /dashboard?date&propertyId` | JWT+Tenant | Front-desk aggregate for a date (default today): arrivals, departures, in-house count, pending approvals, occupancy % (confirmed room-nights ÷ physical rooms), month-to-view gross (from per-night snapshots, so multi-month stays land in the right month), recent bookings, `pendingByKind` (inquiry / hold_unconfirm / online_failed) and `holdsReleasingSoon` (next 24 hours). `month.currency` + `month.approximate` denominate the gross: exact when scoped to one property, consolidated to LKR when it spans base currencies. |
 
 ## Commercial (deals, coupons, referrals)
 
@@ -385,10 +478,12 @@ stateDiagram-v2
 
 ## Customers
 
-| Method & path        | Auth       | Purpose                                                                                                                                                                                                                                                                                       |
-| -------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /customers`     | JWT+Tenant | Guest directory: bookings count, non-cancelled nights, confirmed spend, last check-in. `totalSpend` carries `currency` + `approximate`, folded **per guest** — a guest who stayed at properties with different base currencies gets a consolidated figure while their neighbours stay native. |
-| `GET /customers/:id` | JWT+Tenant | One guest + full booking history.                                                                                                                                                                                                                                                             |
+| Method & path                   | Auth       | Purpose                                                                                                                                                                                                                                                                                       |
+| ------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /customers`                | JWT+Tenant | Guest directory: bookings count, non-cancelled nights, confirmed spend, last check-in. `totalSpend` carries `currency` + `approximate`, folded **per guest** — a guest who stayed at properties with different base currencies gets a consolidated figure while their neighbours stay native. |
+| `GET /customers/search?q&limit` | JWT+Tenant | Returning-guest lookup (≥ 2 characters): name, email, or any part of a phone however it was written. Names starting with `q` first.                                                                                                                                                           |
+| `POST /customers`               | JWT+Tenant | Add a guest. **409 `guest_exists`** with `candidates` when the email or mobile belongs to someone, unless `createNew`.                                                                                                                                                                        |
+| `GET /customers/:id`            | JWT+Tenant | One guest + full booking history.                                                                                                                                                                                                                                                             |
 
 ## Profile & media
 
@@ -462,16 +557,17 @@ bought, so support never demonstrates a module the customer cannot use.
 
 ### apps/worker
 
-| Variable                                                                           | Default                     | Purpose                                                                                     |
-| ---------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------- |
-| `APP_DATABASE_URL`                                                                 | dev default                 | Same restricted role as the API.                                                            |
-| `REDIS_URL`                                                                        | `redis://localhost:6380`    | BullMQ backing.                                                                             |
-| `CM_PROVIDER`                                                                      | `fake`                      | `fake` \| `axisrooms` (`rategain` reserved). `axisrooms` **refuses to boot** without a URL. |
-| `CM_URL_AXISROOMS`                                                                 | —                           | Base URL of the core service that owns the AxisRooms conversation.                          |
-| `AXISROOMS_CHANNEL_ID`                                                             | —                           | Legacy channel id (164 in production); retained for future endpoints.                       |
-| `CM_AXISROOMS_API_KEY`                                                             | —                           | Optional bearer for the core service.                                                       |
-| `CM_TIMEOUT_MS`                                                                    | `15000`                     | Per-push timeout.                                                                           |
-| `CM_AXISROOMS_{INVENTORY,RATE,NO_SHOW,INVENTORY_BLOCK,INVENTORY_UNBLOCK}_ENDPOINT` | `/api/axisrooms/…` defaults | Endpoint path overrides (mirror the legacy env vars).                                       |
+| Variable                                                                           | Default                     | Purpose                                                                                                             |
+| ---------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `APP_DATABASE_URL`                                                                 | dev default                 | Same restricted role as the API.                                                                                    |
+| `REDIS_URL`                                                                        | `redis://localhost:6380`    | BullMQ backing.                                                                                                     |
+| `CM_PROVIDER`                                                                      | `fake`                      | `fake` \| `axisrooms` (`rategain` reserved). `axisrooms` **refuses to boot** without a URL.                         |
+| `CM_URL_AXISROOMS`                                                                 | —                           | Base URL of the core service that owns the AxisRooms conversation.                                                  |
+| `AXISROOMS_CHANNEL_ID`                                                             | —                           | Legacy channel id (164 in production); retained for future endpoints.                                               |
+| `CM_AXISROOMS_API_KEY`                                                             | —                           | Optional bearer for the core service.                                                                               |
+| `CM_TIMEOUT_MS`                                                                    | `15000`                     | Per-push timeout.                                                                                                   |
+| `CM_AXISROOMS_{INVENTORY,RATE,NO_SHOW,INVENTORY_BLOCK,INVENTORY_UNBLOCK}_ENDPOINT` | `/api/axisrooms/…` defaults | Endpoint path overrides (mirror the legacy env vars).                                                               |
+| `HOLD_SWEEP_INTERVAL_MS`                                                           | `60000`                     | How often holds are released at their release time (and reminders sent). `0` disables it; night audit still sweeps. |
 
 ### apps/web-extranet
 

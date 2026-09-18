@@ -105,15 +105,16 @@ export class RoomsService {
       // `rooms_to_sell` is a live counter that bookings have already decremented (reserveStay).
       // Writing the requested number absolutely would re-open rooms that are sold — the classic
       // "owner re-opens the month, hotel overbooks" path. So the counter is re-derived per date:
-      // requested sellable minus the rooms still held by non-terminal bookings on that night.
+      // requested sellable minus the rooms still held on that night. "Held" is `inventory_held`
+      // (an inquiry holds nothing) up to `inventory_released_from` (a no-show gave the rest back).
       const bookedRows = (await tx.execute(sql`
         SELECT d::date AS date, COALESCE(SUM(b.rooms), 0)::int AS booked
           FROM generate_series(${dto.from}::date, ${dto.to}::date, '1 day') AS d
           LEFT JOIN bookings b
             ON b.room_id = ${roomId}
-           AND b.status NOT IN ('Cancelled', 'Rejected')
+           AND b.inventory_held
            AND b.checkin <= d::date
-           AND b.checkout > d::date
+           AND COALESCE(b.inventory_released_from, b.checkout) > d::date
          GROUP BY d
       `)) as unknown as Array<{ date: string | Date; booked: number }>;
       const bookedByDate = new Map(

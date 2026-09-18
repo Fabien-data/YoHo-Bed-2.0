@@ -102,6 +102,29 @@ export function isReservationKind(v: unknown): v is ReservationKind {
   return typeof v === 'string' && (RESERVATION_KINDS as readonly string[]).includes(v);
 }
 
+/**
+ * The kind a booking becomes when an unconfirmed booking is approved. An unconfirmed hold with a
+ * release time stays a hold (now a confirmed one); everything else becomes a plain confirmation.
+ */
+export function kindAfterApproval(kind: ReservationKind, hasReleaseTime: boolean): ReservationKind {
+  if (kind === 'hold_unconfirm') return hasReleaseTime ? 'hold_confirm' : 'confirm';
+  if (kind === 'inquiry' || kind === 'online_failed') return 'confirm';
+  return kind;
+}
+
+/**
+ * The kinds a booking may be put on hold from, and the hold it can become. A confirmed booking can
+ * only become a confirmed hold — putting it on hold must never quietly un-confirm it.
+ */
+export function holdKindFor(
+  current: ReservationKind,
+  requested: 'hold_confirm' | 'hold_unconfirm' | undefined,
+): 'hold_confirm' | 'hold_unconfirm' | null {
+  const confirmed = current === 'confirm' || current === 'hold_confirm';
+  if (confirmed) return requested === 'hold_unconfirm' ? null : 'hold_confirm';
+  return requested ?? 'hold_unconfirm';
+}
+
 /** Label and colour after applying a property's overrides. */
 export function resolveKindDisplay(
   kind: ReservationKind,

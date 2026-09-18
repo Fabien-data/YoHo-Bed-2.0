@@ -7,6 +7,7 @@ import {
   numeric,
   integer,
   boolean,
+  date,
   timestamp,
   unique,
   index,
@@ -16,6 +17,8 @@ import { tenants, properties, users } from './identity';
 import { bookings } from './bookings';
 import { folios } from './folio';
 import { marketSegments } from './configuration';
+import { rooms } from './inventory';
+import { ratePlans } from './rates';
 
 /** The commission plans a travel agent or business source can carry (COMMISSION_PLANS). */
 const COMMISSION_PLAN_CHECK = sql`in ('none', 'pct_all_nights', 'pct_first_night', 'fixed_per_night', 'fixed_per_stay')`;
@@ -89,6 +92,61 @@ export const ledgerAccounts = pgTable(
     commissionPlanValid: check(
       'ledger_accounts_commission_plan_valid',
       sql`${t.commissionPlan} ${COMMISSION_PLAN_CHECK}`,
+    ),
+  }),
+);
+
+/**
+ * A travel agent's or company's contract rates — Yanolja's "Rate Offered: Contract"
+ * (Development Phase 02, Pro).
+ *
+ * A row prices one room type (optionally one meal plan) over a date range, either as a fixed
+ * tax-inclusive nightly rate or as a percentage off the list rate. When several rows cover a
+ * night, the one naming the meal plan wins, then the one starting latest.
+ */
+export const ledgerAccountRates = pgTable(
+  'ledger_account_rates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    ledgerAccountId: uuid('ledger_account_id')
+      .notNull()
+      .references(() => ledgerAccounts.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    /** Null = every meal plan of the room type. */
+    ratePlanId: uuid('rate_plan_id').references(() => ratePlans.id, { onDelete: 'cascade' }),
+    /** Inclusive on both ends. */
+    validFrom: date('valid_from').notNull(),
+    validTo: date('valid_to').notNull(),
+    /** fixed: `value` is the tax-inclusive nightly rate. discount_pct: `value` percent off the list. */
+    mode: text('mode').notNull().default('fixed'),
+    value: numeric('value', { precision: 12, scale: 2 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    lookupIdx: index('ledger_account_rates_lookup_idx').on(
+      t.ledgerAccountId,
+      t.roomId,
+      t.validFrom,
+    ),
+    rangeValid: check('ledger_account_rates_range_valid', sql`${t.validTo} >= ${t.validFrom}`),
+    modeValid: check(
+      'ledger_account_rates_mode_valid',
+      sql`${t.mode} in ('fixed', 'discount_pct')`,
+    ),
+    valueValid: check(
+      'ledger_account_rates_value_valid',
+      sql`${t.value} >= 0 and (${t.mode} <> 'discount_pct' or ${t.value} <= 100)`,
     ),
   }),
 );

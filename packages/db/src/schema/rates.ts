@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   pgEnum,
@@ -8,9 +9,11 @@ import {
   date,
   timestamp,
   unique,
+  check,
 } from 'drizzle-orm/pg-core';
 import { tenants, properties } from './identity';
 import { rooms } from './inventory';
+import { marketSegments } from './configuration';
 
 /**
  * Rates (Phase 4) — the unified per-day model that collapses the legacy rate-code/pricing sprawl.
@@ -30,24 +33,42 @@ export const rateCodes = pgTable('rate_codes', {
   sortOrder: integer('sort_order').notNull().default(0),
 });
 
-export const ratePlans = pgTable('rate_plans', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id')
-    .notNull()
-    .references(() => tenants.id, { onDelete: 'cascade' }),
-  propertyId: uuid('property_id')
-    .notNull()
-    .references(() => properties.id, { onDelete: 'cascade' }),
-  roomId: uuid('room_id')
-    .notNull()
-    .references(() => rooms.id, { onDelete: 'cascade' }),
-  rateCodeId: uuid('rate_code_id')
-    .notNull()
-    .references(() => rateCodes.id),
-  status: ratePlanStatus('status').notNull().default('Active'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const ratePlans = pgTable(
+  'rate_plans',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    rateCodeId: uuid('rate_code_id')
+      .notNull()
+      .references(() => rateCodes.id),
+    status: ratePlanStatus('status').notNull().default('Active'),
+    /**
+     * Who the plan is sold to (Development Phase 02): all | local | foreign. A resident rate is
+     * only offered to a local guest, a foreign rate only to a foreign one.
+     */
+    audience: text('audience').notNull().default('all'),
+    /** The market segment a reservation on this plan starts with; it outranks the source's. */
+    marketSegmentId: uuid('market_segment_id').references(() => marketSegments.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    audienceValid: check(
+      'rate_plans_audience_valid',
+      sql`${t.audience} in ('all', 'local', 'foreign')`,
+    ),
+  }),
+);
 
 export const occupancies = pgTable('occupancies', {
   id: uuid('id').primaryKey().defaultRandom(),
