@@ -9,4 +9,5 @@ export * from './default-templates';
 export * from './default-plans';
 export * from './masters';
 export * from './lifecycle';
+export * from './sequences';
 export * from './schema';

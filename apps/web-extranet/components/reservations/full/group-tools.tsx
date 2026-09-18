@@ -387,7 +387,13 @@ function OwnerDialog({
                     ...owner,
                     ...other,
                     // The ID document was the old owner's.
-                    document: { type: '', number: '', expiresOn: '', issuingCountry: '' },
+                    document: {
+                      type: '',
+                      number: '',
+                      expiresOn: '',
+                      issuingCountry: '',
+                      file: null,
+                    },
                   },
                   lines: draft.lines.map((l, j) =>
                     j === i

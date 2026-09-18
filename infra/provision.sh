@@ -30,6 +30,8 @@ ROOT_DIR=/srv/yohobed
 APP_DIR="$ROOT_DIR/app"
 ENV_DIR="$ROOT_DIR/env"
 MEDIA_DIR="$ROOT_DIR/media"
+# Payment slips and ID scans: never public, never served from MEDIA_DIR (Phase 02, Sprint 5).
+PRIVATE_DIR="$ROOT_DIR/private"
 ENV_FILE="$ENV_DIR/production.env"
 NODE_MAJOR=22
 PG_MAJOR=16
@@ -67,9 +69,10 @@ log "Runtime user: $RUN_USER"
 if ! id -u "$RUN_USER" >/dev/null 2>&1; then
   adduser --system --group --shell /bin/bash --home "/home/$RUN_USER" "$RUN_USER"
 fi
-mkdir -p "$APP_DIR" "$ENV_DIR" "$MEDIA_DIR" "/home/$RUN_USER"
+mkdir -p "$APP_DIR" "$ENV_DIR" "$MEDIA_DIR" "$PRIVATE_DIR" "/home/$RUN_USER"
 chown -R "$RUN_USER:$RUN_USER" "$ROOT_DIR" "/home/$RUN_USER"
 chmod 750 "$ENV_DIR"
+chmod 700 "$PRIVATE_DIR"
 
 # ---------------------------------------------------------------------------
 log "Node $NODE_MAJOR + pnpm"
@@ -144,13 +147,16 @@ EMAIL_PROVIDER=console
 WEB_URL=https://${DOMAIN}
 CORS_ORIGINS=https://${DOMAIN}
 MEDIA_DIR=${MEDIA_DIR}
+PRIVATE_FILES_DIR=${PRIVATE_DIR}
 REDIS_URL=redis://127.0.0.1:6379
 CM_PROVIDER=fake
 NEXT_PUBLIC_API_URL=https://${DOMAIN}/api
 ENV
   echo "created (secrets generated)"
 else
-  warn "env file exists — left untouched"
+  warn "env file exists — its secrets are left untouched"
+  # Settings added after the file was first generated; appended once, never overwritten.
+  grep -q '^PRIVATE_FILES_DIR=' "$ENV_FILE" || echo "PRIVATE_FILES_DIR=${PRIVATE_DIR}" >> "$ENV_FILE"
 fi
 chown root:"$RUN_USER" "$ENV_FILE"
 chmod 640 "$ENV_FILE"

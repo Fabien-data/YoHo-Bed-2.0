@@ -137,16 +137,38 @@ reason Stay View's due-out count is computed separately from the bars it draws.
 
 ## Folio — the guest bill (`schema/folio.ts`)
 
-| Table                | RLS | Purpose · key constraints                                                                                                                                    |
-| -------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `folios`             | ✅  | A billing window on a booking. Unique `(booking_id, window)`; `label`, `status` `open`/`closed`/`void`; currency inherited from the booking, never chosen.   |
-| `charge_particulars` | ✅  | The catalogue of chargeable items. Unique `(tenant_id, code)`; `default_price`, `tax_rate_pct`, `tax_inclusive`, `active`.                                   |
-| `folio_charges`      | ✅  | One line on the bill. `net + tax = total`, always. `source` `room`/`manual`/`pos`; `posted_for` is the business date; `voided_at` reverses without deleting. |
-| `folio_transfers`    | ✅  | An audit row per charge moved between windows — the split-bill trail.                                                                                        |
+| Table                | RLS | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                |
+| -------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `folios`             | ✅  | A billing window on a booking. Unique `(booking_id, window)`; `label`, `status` `open`/`closed`/`void`; currency inherited from the booking, never chosen. Phase 02 (0030): the payer — `payer_type` (CHECK guest/company/travel_agent), `payer_customer_id`, `payer_ledger_account_id` — and `routes text[]`, the charge sources this window takes instead of window 1. |
+| `charge_particulars` | ✅  | The catalogue of chargeable items. Unique `(tenant_id, code)`; `default_price`, `tax_rate_pct`, `tax_inclusive`, `active`.                                                                                                                                                                                                                                               |
+| `folio_charges`      | ✅  | One line on the bill. `net + tax = total`, always. `source` `room`/`manual`/`pos`/`inclusion`; `posted_for` is the business date; `voided_at` reverses without deleting. Phase 02 (0030): `tax_lines` jsonb, `booking_inclusion_id` — unique per night while live (`folio_charges_inclusion_night_uq`), so night audit never posts an inclusion twice.                   |
+| `folio_transfers`    | ✅  | An audit row per charge moved between windows — the split-bill trail.                                                                                                                                                                                                                                                                                                    |
 
 `payments` gains a nullable `folio_id`. Deliberately **not** a separate `folio_payments` table:
 `payments` is already the record of what a guest paid, and a second one would be a second answer
 to "is this settled?".
+
+**Who pays, and routing (Development Phase 02, Sprint 5).** Room charges always post to window 1;
+Bill To only decides window 1's payer. "Room & tax to the company, extras to the guest" is window 1
+billed to the company plus window 2 billed to the guest with `routes = {manual,pos,inclusion}`:
+anything posted by night audit or a completed transfer goes to the lowest open window whose
+`routes` include its source, else window 1 (`folio/windows.ts`). At check-out a window billed to a
+travel agent or company moves its balance to that account's ledger (Pro).
+
+### Stay services (`schema/stay-services.ts`, migration 0030)
+
+| Table                | RLS | Purpose · key constraints                                                                                                                                                                                                                                                           |
+| -------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `booking_inclusions` | ✅  | What a stay includes: `name`, optional `particular_id`, `rhythm` (CHECK: once, per_night, per_guest_per_night, per_adult_per_night, per_child_per_night), tax-inclusive `unit_price`, `discount_pct`, `tax_rate_pct`, `included_in_rate` (never posted — printing only), `itemize`. |
+| `booking_transfers`  | ✅  | Pick-ups and drop-offs: `direction` (pickup/dropoff), `transport_mode_id`, `scheduled_at`, from/to, flight, pax, vehicle, driver, tax-inclusive `amount`, `status` (planned/done/cancelled) and `charge_id` — the folio line posted when it was done.                               |
+| `transport_modes`    | ✅  | The vehicles: `code` unique per tenant, `name`, `default_price`, `sort`, `active`. Seeded per country by `ensureTransportModes` (on migrate, registration and in fixtures).                                                                                                         |
+
+### Private files and document numbers (`schema/files.ts`, `schema/sequences.ts`, migration 0030)
+
+| Table                | RLS | Purpose · key constraints                                                                                                                                                                                                                                                              |
+| -------------------- | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `private_files`      | ✅  | Payment slips and ID scans: random `storage_key` (unique), original name, MIME type, size, `purpose` (CHECK payment_slip/id_document/other). **No public policy** — unlike `media` — and the bytes live in `PRIVATE_FILES_DIR`, served only by `GET /files/:id` to a signed-in member. |
+| `document_sequences` | ✅  | Gap-free numbers per property × `doc_type` × `period` (`UNIQUE(property_id, doc_type, period)`), taken with `INSERT … ON CONFLICT DO UPDATE … RETURNING` — never `count + 1`. Receipts (`RC<yy>-<nnnnn>`) now; tax invoices and credit notes in Sprint 6.                              |
 
 ### Room charges are copied, never recomputed
 
@@ -331,12 +353,12 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 
 ## Finance (`schema/finance.ts`)
 
-| Table           | RLS | Purpose · key constraints                                                                                                                                                                                 |
-| --------------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invoices`      | ✅  | `INV-<booking reference>`, unique number; status draft/issued/paid/void; `currency` inherited from the booking.                                                                                           |
-| `invoice_lines` | ✅  | One line per booking night × rooms.                                                                                                                                                                       |
-| `payments`      | ✅  | Received/sent money against a booking (method, reference). `currency` is inherited from the booking, never chosen per payment — the settled-in-full check only totals payments sharing that denomination. |
-| `payouts`       | ✅  | Snapshotted settlement for a property + period: gross/base/yoho/ota/taxes/netPayable; status pending/scheduled/paid; `currency` = the property's base currency (a settlement is never FX-converted).      |
+| Table           | RLS | Purpose · key constraints                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------- | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoices`      | ✅  | `INV-<booking reference>`, unique number; status draft/issued/paid/void; `currency` inherited from the booking.                                                                                                                                                                                                                                                                                                                                                                  |
+| `invoice_lines` | ✅  | One line per booking night × rooms.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `payments`      | ✅  | Received/sent money against a booking (method, reference). `currency` is inherited from the booking, never chosen per payment — the settled-in-full check only totals payments sharing that denomination. Phase 02 (0030): the hotel's own method (`payment_method_id`, `method_code`; its category maps onto `method`), `taken_by_user_id`, `attachment_file_id` (a slip in `private_files`), `receipt_no` (shared by the rows of one split payment) and `allocation_group_id`. |
+| `payouts`       | ✅  | Snapshotted settlement for a property + period: gross/base/yoho/ota/taxes/netPayable; status pending/scheduled/paid; `currency` = the property's base currency (a settlement is never FX-converted).                                                                                                                                                                                                                                                                             |
 
 ## Communications (`schema/comms.ts`)
 
@@ -388,6 +410,8 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 | `resolveTaxRatesForDates(tx, propertyId, dates)` (`tax.ts`)                                           | Per-date tax fractions `{serviceCharge, nbt, vat}` from the property's tax config (zeros when unconfigured).                                                                                 |
 | `defaultTemplates / seedDefaultTemplates` (`default-templates.ts`)                                    | The starter message templates — single source used by **both** the dev seed and `/auth/register`.                                                                                            |
 | `seedDefaultMasters / applyRegionPreset` (`masters.ts`)                                               | The reservation master lists from the country preset — seeded once per tenant (migration, registration, fixture); `applyRegionPreset` adds a preset's missing codes only.                    |
+| `ensureTransportModes(tx, tenantId, country)` (`masters.ts`)                                          | Seed a tenant's transport modes if it has none — run on every migrate, so tenants created before Sprint 5 get them too.                                                                      |
+| `nextDocumentNumber / nextReceiptNo` (`sequences.ts`)                                                 | The next gap-free number of a property's document series (an atomic upsert on `document_sequences`); `nextReceiptNo` formats `RC<yy>-<nnnnn>` for the business date's year.                  |
 | `createDb(url, opts)` (`client.ts`)                                                                   | postgres.js + Drizzle handle; `migrate.ts` applies migrations then `rls.sql`.                                                                                                                |
 
 ## Migrations (`packages/db/drizzle/`, applied in order by `db:migrate`)
@@ -423,6 +447,8 @@ room is freed for re-sale while "which room was that cancellation in?" stays ans
 | 0026 | Audit hardening: night-audit run index, room-line night check, group code index, `sending`                                                                                                                                                                                                                     |
 | 0027 | Phase 02: market_segments, payment_methods, property regional identity + settings, source/account depth                                                                                                                                                                                                        |
 | 0028 | Phase 02 reservation engine: booking kind + generated `inventory_held` + holds, guest profile, leg pax, group owner, day list price/rate source/tax lines, rate-plan audience, `ledger_account_rates`, `reservation_requests`, `tax_types.exemptible`, indexes; `held/released/confirmed` trail actions (last) |
+| 0029 | Phase 02 guests & remarks: `booking_guests`, `guest_documents` (Aadhaar last-4 CHECK), `booking_remarks`; `work_orders` booking/department/trigger                                                                                                                                                             |
+| 0030 | Phase 02 money: `private_files`, `document_sequences`, `transport_modes`, `booking_inclusions`, `booking_transfers`; folio payer + routes; charge tax lines + inclusion link (unique per night); payment method/receipt/slip/allocation columns; `charge_source` gains `inclusion` (last)                      |
 
 `db:migrate` finishes by (re)applying `rls.sql` — policies are idempotent (`DROP POLICY IF
 EXISTS` + `CREATE`), so new tables added in a migration get fenced in the same run.

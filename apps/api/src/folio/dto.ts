@@ -44,6 +44,13 @@ export type TransferChargesDto = z.infer<typeof transferChargesSchema>;
 export const recordFolioPaymentSchema = z.object({
   amount: z.number().positive(),
   method: z.enum(['cash', 'card', 'bank', 'online']).default('cash'),
+  /**
+   * One of the property's own payment methods (Development Phase 02). When given it decides the
+   * category above, whether a reference is required, and — for cash — the drawer.
+   */
+  paymentMethodId: z.string().uuid().optional(),
+  /** A photo of the slip, from POST /files?purpose=payment_slip. */
+  fileId: z.string().uuid().optional(),
   reference: z.string().max(120).optional(),
   note: z.string().max(500).optional(),
   /**

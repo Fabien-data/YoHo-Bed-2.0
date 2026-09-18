@@ -23,6 +23,7 @@
         "EMAIL_FROM",
         "WEB_URL",
         "MEDIA_DIR",
+        "PRIVATE_FILES_DIR",
         "HOLD_SWEEP_INTERVAL_MS"
       ]
     },

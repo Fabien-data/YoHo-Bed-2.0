@@ -111,7 +111,10 @@ front desk's core job — except where a row says Pro.
 `lines`. A line is one room: `roomId`, `occupancyId` (the rate type), optional `roomUnitId`,
 `adults`, `children`, `childAges`, `extraBeds`, an optional `rate` override
 (`nightly` | `total` | `per_night` | `discount_pct`, tax-inclusive), and — from the full Add
-Reservation page (Sprint 4) — the room's own `guest` (Guest List), `remarks` and `tasks`. At most
+Reservation page (Sprint 4) — the room's own `guest` (Guest List), `remarks` and `tasks`, and
+(Sprint 5) its `inclusions` and `transfers`. With Sprint 5 the reservation also takes `billTo`
+(who pays), `payment` (money taken now) and `checkIn` (a walk-in) — see
+[Money at reservation](#money-at-reservation-bill-to-inclusions-and-transfers-sprint-5). At most
 90 nights. The reservation-level `remarks` go on every room. A `guest` may carry `documents`
 (ID type, number, expiry, visa details, how it was checked), added to their profile; an Aadhaar
 number is cut to its last four digits. Tasks are work orders and need the Pro plan: a reservation
@@ -291,6 +294,60 @@ presentation exist without changing how anything is priced or settled.
 A task due at check-in or check-out is **waiting** until then: the work-order list returns it with
 `waiting: true`, and Room View's work-order badge does not count it.
 
+### Money at reservation, Bill To, inclusions and transfers (Sprint 5)
+
+| Method & path                           | Auth              | Purpose                                                                                                                                                                                                                   |
+| --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /files?purpose=`                  | JWT+Tenant        | Upload a slip photo or ID scan (multipart `file`; JPEG, PNG, WebP or PDF, at most 8 MB). `purpose`: `payment_slip`, `id_document`, `other`.                                                                               |
+| `GET /files/:id`                        | JWT+Tenant        | The bytes, to a member of the tenant only (`Cache-Control: private, no-store`). Another tenant's id is **404**. There is no public way in.                                                                                |
+| `DELETE /files/:id`                     | JWT+Tenant        | Drop an upload that was never used. **409** once it is attached to a payment or document.                                                                                                                                 |
+| `GET` / `POST /bookings/:id/inclusions` | JWT+Tenant        | What the stay includes: `name`, `rhythm` (`once`, `per_night`, `per_guest_per_night`, `per_adult_per_night`, `per_child_per_night`), tax-inclusive `unitPrice`, `discountPct`, `taxRatePct`, `includedInRate`, `itemize`. |
+| `DELETE /booking-inclusions/:id`        | JWT+Tenant        | Stop one. What was already posted stays on the bill.                                                                                                                                                                      |
+| `GET` / `POST /bookings/:id/transfers`  | JWT+Tenant        | Pick-ups and drop-offs: `direction`, `transportModeId`, `scheduledAt`, from/to, flight, pax, vehicle, driver, tax-inclusive `amount`.                                                                                     |
+| `PATCH /booking-transfers/:id`          | JWT+Tenant        | Change one, or its `status`: `done` posts its charge to the window that takes extras; `cancelled` voids that charge. A done transfer's price is locked (**409**).                                                         |
+| `GET /transport-modes`                  | JWT+Tenant        | The vehicles (seeded per country: car, van, SUV, coach, plus tuk-tuk in LK and auto-rickshaw in IN).                                                                                                                      |
+| `POST` / `PATCH /transport-modes[/:id]` | JWT+Tenant, owner | Add or change one: `code`, `name`, `defaultPrice`, `sort`, `active`.                                                                                                                                                      |
+
+**Money taken with the reservation** (`payment: { paymentMethodId, amount, reference?, fileId?,
+drawerSessionId? }`). The method is one of the hotel's own (`payment_methods`); its category maps
+onto the payments ledger's four (`cash`, `card`, `bank`, `online`), so the cashier report and payout
+keep adding up. A method marked `requiresReference` without one is **400** `reference_required`; more
+than the reservation's total is **400** `payment_exceeds_total`. Cash goes into the open drawer shift
+(the user's own, else the latest); with the cashiering feature on, no open shift is **409**
+`drawer_closed` — on Starter cash is taken without a till. A multi-room deposit is split across the
+rooms in proportion to their prices (remainders to the largest), under **one receipt number**
+(`RC<yy>-<nnnnn>`, gap-free per property and year) and one `allocation_group_id`. The City Ledger
+method (Pro) charges the reservation's travel agent or company instead: a payment plus a ledger
+debit, with the account's credit limit enforced. Any failure saves nothing.
+
+**Bill To** (`billTo`, default `guest`) sets who each room's bill (window 1) bills:
+
+| `billTo`           | Window 1 payer                         | Window 2                                                        |
+| ------------------ | -------------------------------------- | --------------------------------------------------------------- |
+| `guest`            | the room's guest                       | —                                                               |
+| `group_owner`      | the reservation's guest, on every room | —                                                               |
+| `company`          | the travel agent or company (Pro)      | —                                                               |
+| `company_room_tax` | the travel agent or company (Pro)      | "Guest (extras)": manual, POS and inclusion charges route there |
+
+Room charges always post to window 1. Night audit (and a completed transfer) post extras to the
+window whose `routes` include their source.
+
+**Walk-in** (`checkIn: true`). Only a `confirm` or `hold_confirm` reservation whose check-in is the
+property's business date (**400** `checkin_not_today`). A line without a room gets the lowest free
+room of its type (**409** `no_room_free`); a room marked dirty today is allowed, with a warning. All
+rooms are checked in in the same transaction. The response adds `status: 'CheckedIn'`,
+`checkedIn`, `billTo`, `payment { receiptNo, amount, method }` and `warnings`.
+
+**At check-out** (Pro): a window billed to a travel agent or company moves its balance to that
+account (a ledger debit; the credit limit is not enforced — the guest is leaving), and a travel
+agent with a commission plan is credited its commission once, on room revenue net of tax:
+`pct_all_nights`, `pct_first_night`, `fixed_per_night` or `fixed_per_stay`.
+
+**Inclusions** post at night audit for guests actually in the house (`CheckedIn`), to the window
+routed for `inclusion`: `once` on the first night only, the per-guest rhythms by the legs' pax,
+tax decomposed out of the inclusive price. One posting per inclusion per night (a partial unique
+index backs it up). An `includedInRate` inclusion is never posted.
+
 `PATCH /customers/:id` records the guest depth the card and reporting need — nationality, ID type
 and number, date of birth, address and the VIP flag — plus the regional profile of Development
 Phase 02: title, given/family name, WhatsApp, ISO nationality and country codes, state, zip,
@@ -323,20 +380,24 @@ only while nothing was gated.
 
 ## Folio — the guest bill
 
-| Method & path                                | Auth       | Purpose                                                                                                      |
-| -------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
-| `GET /bookings/:id/folio`                    | JWT+Tenant | Every window, its lines, its payments and its balance. Window 1 is created on demand.                        |
-| `POST /bookings/:id/folio/post-room-charges` | JWT+Tenant | Copy the room charges off the `booking_days` snapshot. **Idempotent** — returns `{posted, skipped}`.         |
-| `POST /bookings/:id/folio/windows`           | JWT+Tenant | Open another window (the company bill beside the guest's).                                                   |
-| `POST /folios/:id/charges`                   | JWT+Tenant | Post an extra, from the catalogue or spelled out. Anything given explicitly overrides the catalogue default. |
-| `POST /folio-charges/:id/void`               | JWT+Tenant | Reverse a line. **409** if already voided.                                                                   |
-| `POST /folio-charges/transfer`               | JWT+Tenant | Split the bill. **400** across bookings or into a closed window.                                             |
-| `POST /folios/:id/payments`                  | JWT+Tenant | Take money against a window. Recorded in `payments`.                                                         |
-| `POST /folios/:id/close?force=`              | JWT+Tenant | Close a window. **409** on a non-zero balance unless `force=true`.                                           |
-| `GET /folios/unsettled?propertyId`           | JWT+Tenant | Every stay that still owes money, **in-house first**.                                                        |
-| `GET` / `POST /charge-particulars`           | JWT+Tenant | The chargeable-item catalogue. **409** on a duplicate code.                                                  |
+| Method & path                                | Auth       | Purpose                                                                                                                                                                        |
+| -------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /bookings/:id/folio`                    | JWT+Tenant | Every window, its lines, its payments and its balance. Window 1 is created on demand.                                                                                          |
+| `POST /bookings/:id/folio/post-room-charges` | JWT+Tenant | Copy the room charges off the `booking_days` snapshot. **Idempotent** — returns `{posted, skipped}`.                                                                           |
+| `POST /bookings/:id/folio/windows`           | JWT+Tenant | Open another window (the company bill beside the guest's).                                                                                                                     |
+| `POST /folios/:id/charges`                   | JWT+Tenant | Post an extra, from the catalogue or spelled out. Anything given explicitly overrides the catalogue default.                                                                   |
+| `POST /folio-charges/:id/void`               | JWT+Tenant | Reverse a line. **409** if already voided.                                                                                                                                     |
+| `POST /folio-charges/transfer`               | JWT+Tenant | Split the bill. **400** across bookings or into a closed window.                                                                                                               |
+| `POST /folios/:id/payments`                  | JWT+Tenant | Take money against a window. With `paymentMethodId` (Sprint 5): the hotel's own method, `reference` rules, a slip (`fileId`), a receipt number, and cash into the open drawer. |
+| `POST /folios/:id/close?force=`              | JWT+Tenant | Close a window. **409** on a non-zero balance unless `force=true`.                                                                                                             |
+| `GET /folios/unsettled?propertyId`           | JWT+Tenant | Every stay that still owes money, **in-house first**.                                                                                                                          |
+| `GET` / `POST /charge-particulars`           | JWT+Tenant | The chargeable-item catalogue. **409** on a duplicate code.                                                                                                                    |
 
 All of it is **Pro and above** — a Starter hotel gets the front desk, not the cashier.
+
+Each window carries its payer (`payerType` `guest` | `company` | `travel_agent`, `payerName`,
+`payerLedgerAccountId`) and `routes`; each payment its `methodName`, `receiptNo` and
+`attachmentFileId` (Sprint 5).
 
 **Room charges are copied from `booking_days`, never recomputed**, and the snapshot is per room
 per night, so lines are multiplied by `bookings.rooms`. The posted lines therefore sum to

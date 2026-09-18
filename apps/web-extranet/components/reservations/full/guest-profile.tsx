@@ -15,6 +15,7 @@ import {
 } from '@yohobed/ui';
 import { ID_DOCUMENT_LABELS, countryName, idTypesFor, subdivisionsOf } from '@yohobed/locale';
 import type { IdDocumentType, Residency } from '@/lib/api';
+import { SlipAttach } from '@/components/payments/payment-fields';
 import type { GuestProfileDraft } from './full-draft';
 
 /**
@@ -204,6 +205,15 @@ export function GuestProfileFields({
               onChange={(expiresOn) => setDoc({ expiresOn })}
             />
           </Field>
+        )}
+        {/* UIDAI forbids keeping a copy of an Aadhaar card, so it never gets a scan. */}
+        {docType && docType !== 'aadhaar' && (
+          <SlipAttach
+            label="Scan"
+            purpose="id_document"
+            file={value.document.file}
+            onChange={(file) => setDoc({ file })}
+          />
         )}
       </div>
     </div>

@@ -9,8 +9,10 @@ import {
   timestamp,
   index,
 } from 'drizzle-orm/pg-core';
-import { tenants, properties } from './identity';
+import { tenants, properties, users } from './identity';
 import { bookings } from './bookings';
+import { paymentMethods } from './configuration';
+import { privateFiles } from './files';
 
 /**
  * Finance & Settlement (Phase 7). Consolidates the legacy sprawl (payments/payment_received/
@@ -61,10 +63,30 @@ export const payments = pgTable(
     method: paymentMethod('method').notNull().default('bank'),
     reference: text('reference'),
     note: text('note'),
+    /**
+     * The hotel's own payment method (Development Phase 02, Sprint 5) — "LankaQR", "Cash (USD)" —
+     * of which `method` above is the coarse category the cashier report sums by.
+     */
+    paymentMethodId: uuid('payment_method_id').references(() => paymentMethods.id, {
+      onDelete: 'set null',
+    }),
+    methodCode: text('method_code'),
+    takenByUserId: uuid('taken_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** A photo of the slip, in the private file store. */
+    attachmentFileId: uuid('attachment_file_id').references(() => privateFiles.id, {
+      onDelete: 'set null',
+    }),
+    /** The receipt number the guest was given; shared by every row of one split deposit. */
+    receiptNo: text('receipt_no'),
+    /** Rows that are one payment split across the rooms of a reservation share this id. */
+    allocationGroupId: uuid('allocation_group_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   // Every list screen sums a booking's payments; without this each row is a sequential scan.
-  (t) => ({ bookingIdx: index('payments_booking_idx').on(t.bookingId) }),
+  (t) => ({
+    bookingIdx: index('payments_booking_idx').on(t.bookingId),
+    receiptIdx: index('payments_receipt_idx').on(t.tenantId, t.receiptNo),
+  }),
 );
 
 export const invoices = pgTable('invoices', {

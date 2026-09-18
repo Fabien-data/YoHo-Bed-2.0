@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChatText, Lock, Plus, Trash } from '@phosphor-icons/react';
+import { ArrowLeft, ChatText, DoorOpen, Lock, Plus, Trash } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
@@ -29,10 +29,12 @@ import {
   cn,
   type ComboboxOption,
 } from '@yohobed/ui';
+import { formatDate } from '@yohobed/locale';
 import {
   ApiError,
   createReservation,
   getRoomAvailability,
+  getUser,
   type BookingOrigin,
   type ReservationKind,
   type Residency,
@@ -58,6 +60,7 @@ import {
   fullCreateBody,
   fullLine,
   fullStayBody,
+  paymentMethodsFor,
   residencyOf,
   roomGuestGiven,
   type FullDraft,
@@ -68,6 +71,7 @@ import { GuestProfileFields } from './guest-profile';
 import { BillingSummary } from './billing-summary';
 import { GroupOptions, QuickGroupPanel, allAvailableLines } from './group-tools';
 import { MAX_ROOMS } from './limits';
+import { paymentProblems } from '@/components/payments/payment-fields';
 
 const ORIGINS: BookingOrigin[] = ['direct', 'ota', 'travel_agent', 'corporate'];
 const AUTO = '__auto';
@@ -119,6 +123,9 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
   const [bookAllKeys, setBookAllKeys] = React.useState<string[]>([]);
   const [bookAllCapped, setBookAllCapped] = React.useState(false);
   const idempotencyKey = React.useRef(newIdempotencyKey());
+  /** Which footer button asked: Reserve, or Check-in (a walk-in, checked in as it is saved). */
+  const action = React.useRef<'reserve' | 'check_in'>('reserve');
+  const userId = React.useMemo(() => getUser()?.id ?? null, []);
 
   // The starting draft: what Quick Reservation handed over, or a fresh one.
   React.useEffect(() => {
@@ -204,7 +211,9 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
     mutationFn: () => {
       const expected = quoteCurrent ? Number(quote.data!.totals.due) : undefined;
       return createReservation(
-        fullCreateBody(propertyId!, draft!, expected)!,
+        fullCreateBody(propertyId!, draft!, expected, {
+          checkIn: action.current === 'check_in',
+        })!,
         idempotencyKey.current,
       );
     },
@@ -219,12 +228,28 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
       ]) {
         qc.invalidateQueries({ queryKey: [key] });
       }
+      for (const key of ['folio', 'drawer-sessions', 'cashiering']) {
+        qc.invalidateQueries({ queryKey: [key] });
+      }
       const rooms = r.bookings.length;
-      toast.success(`Reservation ${r.reference} saved`, {
-        description: `${r.guest.name} · ${rooms} room${rooms === 1 ? '' : 's'} · ${formatMoney(r.due, r.currency)}`,
-      });
+      const paid = r.payment
+        ? ` · ${formatMoney(r.payment.amount, r.currency)} by ${r.payment.method}${r.payment.receiptNo ? ` (${r.payment.receiptNo})` : ''}`
+        : '';
+      if (r.checkedIn) {
+        const codes = r.bookings.map((b) => b.roomCode).filter(Boolean);
+        toast.success(`${r.guest.name} is checked in`, {
+          description: `${r.reference} · ${codes.length ? `Room ${codes.join(', ')}` : `${rooms} room${rooms === 1 ? '' : 's'}`}${paid}`,
+        });
+      } else {
+        toast.success(`Reservation ${r.reference} saved`, {
+          description: `${r.guest.name} · ${rooms} room${rooms === 1 ? '' : 's'} · ${formatMoney(r.due, r.currency)}${paid}`,
+        });
+      }
+      for (const w of r.warnings) toast.warning(w);
       setPristine(JSON.stringify(draft));
-      router.push(`/app/reservations?tab=upcoming&q=${encodeURIComponent(r.reference)}`);
+      router.push(
+        `/app/reservations?tab=${r.checkedIn ? 'inhouse' : 'upcoming'}&q=${encodeURIComponent(r.reference)}`,
+      );
     },
     onError: (e) => {
       setServerError(explain(e));
@@ -286,8 +311,22 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
     : [];
   const exemptReady = !draft.taxExempt.on || draft.taxExempt.exemptionId.trim() !== '';
   const reasonReady = !needsReason || draft.priceReason.trim().length >= 3;
+  const payMethods = paymentMethodsFor(cfg, draft, hasCityLedger);
+  const dueNow = quote.data ? Number(quote.data.totals.due) : null;
+  const paymentReady =
+    !draft.payment.methodId ||
+    (payMethods.some((m) => m.id === draft.payment.methodId) &&
+      Object.keys(paymentProblems(draft.payment, payMethods, dueNow)).length === 0);
   const formReady =
-    guestReady && linesReady && roomGuestErrors.length === 0 && exemptReady && reasonReady;
+    guestReady &&
+    linesReady &&
+    roomGuestErrors.length === 0 &&
+    exemptReady &&
+    reasonReady &&
+    paymentReady;
+  // A walk-in: a confirmed stay that starts on the hotel's today.
+  const canCheckIn =
+    (draft.kind === 'confirm' || draft.kind === 'hold_confirm') && draft.stay.checkin === cfg.today;
   const ready =
     formReady && quoteCurrent && soldOutLines.length === 0 && needApprovals.length === 0;
   const waitingForPrice = formReady && !quoteCurrent && !quote.isError;
@@ -377,12 +416,17 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
     else router.push('/app/reservations');
   }
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
+  function attempt(mode: 'reserve' | 'check_in') {
     setTriedSubmit(true);
     if (save.isPending) return;
+    action.current = mode;
     if (ready) save.mutate();
     else if (waitingForPrice) setPendingSubmit(true);
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    attempt('reserve');
   }
 
   const rateOfferedBox = (
@@ -756,11 +800,16 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
                           checkout: draft.stay.checkout,
                           today: cfg.calendarToday,
                         }}
+                        transportModes={cfg.transportModes}
+                        currency={currency}
+                        timeFormat={cfg.settings.timeFormat}
                         onChange={(patch) => updateLine(i, patch)}
                       />
                     </div>
                     <LineExtrasSummary
                       line={l}
+                      money={money}
+                      onChange={(patch) => updateLine(i, patch)}
                       onRemoveTask={(t) =>
                         updateLine(i, { tasks: l.tasks.filter((_, j) => j !== t) })
                       }
@@ -955,6 +1004,9 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
             approvedBy={approvedBy}
             onApprove={() => setApprovalOpen(true)}
             showErrors={triedSubmit}
+            hasCityLedger={hasCityLedger}
+            userId={userId}
+            methods={payMethods}
           />
         </div>
       </div>
@@ -974,10 +1026,31 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
           <Button type="button" variant="outline" onClick={leave}>
             Cancel
           </Button>
+          {takesRooms && (
+            <Tooltip
+              label={
+                canCheckIn
+                  ? 'Save and check the guest in now, into the first free room of each type'
+                  : `Only a confirmed stay arriving today (${formatDate(cfg.today)}) can be checked in`
+              }
+            >
+              <span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!canCheckIn || save.isPending || pendingSubmit}
+                  loading={(save.isPending || pendingSubmit) && action.current === 'check_in'}
+                  onClick={() => attempt('check_in')}
+                >
+                  <DoorOpen size={16} /> Check-in
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Button
             type="submit"
             form="add-reservation"
-            loading={save.isPending || pendingSubmit}
+            loading={(save.isPending || pendingSubmit) && action.current === 'reserve'}
             disabled={save.isPending || pendingSubmit}
           >
             Reserve

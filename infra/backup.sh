@@ -2,12 +2,13 @@
 #
 # YoHoBed 2.0 — nightly backup of everything that is not in git.
 #
-# Three things on this server cannot be rebuilt from the repository:
-#   1. the database        (tester data, bookings, accounts)
-#   2. production.env      (generated secrets and DB passwords)
-#   3. the media directory (uploaded photos)
+# Four things on this server cannot be rebuilt from the repository:
+#   1. the database          (tester data, bookings, accounts)
+#   2. production.env        (generated secrets and DB passwords)
+#   3. the media directory   (uploaded photos)
+#   4. the private directory (payment slips and ID scans; the archive is chmod 600)
 #
-# All three were lost on 2026-07-27 because none of them were backed up anywhere.
+# The first three were lost on 2026-07-27 because none of them were backed up anywhere.
 #
 # Installed at /srv/yohobed/backup.sh, run by cron nightly at 02:15 as root.
 #
@@ -20,6 +21,7 @@ set -euo pipefail
 ROOT_DIR=/srv/yohobed
 ENV_FILE="$ROOT_DIR/env/production.env"
 MEDIA_DIR="$ROOT_DIR/media"
+PRIVATE_DIR="$ROOT_DIR/private"
 DEST="${BACKUP_DIR:-$ROOT_DIR/backups}"
 RETAIN_DAYS="${RETAIN_DAYS:-14}"
 
@@ -41,10 +43,11 @@ log "dumping database"
 pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner \
         --file="$DEST/db-$STAMP.dump"
 
-log "archiving env + media"
+log "archiving env + media + private files"
 tar czf "$DEST/files-$STAMP.tar.gz" \
     -C "$ROOT_DIR" env \
-    $([[ -d "$MEDIA_DIR" ]] && echo media)
+    $([[ -d "$MEDIA_DIR" ]] && echo media) \
+    $([[ -d "$PRIVATE_DIR" ]] && echo private)
 
 chmod 600 "$DEST"/db-"$STAMP".dump "$DEST"/files-"$STAMP".tar.gz
 

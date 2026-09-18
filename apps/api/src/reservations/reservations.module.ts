@@ -13,6 +13,7 @@ import { ReservationEngineController } from './reservation-engine.controller';
 import { ContractRatesController } from './contract-rates.controller';
 import { BookingExtrasService } from './booking-extras.service';
 import { BookingExtrasController } from './booking-extras.controller';
+import { StayServicesService } from './stay-services.service';
 
 /** The reservation engine (Development Phase 02, Sprint 2). */
 @Module({
@@ -24,6 +25,7 @@ import { BookingExtrasController } from './booking-extras.controller';
     RoomAvailabilityService,
     ContractRatesService,
     BookingExtrasService,
+    StayServicesService,
     TenantGuard,
     TenantRoleGuard,
   ],

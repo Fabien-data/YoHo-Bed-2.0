@@ -16,12 +16,19 @@ import {
   folioCharges,
   folioTransfers,
   folios,
+  ledgerAccounts,
+  paymentMethods,
   payments,
   properties,
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
-import { localToday } from '../common/local-date';
+import { localToday, propertyBusinessDate } from '../common/local-date';
+import {
+  insertPayment,
+  resolveDrawerSession,
+  resolvePaymentMethod,
+} from '../payments/take-payment';
 import type {
   CreateParticularDto,
   OpenFolioDto,
@@ -116,13 +123,34 @@ export class FolioService {
           id: payments.id,
           amount: payments.amount,
           method: payments.method,
+          methodName: paymentMethods.name,
           reference: payments.reference,
+          receiptNo: payments.receiptNo,
+          attachmentFileId: payments.attachmentFileId,
+          ledgerAccountId: payments.ledgerAccountId,
           createdAt: payments.createdAt,
         })
         .from(payments)
+        .leftJoin(paymentMethods, eq(paymentMethods.id, payments.paymentMethodId))
         .where(and(eq(payments.folioId, folio.id), eq(payments.direction, 'received')))
         .orderBy(desc(payments.createdAt)),
     ]);
+    // Who this window bills — a name to print, not just a type.
+    const payerName = folio.payerLedgerAccountId
+      ? ((
+          await tx
+            .select({ name: ledgerAccounts.name })
+            .from(ledgerAccounts)
+            .where(eq(ledgerAccounts.id, folio.payerLedgerAccountId))
+        )[0]?.name ?? null)
+      : folio.payerCustomerId
+        ? ((
+            await tx
+              .select({ name: customers.name })
+              .from(customers)
+              .where(eq(customers.id, folio.payerCustomerId))
+          )[0]?.name ?? null)
+        : null;
 
     // Voided lines stay on the bill but carry no money.
     const live = lines.filter((l) => !l.voidedAt);
@@ -136,6 +164,10 @@ export class FolioService {
       label: folio.label,
       status: folio.status,
       currency: folio.currency,
+      payerType: folio.payerType,
+      payerName,
+      payerLedgerAccountId: folio.payerLedgerAccountId,
+      routes: folio.routes,
       lines,
       payments: paid,
       totals: {
@@ -383,10 +415,57 @@ export class FolioService {
     });
   }
 
-  /** Take money against a window. Recorded in `payments`, the one record of what a guest paid. */
-  async recordPayment(tenantId: string, folioId: string, dto: RecordFolioPaymentDto) {
+  /**
+   * Take money against a window. Recorded in `payments`, the one record of what a guest paid, with
+   * a receipt number from the property's series. With one of the hotel's own methods, cash goes
+   * into the open drawer when the desk names none.
+   */
+  async recordPayment(
+    tenantId: string,
+    folioId: string,
+    dto: RecordFolioPaymentDto,
+    userId: string | null = null,
+  ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const folio = await this.loadOpenFolio(tx, folioId);
+      if (dto.paymentMethodId) {
+        const method = await resolvePaymentMethod(tx, dto.paymentMethodId, folio.propertyId);
+        if (method.category === 'city_ledger') {
+          throw new BadRequestException(
+            'Use "Charge to company" to move a balance to a travel agent or company account',
+          );
+        }
+        const drawerSessionId =
+          method.method === 'cash'
+            ? await resolveDrawerSession(tx, {
+                propertyId: folio.propertyId,
+                userId,
+                drawerSessionId: dto.drawerSessionId,
+                required: false,
+              })
+            : null;
+        const [prop] = await tx
+          .select({ timezone: properties.timezone })
+          .from(properties)
+          .where(eq(properties.id, folio.propertyId));
+        const businessDate = (await propertyBusinessDate(tx, folio.propertyId, prop?.timezone))
+          .date;
+        return insertPayment(tx, {
+          tenantId,
+          propertyId: folio.propertyId,
+          userId,
+          bookingId: folio.bookingId,
+          folioId: folio.id,
+          amount: dto.amount,
+          currency: folio.currency,
+          method,
+          reference: dto.reference ?? null,
+          note: dto.note ?? null,
+          fileId: dto.fileId ?? null,
+          drawerSessionId,
+          businessDate,
+        });
+      }
 
       // A quoted shift must be real, still open, and on this folio's property. A payment attached
       // to a closed session appears on a Cashier Report whose expected total is already frozen —

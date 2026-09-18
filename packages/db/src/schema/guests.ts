@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { tenants, users } from './identity';
 import { bookings, customers } from './bookings';
+import { privateFiles } from './files';
 
 /**
  * The other people in a room (Development Phase 02, Sprint 4).
@@ -51,8 +52,8 @@ export const bookingGuests = pgTable(
  * A guest's identity documents: what the desk looked at on arrival.
  *
  * Aadhaar is kept as its last four digits only (UIDAI forbids keeping the number), enforced here
- * as well as in the API so no code path can store more. Scans are not kept here: they go to the
- * private file store (Sprint 5), never to the public `media` table.
+ * as well as in the API so no code path can store more. A scan is a `private_files` row
+ * (`file_id`), never the public `media` table.
  */
 export const guestDocuments = pgTable(
   'guest_documents',
@@ -84,6 +85,8 @@ export const guestDocuments = pgTable(
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     /** The document shown for bookings from now on, when a guest has several. */
     isPrimary: boolean('is_primary').notNull().default(false),
+    /** A scan or photo, in the private file store (Sprint 5). */
+    fileId: uuid('file_id').references(() => privateFiles.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

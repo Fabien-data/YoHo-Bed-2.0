@@ -43,6 +43,8 @@ import {
   type ReservationKind,
 } from '@yohobed/domain';
 import { ConfigService } from '@nestjs/config';
+import { BillingService } from '../billing/billing.service';
+import { settleAtCheckout } from '../folio/settlement';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
 import { createLegs, resizeLegs, unassignLegs } from '../inventory/room-units.service';
@@ -63,6 +65,7 @@ export class BookingService {
     private readonly mailer: MailerService,
     private readonly config: ConfigService<Env, true>,
     private readonly pricer: ReservationPricer,
+    private readonly billing: BillingService,
   ) {}
 
   list(tenantId: string) {
@@ -460,6 +463,13 @@ export class BookingService {
     await tx
       .insert(bookingApprovals)
       .values({ tenantId, bookingId: id, action, reason: reason ?? null });
+
+    // Check-out settles with the city ledger: a company's or travel agent's window moves to its
+    // account and a travel agent's commission is accrued (Pro, Development Phase 02).
+    if (kind === 'check_out') {
+      const { features } = await this.billing.entitlements(tenantId, tx);
+      if (features.cashiering) await settleAtCheckout(tx, tenantId, updated!, null);
+    }
 
     // Check-out opens the review window: mint a single-use invite + queue the guest email
     // (Compartment I). The invite row has no RLS — its unguessable token IS the authorization.

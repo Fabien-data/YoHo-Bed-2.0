@@ -1,18 +1,31 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowRight, ShieldCheck } from '@phosphor-icons/react';
-import { Button, Checkbox, Field, InlineAlert, Input, Skeleton, TagDot, cn } from '@yohobed/ui';
+import { ArrowRight, Lock, ShieldCheck } from '@phosphor-icons/react';
+import {
+  Button,
+  Checkbox,
+  Field,
+  InlineAlert,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  TagDot,
+  cn,
+} from '@yohobed/ui';
 import { formatDate } from '@yohobed/locale';
-import type { PriceApproval, ReservationConfig, ReservationQuote } from '@/lib/api';
-import type { FullDraft } from './full-draft';
+import type { BillTo, PriceApproval, ReservationConfig, ReservationQuote } from '@/lib/api';
+import { PaymentFields, type PaymentMethodOption } from '@/components/payments/payment-fields';
+import { effectiveBillTo, type FullDraft } from './full-draft';
 
 /**
  * Yanolja's Billing Summary: the reservation's price, live, beside the form. Sticky, so the total
- * stays in view while the desk scrolls through guests and options.
- *
- * Bill To and Payment Mode arrive with Sprint 5 (payments at reservation); the money here is what
- * the reservation will cost, not how it is paid.
+ * stays in view while the desk scrolls through guests and options. Below the price: who pays
+ * (Bill To), tax exemption, and money taken now (Payment Mode).
  */
 export function BillingSummary({
   cfg,
@@ -27,6 +40,9 @@ export function BillingSummary({
   approvedBy,
   onApprove,
   showErrors,
+  hasCityLedger,
+  userId,
+  methods,
 }: {
   cfg: ReservationConfig;
   draft: FullDraft;
@@ -40,6 +56,12 @@ export function BillingSummary({
   approvedBy: string | null;
   onApprove: () => void;
   showErrors: boolean;
+  /** City ledger (Pro): billing a travel agent or company, and the City Ledger payment method. */
+  hasCityLedger: boolean;
+  /** The desk user, to find their own open cash drawer. */
+  userId: string | null;
+  /** The ways this reservation can be paid now (see `paymentMethodsFor`). */
+  methods: PaymentMethodOption[];
 }) {
   const kind = cfg.kinds.find((k) => k.kind === draft.kind);
   const nights = Math.max(
@@ -52,6 +74,46 @@ export function BillingSummary({
   );
   const t = quote?.totals;
   const roomCharges = t ? Number(t.amount) - Number(t.taxes) : 0;
+  const due = t ? Number(t.due) : null;
+
+  const accountOrigin = draft.origin === 'travel_agent' || draft.origin === 'corporate';
+  const account = accountOrigin
+    ? cfg.accounts.find((a) => a.id === draft.ledgerAccountId)
+    : undefined;
+  const billTo = effectiveBillTo(draft);
+  const companyLocked = !hasCityLedger
+    ? 'Billing a travel agent or company is part of the Pro plan'
+    : !account
+      ? 'Choose the travel agent or company under Booking source first'
+      : null;
+  const billToOptions: Array<{
+    value: BillTo;
+    label: string;
+    hint?: string;
+    locked?: string | null;
+  }> = [
+    { value: 'guest', label: 'Guest' },
+    ...(draft.lines.length > 1
+      ? [{ value: 'group_owner' as const, label: 'Group owner', hint: 'one payer for every room' }]
+      : []),
+    {
+      value: 'company',
+      label: account ? account.name : 'Company / travel agent',
+      hint: 'all charges',
+      locked: companyLocked,
+    },
+    {
+      value: 'company_room_tax',
+      label: account ? `${account.name}: room & tax` : 'Company: room & tax',
+      hint: 'extras to the guest',
+      locked: companyLocked,
+    },
+  ];
+
+  const paidNow = draft.payment.methodId ? Number(draft.payment.amount) || 0 : 0;
+  const drawer =
+    cfg.openDrawers.find((d) => d.openedByUserId && d.openedByUserId === userId) ??
+    cfg.openDrawers[0];
 
   return (
     <aside
@@ -124,11 +186,51 @@ export function BillingSummary({
                 {money(t?.due ?? 0)}
               </dd>
             </div>
+            {paidNow > 0 && due !== null && (
+              <>
+                <Row label="Paid now" value={`−${money(paidNow)}`} muted />
+                <Row label="Balance" value={money(Math.max(0, due - paidNow))} />
+              </>
+            )}
           </>
         )}
       </dl>
 
       <div className="flex flex-col gap-3 px-4 py-3">
+        <Field label="Bill to" htmlFor="ar-bill-to">
+          <Select value={billTo} onValueChange={(v) => onDraft({ billTo: v as BillTo })}>
+            <SelectTrigger id="ar-bill-to" aria-label="Bill to">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {billToOptions.map((o) => (
+                <SelectItem
+                  key={o.value}
+                  value={o.value}
+                  disabled={Boolean(o.locked)}
+                  hint={o.locked ? (hasCityLedger ? 'choose the account' : 'Pro plan') : o.hint}
+                >
+                  <span className="flex items-center gap-1.5">
+                    {o.label}
+                    {o.locked && <Lock size={11} aria-label={o.locked} />}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        {billTo === 'company_room_tax' && (
+          <p className="-mt-1 text-[11px] text-ink-3">
+            Room and tax go on {account?.name ?? 'the company'}&apos;s bill; meals, transfers and
+            other extras go on a second bill for the guest.
+          </p>
+        )}
+        {(billTo === 'company' || billTo === 'company_room_tax') && (
+          <p className="-mt-1 text-[11px] text-ink-3">
+            At check-out the company&apos;s bill moves to its city ledger account.
+          </p>
+        )}
+
         <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
           <Checkbox
             checked={draft.taxExempt.on}
@@ -165,6 +267,37 @@ export function BillingSummary({
             </p>
           </div>
         )}
+
+        <div className="border-t border-line pt-3">
+          <PaymentFields
+            methods={methods}
+            value={draft.payment}
+            onChange={(payment) => onDraft({ payment })}
+            currency={cfg.property.currency}
+            max={due}
+            allowNone
+            showErrors={showErrors}
+            idPrefix="ar-pay"
+            note={(m) =>
+              m.category === 'cash' ? (
+                drawer ? (
+                  <p className="text-[11px] text-ink-3">
+                    Cash goes into the {drawer.drawerName} drawer.
+                  </p>
+                ) : hasCityLedger ? (
+                  <InlineAlert tone="warn">
+                    No cash drawer is open. Open a shift under Cashiering → Drawers before taking
+                    cash.
+                  </InlineAlert>
+                ) : null
+              ) : m.category === 'city_ledger' && account ? (
+                <p className="text-[11px] text-ink-3">
+                  Charged to {account.name}&apos;s city ledger account.
+                </p>
+              ) : null
+            }
+          />
+        </div>
 
         {needsReason && (
           <div className="flex flex-col gap-2 rounded-lg border border-brass bg-brass-soft p-3">

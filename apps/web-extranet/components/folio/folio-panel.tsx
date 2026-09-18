@@ -2,7 +2,16 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowsLeftRight, Plus, Prohibit, Receipt, Wallet } from '@phosphor-icons/react';
+import {
+  ArrowsLeftRight,
+  Buildings,
+  Paperclip,
+  Plus,
+  Prohibit,
+  Receipt,
+  User,
+  Wallet,
+} from '@phosphor-icons/react';
 import {
   Badge,
   Button,
@@ -18,10 +27,13 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  toast,
   cn,
 } from '@yohobed/ui';
 import {
+  ApiError,
   closeFolioWindow,
+  openPrivateFile,
   getBookingFolio,
   listChargeParticulars,
   openFolioWindow,
@@ -31,8 +43,23 @@ import {
   transferFolioCharges,
   voidFolioCharge,
   type FolioLine,
+  type FolioPaymentRow,
   type FolioWindow,
 } from '@/lib/api';
+import { usePaymentMethods } from '@/lib/queries';
+import {
+  PaymentFields,
+  emptyPayment,
+  paymentProblems,
+  type PaymentDraft,
+} from '@/components/payments/payment-fields';
+
+const PAYER_LABEL = { guest: 'Guest', company: 'Company', travel_agent: 'Travel agent' } as const;
+const ROUTE_LABEL: Record<string, string> = {
+  manual: 'extras',
+  pos: 'restaurant & bar',
+  inclusion: 'inclusions',
+};
 
 /**
  * The guest bill, as it appears inside a reservation slide-over and on its own page.
@@ -181,6 +208,23 @@ function WindowView({
 
   return (
     <div className="space-y-3">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+        {w.payerType === 'guest' ? (
+          <User size={13} aria-hidden />
+        ) : (
+          <Buildings size={13} aria-hidden />
+        )}
+        <span>
+          Bills{' '}
+          <span className="font-medium text-ink-2">
+            {w.payerName ?? PAYER_LABEL[w.payerType ?? 'guest']}
+          </span>
+          {w.payerType && w.payerType !== 'guest' && ` (${PAYER_LABEL[w.payerType].toLowerCase()})`}
+        </span>
+        {w.routes?.length > 0 && (
+          <span>· takes the stay&apos;s {w.routes.map((r) => ROUTE_LABEL[r] ?? r).join(', ')}</span>
+        )}
+      </p>
       {closed && (
         <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-3">
           This window is closed. Reopen is deliberately not offered — a settled bill stays settled.
@@ -240,6 +284,8 @@ function WindowView({
           ))}
         </div>
       )}
+
+      {w.payments.length > 0 && <Payments rows={w.payments} currency={currency} />}
 
       <div className="rounded-lg border border-line p-3">
         <MoneyFooter
@@ -451,6 +497,65 @@ function AddCharge({ folioId, onDone }: { folioId: string; onDone: () => void })
   );
 }
 
+function Payments({ rows, currency }: { rows: FolioPaymentRow[]; currency: string }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-3">
+            <th className="px-3 py-2">Paid</th>
+            <th className="px-3 py-2">Method</th>
+            <th className="px-3 py-2">Receipt</th>
+            <th className="px-3 py-2 text-right">Amount</th>
+            <th className="w-8 px-2 py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.id} className="border-b border-line last:border-0">
+              <td className="whitespace-nowrap px-3 py-2 text-xs text-ink-3">
+                {new Date(p.createdAt).toLocaleDateString()}
+              </td>
+              <td className="px-3 py-2 text-ink">
+                {p.ledgerAccountId ? 'City ledger' : (p.methodName ?? p.method)}
+                {p.reference && (
+                  <span className="ml-1.5 font-mono text-[11px] text-ink-3">{p.reference}</span>
+                )}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-ink-2">
+                {p.receiptNo ?? '—'}
+              </td>
+              <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
+                {currency} {Number(p.amount).toFixed(2)}
+              </td>
+              <td className="px-2 py-2">
+                {p.attachmentFileId && (
+                  <button
+                    type="button"
+                    aria-label="View the slip"
+                    onClick={() =>
+                      openPrivateFile(p.attachmentFileId!).catch((e) =>
+                        toast.error(e instanceof ApiError ? e.message : 'Could not open the slip.'),
+                      )
+                    }
+                    className="text-ink-3 transition hover:text-ink"
+                  >
+                    <Paperclip size={13} />
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Take a payment on this window with one of the hotel's own methods: the reference its slip
+ * carries, a photo of the slip, and — for cash — the open drawer, found by the server.
+ */
 function TakePayment({
   folioId,
   suggested,
@@ -462,60 +567,65 @@ function TakePayment({
   currency: string;
   onDone: () => void;
 }) {
-  const [amount, setAmount] = React.useState(suggested > 0 ? suggested.toFixed(2) : '');
-  const [method, setMethod] = React.useState('cash');
-  const [reference, setReference] = React.useState('');
+  const methods = usePaymentMethods();
+  // Moving a balance to a company is "Charge to company", not a payment method here. A method in
+  // another currency is left out: the amount is recorded in the bill's currency.
+  const options = (methods.data ?? []).filter(
+    (m) => m.active && m.category !== 'city_ledger' && (!m.currency || m.currency === currency),
+  );
+  const [payment, setPayment] = React.useState<PaymentDraft>(() => ({
+    ...emptyPayment(),
+    amount: suggested > 0 ? suggested.toFixed(2) : '',
+  }));
+  const [tried, setTried] = React.useState(false);
+  const problems = paymentProblems(payment, options, null);
 
   const pay = useMutation({
     mutationFn: () =>
       recordFolioPayment(folioId, {
-        amount: Number(amount),
-        method,
-        reference: reference.trim() || undefined,
+        amount: Number(Number(payment.amount).toFixed(2)),
+        paymentMethodId: payment.methodId!,
+        reference: payment.reference.trim() || undefined,
+        fileId: payment.file?.id,
       }),
-    onSuccess: onDone,
+    onSuccess: (row) => {
+      toast.success(
+        row.receiptNo ? `Payment recorded · receipt ${row.receiptNo}` : 'Payment recorded',
+      );
+      onDone();
+    },
   });
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        setTried(true);
+        if (!payment.methodId || Object.keys(problems).length > 0) return;
         pay.mutate();
       }}
       className="space-y-3 rounded-lg border border-line p-3"
     >
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label={`Amount (${currency})`}>
-          <Input
-            type="number"
-            step="0.01"
-            min="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-          />
-        </Field>
-        <Field label="Method">
-          <Select value={method} onValueChange={setMethod}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {['cash', 'card', 'bank', 'online'].map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Reference">
-          <Input value={reference} onChange={(e) => setReference(e.target.value)} />
-        </Field>
-      </div>
+      {methods.isLoading ? (
+        <Skeleton className="h-10 w-full" />
+      ) : (
+        <PaymentFields
+          methods={options}
+          value={payment}
+          onChange={setPayment}
+          currency={currency}
+          max={null}
+          showErrors={tried}
+          idPrefix={`pay-${folioId}`}
+          className="max-w-md"
+        />
+      )}
+      {tried && !payment.methodId && (
+        <p className="text-xs font-medium text-closed-ink">Choose how the guest paid.</p>
+      )}
       <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" disabled={pay.isPending || !amount}>
-          {pay.isPending ? 'Recording…' : 'Record payment'}
+        <Button type="submit" size="sm" loading={pay.isPending} disabled={pay.isPending}>
+          Record payment
         </Button>
         {pay.isError && (
           <span className="text-sm text-closed-ink">{(pay.error as Error).message}</span>
