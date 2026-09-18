@@ -158,7 +158,9 @@ SELECT b.tenant_id, b.id, g.i - 1, b.checkin, b.checkout,
 FROM "bookings" b
 LEFT JOIN "occupancies" o ON o.id = b.occupancy_id
 CROSS JOIN LATERAL generate_series(1, GREATEST(b.rooms, 1)) AS g(i)
-WHERE b.status IN ('Pending', 'Approved', 'CheckedIn', 'CheckedOut', 'NoShow')
+-- Compared as text: on a fresh database every migration runs in one transaction, and Postgres
+-- 16 refuses 'CheckedIn'/'CheckedOut' there because 0013 added them with ALTER TYPE.
+WHERE b.status::text IN ('Pending', 'Approved', 'CheckedIn', 'CheckedOut', 'NoShow')
 ON CONFLICT ON CONSTRAINT "booking_rooms_booking_leg_uq" DO NOTHING;--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------

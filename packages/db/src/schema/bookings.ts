@@ -254,7 +254,10 @@ export const bookings = pgTable(
     // no-show booking is a confirmed one. Cancelled and rejected bookings keep whatever they were.
     kindMatchesStatus: check(
       'bookings_kind_matches_status',
-      sql`(${t.status} <> 'Pending' or ${t.reservationKind} in ('inquiry', 'online_failed', 'hold_unconfirm')) and (${t.status} not in ('Approved', 'CheckedIn', 'CheckedOut', 'NoShow') or ${t.reservationKind} in ('confirm', 'hold_confirm'))`,
+      // Compared as text: 'CheckedIn'/'CheckedOut' were added by ALTER TYPE (0013), and on a fresh
+      // database every migration runs in one transaction, where Postgres 16 refuses an enum value
+      // added earlier in the same transaction. The server runs 16.
+      sql`(${t.status}::text <> 'Pending' or ${t.reservationKind} in ('inquiry', 'online_failed', 'hold_unconfirm')) and (${t.status}::text not in ('Approved', 'CheckedIn', 'CheckedOut', 'NoShow') or ${t.reservationKind} in ('confirm', 'hold_confirm'))`,
     ),
     holdNeedsHoldKind: check(
       'bookings_hold_until_needs_hold_kind',

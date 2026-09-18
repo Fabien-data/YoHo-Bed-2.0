@@ -3322,7 +3322,7 @@
         },
         "bookings_kind_matches_status": {
           "name": "bookings_kind_matches_status",
-          "value": "(\"bookings\".\"status\" <> 'Pending' or \"bookings\".\"reservation_kind\" in ('inquiry', 'online_failed', 'hold_unconfirm')) and (\"bookings\".\"status\" not in ('Approved', 'CheckedIn', 'CheckedOut', 'NoShow') or \"bookings\".\"reservation_kind\" in ('confirm', 'hold_confirm'))"
+          "value": "(\"bookings\".\"status\"::text <> 'Pending' or \"bookings\".\"reservation_kind\" in ('inquiry', 'online_failed', 'hold_unconfirm')) and (\"bookings\".\"status\"::text not in ('Approved', 'CheckedIn', 'CheckedOut', 'NoShow') or \"bookings\".\"reservation_kind\" in ('confirm', 'hold_confirm'))"
         },
         "bookings_hold_until_needs_hold_kind": {
           "name": "bookings_hold_until_needs_hold_kind",
