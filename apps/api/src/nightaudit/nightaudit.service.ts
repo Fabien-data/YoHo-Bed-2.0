@@ -18,6 +18,7 @@ import {
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { CashieringService } from '../cashiering/cashiering.service';
+import { postInclusionsForNight } from '../folio/inclusions';
 import { localToday } from '../common/local-date';
 
 const money = (n: number) => n.toFixed(2);
@@ -211,6 +212,10 @@ export class NightAuditService {
         posted += 1;
       }
 
+      // 1b. What the in-house guests' stays include — breakfast, a driver's room — for the night,
+      //     routed to the window that pays for extras (Development Phase 02).
+      const inclusions = await postInclusionsForNight(tx, tenantId, propertyId, date, userId);
+
       // 2. No-show anything that was due to arrive and did not. The night just charged stays
       //    held; the rest of the stay goes back on sale. An OTA booking also tells the channel.
       for (const id of p.noShowIds) {
@@ -266,6 +271,8 @@ export class NightAuditService {
               roomsDue: p.roomsToCharge,
               roomsPosted: posted,
               roomsSkipped: skipped,
+              inclusionsPosted: inclusions.posted,
+              inclusionsTotal: money(inclusions.total),
               noShowReferences: p.noShows,
               holdsReleased: swept.released.map((r) => r.reference),
               unconfirmedCancelled: swept.expired.map((r) => r.reference),

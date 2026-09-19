@@ -3,9 +3,13 @@
 import * as React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
+  AirplaneLanding,
+  AirplaneTakeoff,
   ChatText,
   ClipboardText,
+  ForkKnife,
   IdentificationCard,
+  Plus,
   Trash,
   UserPlus,
 } from '@phosphor-icons/react';
@@ -37,26 +41,42 @@ import {
   ApiError,
   getUser,
   addBookingGuest,
+  addBookingInclusion,
   addBookingRemark,
   addBookingTask,
+  addBookingTransfer,
   addGuestDocument,
   deleteBookingRemark,
   deleteGuestDocument,
   getBookingGuests,
+  getBookingInclusions,
   getBookingRemarks,
   getBookingTasks,
+  getBookingTransfers,
   getGuestDocuments,
   removeBookingGuest,
+  removeBookingInclusion,
+  updateBookingTransfer,
+  type BookingTransfer,
   type IdDocumentType,
   type RemarkType,
   type ReservationConfig,
   type ReservationRow,
   type TaskDepartment,
   type TaskTrigger,
+  type TransferStatus,
 } from '@/lib/api';
 import { useHasFeature, useTenantRole } from '@/lib/queries';
 import { FolioPanel } from '@/components/folio/folio-panel';
-import { DEPARTMENT_LABEL, REMARK_LABEL, TRIGGER_LABEL } from '../full/line-extras';
+import {
+  DEPARTMENT_LABEL,
+  DIRECTION_LABEL,
+  InclusionDialog,
+  REMARK_LABEL,
+  RHYTHM_LABEL,
+  TRIGGER_LABEL,
+  TransferDialog,
+} from '../full/line-extras';
 import { Pax, StatusChip, StayWhen, bookedAt } from './bits';
 import { RowActions, useInvalidateReservations } from './row-actions';
 
@@ -202,6 +222,7 @@ function Details({
       </dl>
 
       <GuestsBlock bookingId={row.id} country={cfg.property.countryCode} />
+      <StayServicesBlock row={row} cfg={cfg} money={money} />
       <RemarksBlock bookingId={row.id} />
       <TasksBlock bookingId={row.id} />
       <DocumentsBlock customerId={row.customerId} country={cfg.property.countryCode} />
@@ -325,6 +346,191 @@ function GuestsBlock({ bookingId, country }: { bookingId: string; country: strin
           Add
         </Button>
       </form>
+    </Block>
+  );
+}
+
+const TRANSFER_STATUS: Record<
+  TransferStatus,
+  { label: string; tone: 'muted' | 'avail' | 'closed' }
+> = {
+  planned: { label: 'Planned', tone: 'muted' },
+  done: { label: 'Done · charged', tone: 'avail' },
+  cancelled: { label: 'Cancelled', tone: 'closed' },
+};
+
+/**
+ * What the stay includes besides the room: inclusions night audit posts, and pick-ups and
+ * drop-offs, charged to the guest when marked done (Development Phase 02, Sprint 5).
+ */
+function StayServicesBlock({
+  row,
+  cfg,
+  money,
+}: {
+  row: ReservationRow;
+  cfg: ReservationConfig;
+  money: (v: string | number) => string;
+}) {
+  const refresh = useInvalidateReservations();
+  const [panel, setPanel] = React.useState<'inclusion' | 'transfer' | null>(null);
+  const inclusions = useQuery({
+    queryKey: ['booking-extras', row.id, 'inclusions'],
+    queryFn: () => getBookingInclusions(row.id),
+  });
+  const transfers = useQuery({
+    queryKey: ['booking-extras', row.id, 'transfers'],
+    queryFn: () => getBookingTransfers(row.id),
+  });
+  const open = row.status === 'Pending' || row.status === 'Approved' || row.status === 'CheckedIn';
+  const addInclusion = useMutation({
+    mutationFn: (body: Parameters<typeof addBookingInclusion>[1]) =>
+      addBookingInclusion(row.id, body),
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const removeInclusion = useMutation({
+    mutationFn: removeBookingInclusion,
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const addTransfer = useMutation({
+    mutationFn: (body: Parameters<typeof addBookingTransfer>[1]) =>
+      addBookingTransfer(row.id, body),
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const setStatus = useMutation({
+    mutationFn: ({ t, status }: { t: BookingTransfer; status: TransferStatus }) =>
+      updateBookingTransfer(t.id, { status }),
+    onSuccess: (t) => {
+      toast.success(
+        t.status === 'done'
+          ? `${DIRECTION_LABEL[t.direction]} done${Number(t.amount) > 0 ? ` · ${money(t.amount)} on the bill` : ''}`
+          : `${DIRECTION_LABEL[t.direction]} cancelled`,
+      );
+      refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const empty = !inclusions.data?.length && !transfers.data?.length;
+
+  return (
+    <Block icon={<ForkKnife size={16} />} title="Inclusions and transfers">
+      {inclusions.isLoading || transfers.isLoading ? (
+        <Skeleton className="h-10 w-full" />
+      ) : empty ? (
+        <p className="text-sm text-ink-3">No inclusions, pick-ups or drop-offs.</p>
+      ) : (
+        <ul className="flex flex-col gap-2 text-sm">
+          {inclusions.data?.map((inc) => (
+            <li key={inc.id} className="flex flex-wrap items-center gap-2">
+              <ForkKnife size={14} className="text-ink-3" aria-hidden />
+              <span className="text-ink">{inc.name}</span>
+              <span className="text-xs text-ink-3">
+                {RHYTHM_LABEL[inc.rhythm]} ·{' '}
+                {inc.includedInRate ? 'in the room rate' : money(inc.unitPrice)}
+                {Number(inc.discountPct) > 0 && ` · ${Number(inc.discountPct)}% off`}
+              </span>
+              {open && (
+                <button
+                  type="button"
+                  aria-label={`Stop ${inc.name}`}
+                  onClick={() => removeInclusion.mutate(inc.id)}
+                  className="ml-auto rounded p-1 text-ink-3 hover:text-closed-ink"
+                >
+                  <Trash size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+          {transfers.data?.map((t) => {
+            const st = TRANSFER_STATUS[t.status];
+            return (
+              <li key={t.id} className="flex flex-wrap items-center gap-2">
+                {t.direction === 'pickup' ? (
+                  <AirplaneLanding size={14} className="text-ink-3" aria-hidden />
+                ) : (
+                  <AirplaneTakeoff size={14} className="text-ink-3" aria-hidden />
+                )}
+                <span className="text-ink">
+                  {DIRECTION_LABEL[t.direction]}
+                  {t.modeName && ` · ${t.modeName}`}
+                </span>
+                <span className="text-xs text-ink-3">
+                  {t.scheduledAt ? new Date(t.scheduledAt).toLocaleString() : 'time to confirm'}
+                  {t.flightNo && ` · ${t.flightNo}`}
+                  {(t.fromPlace || t.toPlace) && ` · ${t.fromPlace ?? t.toPlace}`}
+                  {' · '}
+                  {Number(t.amount) > 0 ? money(t.amount) : 'free'}
+                </span>
+                <Badge tone={st.tone} dot={false}>
+                  {st.label}
+                </Badge>
+                <span className="ml-auto flex gap-1.5">
+                  {t.status === 'planned' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      loading={setStatus.isPending && setStatus.variables?.t.id === t.id}
+                      onClick={() => setStatus.mutate({ t, status: 'done' })}
+                    >
+                      Mark done
+                    </Button>
+                  )}
+                  {t.status !== 'cancelled' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setStatus.mutate({ t, status: 'cancelled' })}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {open && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setPanel('inclusion')}>
+            <Plus size={14} /> Inclusion
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPanel('transfer')}>
+            <Plus size={14} /> Pick-up / drop-off
+          </Button>
+        </div>
+      )}
+      <InclusionDialog
+        open={panel === 'inclusion'}
+        onOpenChange={(o) => setPanel(o ? 'inclusion' : null)}
+        roomNumber={row.siblingIndex ?? 1}
+        inclusions={[]}
+        currency={row.currency}
+        onChange={(next) => {
+          const added = next[next.length - 1];
+          if (added) addInclusion.mutate(added);
+          setPanel(null);
+        }}
+      />
+      <TransferDialog
+        open={panel === 'transfer'}
+        onOpenChange={(o) => setPanel(o ? 'transfer' : null)}
+        roomNumber={row.siblingIndex ?? 1}
+        transfers={[]}
+        stayDates={{ checkin: row.checkin, checkout: row.checkout, today: cfg.calendarToday }}
+        transportModes={cfg.transportModes}
+        currency={row.currency}
+        timeFormat={cfg.settings.timeFormat}
+        onChange={(next) => {
+          const added = next[next.length - 1];
+          if (added) addTransfer.mutate(added);
+        }}
+      />
     </Block>
   );
 }

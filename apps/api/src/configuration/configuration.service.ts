@@ -14,6 +14,9 @@ import {
   properties,
   type PropertyTaxIds,
   type Tx,
+  cashDrawers,
+  drawerSessions,
+  transportModes,
 } from '@yohobed/db';
 import {
   RESERVATION_KINDS,
@@ -154,88 +157,111 @@ export class ConfigurationService {
       const today = await propertyBusinessDate(tx, propertyId, p.timezone);
       const preset = presetFor(p.countryCode);
 
-      const [sources, segments, methods, salesPersons, accounts] = await Promise.all([
-        tx
-          .select({
-            id: businessSources.id,
-            shortCode: businessSources.shortCode,
-            name: businessSources.name,
-            category: businessSources.category,
-            palette: businessSources.palette,
-            defaultMarketSegmentId: businessSources.defaultMarketSegmentId,
-            collectsTourismTax: businessSources.collectsTourismTax,
-          })
-          .from(businessSources)
-          .where(eq(businessSources.active, true))
-          .orderBy(asc(businessSources.sort), asc(businessSources.name)),
-        tx
-          .select({
-            id: marketSegments.id,
-            code: marketSegments.code,
-            name: marketSegments.name,
-            group: marketSegments.grp,
-            palette: marketSegments.palette,
-            excludedFromSold: marketSegments.excludedFromSold,
-          })
-          .from(marketSegments)
-          .where(eq(marketSegments.active, true))
-          .orderBy(asc(marketSegments.sort), asc(marketSegments.name)),
-        tx
-          .select({
-            id: paymentMethods.id,
-            code: paymentMethods.code,
-            name: paymentMethods.name,
-            shortName: paymentMethods.shortName,
-            category: paymentMethods.category,
-            requiresReference: paymentMethods.requiresReference,
-            isDefaultCash: paymentMethods.isDefaultCash,
-            isGuestAdvance: paymentMethods.isGuestAdvance,
-            currency: paymentMethods.currency,
-          })
-          .from(paymentMethods)
-          .where(
-            and(
-              eq(paymentMethods.active, true),
-              or(isNull(paymentMethods.propertyId), eq(paymentMethods.propertyId, propertyId)),
-            ),
-          )
-          .orderBy(asc(paymentMethods.sort), asc(paymentMethods.name)),
-        tx
-          .select({ id: ledgerAccounts.id, code: ledgerAccounts.code, name: ledgerAccounts.name })
-          .from(ledgerAccounts)
-          .where(
-            and(
-              eq(ledgerAccounts.type, 'sales_person'),
-              eq(ledgerAccounts.active, true),
-              or(isNull(ledgerAccounts.propertyId), eq(ledgerAccounts.propertyId, propertyId)),
-            ),
-          )
-          .orderBy(asc(ledgerAccounts.name)),
-        // Travel agents and companies a reservation can be made for. Names only: the city ledger
-        // itself (balances, statements) stays on the Pro plan.
-        tx
-          .select({
-            id: ledgerAccounts.id,
-            code: ledgerAccounts.code,
-            name: ledgerAccounts.name,
-            type: ledgerAccounts.type,
-            defaultMarketSegmentId: ledgerAccounts.defaultMarketSegmentId,
-            hasContractRates: sql<boolean>`exists (
+      const [sources, segments, methods, salesPersons, accounts, drawers, modes] =
+        await Promise.all([
+          tx
+            .select({
+              id: businessSources.id,
+              shortCode: businessSources.shortCode,
+              name: businessSources.name,
+              category: businessSources.category,
+              palette: businessSources.palette,
+              defaultMarketSegmentId: businessSources.defaultMarketSegmentId,
+              collectsTourismTax: businessSources.collectsTourismTax,
+            })
+            .from(businessSources)
+            .where(eq(businessSources.active, true))
+            .orderBy(asc(businessSources.sort), asc(businessSources.name)),
+          tx
+            .select({
+              id: marketSegments.id,
+              code: marketSegments.code,
+              name: marketSegments.name,
+              group: marketSegments.grp,
+              palette: marketSegments.palette,
+              excludedFromSold: marketSegments.excludedFromSold,
+            })
+            .from(marketSegments)
+            .where(eq(marketSegments.active, true))
+            .orderBy(asc(marketSegments.sort), asc(marketSegments.name)),
+          tx
+            .select({
+              id: paymentMethods.id,
+              code: paymentMethods.code,
+              name: paymentMethods.name,
+              shortName: paymentMethods.shortName,
+              category: paymentMethods.category,
+              requiresReference: paymentMethods.requiresReference,
+              isDefaultCash: paymentMethods.isDefaultCash,
+              isGuestAdvance: paymentMethods.isGuestAdvance,
+              currency: paymentMethods.currency,
+            })
+            .from(paymentMethods)
+            .where(
+              and(
+                eq(paymentMethods.active, true),
+                or(isNull(paymentMethods.propertyId), eq(paymentMethods.propertyId, propertyId)),
+              ),
+            )
+            .orderBy(asc(paymentMethods.sort), asc(paymentMethods.name)),
+          tx
+            .select({ id: ledgerAccounts.id, code: ledgerAccounts.code, name: ledgerAccounts.name })
+            .from(ledgerAccounts)
+            .where(
+              and(
+                eq(ledgerAccounts.type, 'sales_person'),
+                eq(ledgerAccounts.active, true),
+                or(isNull(ledgerAccounts.propertyId), eq(ledgerAccounts.propertyId, propertyId)),
+              ),
+            )
+            .orderBy(asc(ledgerAccounts.name)),
+          // Travel agents and companies a reservation can be made for. Names only: the city ledger
+          // itself (balances, statements) stays on the Pro plan.
+          tx
+            .select({
+              id: ledgerAccounts.id,
+              code: ledgerAccounts.code,
+              name: ledgerAccounts.name,
+              type: ledgerAccounts.type,
+              defaultMarketSegmentId: ledgerAccounts.defaultMarketSegmentId,
+              hasContractRates: sql<boolean>`exists (
               select 1 from ledger_account_rates lar
               where lar.ledger_account_id = ${ledgerAccounts.id} and lar.active
                 and lar.property_id = ${propertyId}
             )`,
-          })
-          .from(ledgerAccounts)
-          .where(
-            and(
-              inArray(ledgerAccounts.type, ['travel_agent', 'company']),
-              eq(ledgerAccounts.active, true),
-              or(isNull(ledgerAccounts.propertyId), eq(ledgerAccounts.propertyId, propertyId)),
-            ),
-          )
-          .orderBy(asc(ledgerAccounts.name)),
-      ]);
+            })
+            .from(ledgerAccounts)
+            .where(
+              and(
+                inArray(ledgerAccounts.type, ['travel_agent', 'company']),
+                eq(ledgerAccounts.active, true),
+                or(isNull(ledgerAccounts.propertyId), eq(ledgerAccounts.propertyId, propertyId)),
+              ),
+            )
+            .orderBy(asc(ledgerAccounts.name)),
+          // The tills open right now, so the form can say where cash will go (Sprint 5).
+          tx
+            .select({
+              sessionId: drawerSessions.id,
+              drawerName: cashDrawers.name,
+              openedByUserId: drawerSessions.openedByUserId,
+              openedAt: drawerSessions.openedAt,
+            })
+            .from(drawerSessions)
+            .innerJoin(cashDrawers, eq(cashDrawers.id, drawerSessions.drawerId))
+            .where(and(eq(cashDrawers.propertyId, propertyId), eq(drawerSessions.status, 'open')))
+            .orderBy(asc(cashDrawers.name)),
+          tx
+            .select({
+              id: transportModes.id,
+              code: transportModes.code,
+              name: transportModes.name,
+              defaultPrice: transportModes.defaultPrice,
+            })
+            .from(transportModes)
+            .where(eq(transportModes.active, true))
+            .orderBy(asc(transportModes.sort), asc(transportModes.name)),
+        ]);
 
       return {
         property: {
@@ -279,6 +305,8 @@ export class ConfigurationService {
         paymentMethods: methods,
         salesPersons,
         accounts,
+        openDrawers: drawers,
+        transportModes: modes,
       };
     });
   }

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   pgEnum,
@@ -8,11 +9,14 @@ import {
   date,
   timestamp,
   boolean,
+  jsonb,
   unique,
   index,
+  check,
 } from 'drizzle-orm/pg-core';
+import type { TaxLine } from '@yohobed/domain';
 import { tenants, properties, users } from './identity';
-import { bookings } from './bookings';
+import { bookings, customers } from './bookings';
 
 /**
  * The guest account — Yanolja's folio window.
@@ -47,11 +51,35 @@ export const folios = pgTable(
      */
     currency: text('currency').notNull().default('LKR'),
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    /**
+     * Who this window bills (Development Phase 02, Sprint 5): the guest, or a company or travel
+     * agent on the city ledger. Set from the reservation's Bill To. At check-out a ledger payer's
+     * balance moves to its account (Pro).
+     */
+    payerType: text('payer_type').notNull().default('guest'),
+    payerCustomerId: uuid('payer_customer_id').references(() => customers.id, {
+      onDelete: 'set null',
+    }),
+    /** FK to ledger_accounts, added in migration 0030 (a schema-module cycle otherwise). */
+    payerLedgerAccountId: uuid('payer_ledger_account_id'),
+    /**
+     * The charge sources this window takes by routing: `{manual,pos,inclusion}` on the guest's
+     * window of "room and tax to the company, extras to the guest". Empty = nothing routed here;
+     * window 1 takes whatever no window claims.
+     */
+    routes: text('routes')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     bookingWindowUnique: unique('folios_booking_window_uq').on(t.bookingId, t.window),
+    payerTypeValid: check(
+      'folios_payer_type_valid',
+      sql`${t.payerType} in ('guest', 'company', 'travel_agent')`,
+    ),
   }),
 );
 
@@ -97,7 +125,7 @@ export const chargeParticulars = pgTable(
   }),
 );
 
-export const chargeSource = pgEnum('charge_source', ['room', 'manual', 'pos']);
+export const chargeSource = pgEnum('charge_source', ['room', 'manual', 'pos', 'inclusion']);
 
 /**
  * One line on the bill.
@@ -138,6 +166,13 @@ export const folioCharges = pgTable(
     voidedAt: timestamp('voided_at', { withTimezone: true }),
     voidReason: text('void_reason'),
     postedByUserId: uuid('posted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** The tax split of `tax`, per tax, adding up to it exactly (Development Phase 02). */
+    taxLines: jsonb('tax_lines').$type<TaxLine[]>(),
+    /**
+     * The inclusion this line was posted for. FK added in migration 0030 (a schema-module cycle
+     * otherwise); a partial unique index there stops one inclusion being posted twice for a night.
+     */
+    bookingInclusionId: uuid('booking_inclusion_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

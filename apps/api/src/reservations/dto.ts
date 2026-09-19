@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { BOOKING_ORIGINS, RESERVATION_KINDS, RESIDENCIES } from '@yohobed/domain';
+import { BILL_TO_OPTIONS, BOOKING_ORIGINS, RESERVATION_KINDS, RESIDENCIES } from '@yohobed/domain';
 import { ID_DOCUMENT_TYPES } from '@yohobed/locale';
-import { REMARK_TYPES } from '@yohobed/db';
+import { INCLUSION_RHYTHMS, REMARK_TYPES } from '@yohobed/db';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:mm');
@@ -44,6 +44,8 @@ export const guestDocumentSchema = z.object({
   /** How it was checked: the original, a copy, or an official app. */
   verification: z.enum(['original', 'copy', 'digital']).optional(),
   isPrimary: z.boolean().optional(),
+  /** A scan, uploaded first to POST /files?purpose=id_document (Sprint 5). */
+  fileId: uuid.optional(),
 });
 export type GuestDocumentInput = z.infer<typeof guestDocumentSchema>;
 
@@ -97,6 +99,51 @@ export const taskSchema = z.object({
 });
 export type TaskInput = z.infer<typeof taskSchema>;
 
+/** Something the stay includes: breakfast, dinner, a driver's room (Sprint 5). */
+export const inclusionSchema = z.object({
+  particularId: uuid.optional(),
+  name: z.string().trim().min(1).max(120),
+  rhythm: z.enum(INCLUSION_RHYTHMS).default('per_night'),
+  /** Tax inclusive, per unit (a night, a guest-night …). */
+  unitPrice: money,
+  discountPct: z.number().min(0).max(100).default(0),
+  taxRatePct: z.number().min(0).max(100).default(0),
+  /** Already in the room rate: nothing is posted; the bill may show it separately. */
+  includedInRate: z.boolean().default(false),
+  itemize: z.boolean().default(true),
+});
+export type InclusionInput = z.infer<typeof inclusionSchema>;
+
+/** Yanolja's Pick Up / Drop Off (Sprint 5). Charged when marked done. */
+export const transferSchema = z.object({
+  direction: z.enum(['pickup', 'dropoff']),
+  transportModeId: uuid.optional(),
+  scheduledAt: z.string().datetime({ offset: true }).optional(),
+  fromPlace: z.string().trim().max(200).optional(),
+  toPlace: z.string().trim().max(200).optional(),
+  flightNo: z.string().trim().max(20).optional(),
+  pax: z.number().int().min(1).max(60).default(1),
+  vehicle: z.string().trim().max(60).optional(),
+  driver: z.string().trim().max(120).optional(),
+  /** Tax inclusive; 0 for a free transfer. */
+  amount: money.default(0),
+  notes: z.string().trim().max(500).optional(),
+});
+export type TransferInput = z.infer<typeof transferSchema>;
+
+/** Money taken with the reservation: a deposit, or the whole stay (Sprint 5). */
+export const reservationPaymentSchema = z.object({
+  /** One of the property's payment methods. City Ledger bills the reservation's account (Pro). */
+  paymentMethodId: uuid,
+  amount: z.number().finite().positive().max(100_000_000),
+  reference: z.string().trim().max(120).optional(),
+  /** A photo of the slip, uploaded first to POST /files?purpose=payment_slip. */
+  fileId: uuid.optional(),
+  /** The cash drawer shift; the property's open one when omitted. */
+  drawerSessionId: uuid.optional(),
+});
+export type ReservationPaymentInput = z.infer<typeof reservationPaymentSchema>;
+
 /** One room of the reservation — one row of Yanolja's room grid. */
 export const reservationLineSchema = z
   .object({
@@ -117,6 +164,8 @@ export const reservationLineSchema = z
     remarks: z.array(remarkSchema).max(10).optional(),
     /** Tasks raised for this room (Pro: work orders). */
     tasks: z.array(taskSchema).max(10).optional(),
+    inclusions: z.array(inclusionSchema).max(10).optional(),
+    transfers: z.array(transferSchema).max(4).optional(),
   })
   .refine((l) => l.adults + l.children > 0, { message: 'a room needs at least one guest' })
   .refine((l) => !l.childAges || l.childAges.length <= l.children, {
@@ -235,12 +284,37 @@ export const createReservationSchema = pricedStaySchema
     options: reservationOptionsSchema.optional(),
     /** Notes for every room of the reservation. */
     remarks: z.array(remarkSchema).max(10).optional(),
+    /**
+     * Who pays (Sprint 5). `company` bills everything to the travel agent or company;
+     * `company_room_tax` bills room and tax to them and extras to the guest; `group_owner` bills
+     * every room to the reservation's guest. The company options are Pro (city ledger).
+     */
+    billTo: z.enum(BILL_TO_OPTIONS).default('guest'),
+    payment: reservationPaymentSchema.optional(),
+    /** Check the guest in straight away: a walk-in. Arrival must be today. */
+    checkIn: z.boolean().default(false),
     /** The total the desk was quoted. A different total now is refused with 409 price_changed. */
     expectedTotal: z.number().finite().optional(),
     /** A name for the group card of a multi-room reservation. */
     groupName: z.string().trim().max(120).optional(),
   })
-  .superRefine(checkStay);
+  .superRefine(checkStay)
+  .superRefine((v, ctx) => {
+    if ((v.billTo === 'company' || v.billTo === 'company_room_tax') && !v.ledgerAccountId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ledgerAccountId'],
+        message: 'billing a company needs the travel agent or company',
+      });
+    }
+    if (v.checkIn && v.kind !== 'confirm' && v.kind !== 'hold_confirm') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['checkIn'],
+        message: 'only a confirmed reservation can be checked in',
+      });
+    }
+  });
 export type CreateReservationDto = z.infer<typeof createReservationSchema>;
 
 // --- Room availability --------------------------------------------------------
@@ -363,3 +437,36 @@ export const updateDocumentSchema = guestDocumentSchema
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
 export type UpdateDocumentDto = z.infer<typeof updateDocumentSchema>;
+
+export const createInclusionSchema = inclusionSchema;
+export type CreateInclusionDto = z.infer<typeof createInclusionSchema>;
+
+export const createTransferSchema = transferSchema;
+export type CreateTransferDto = z.infer<typeof createTransferSchema>;
+
+export const updateTransferSchema = transferSchema
+  .partial()
+  .extend({ status: z.enum(['planned', 'done', 'cancelled']).optional() })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
+export type UpdateTransferDto = z.infer<typeof updateTransferSchema>;
+
+export const transportModeSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(1)
+    .max(16)
+    .transform((v) => v.toUpperCase()),
+  name: z.string().trim().min(1).max(60),
+  defaultPrice: money.default(0),
+  sort: z.number().int().min(0).max(10_000).optional(),
+  active: z.boolean().optional(),
+});
+export type TransportModeDto = z.infer<typeof transportModeSchema>;
+export const updateTransportModeSchema = transportModeSchema
+  .omit({ code: true })
+  .partial()
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
+export type UpdateTransportModeDto = z.infer<typeof updateTransportModeSchema>;

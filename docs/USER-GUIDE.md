@@ -182,9 +182,12 @@ Reservation has is there, plus:
   how many of each room type, at which rate type, and optionally one price per room per night.
   **Complimentary room** makes every room free (it needs a reason, and an owner unless your
   property allows staff to give them).
-- **Each room's ⌄ menu.** Remarks for that room, a **task** for another department (Pro: flowers
-  at check-in, an airport pick-up) and the children's ages and extra beds. What a room carries
-  shows as small chips under it.
+- **Each room's ⌄ menu.** An **inclusion** (breakfast, dinner, a driver's or guide's room: a price
+  per night, per guest per night or once, posted to the bill by night audit while the guest is
+  in the house — or marked as already in the room rate), a **pick-up or drop-off** (vehicle, time,
+  flight, charge — charged when it is marked done), remarks for that room, a **task** for another
+  department (Pro) and the children's ages and extra beds. What a room carries shows as small
+  chips under it; × takes one off.
 - **Group options** (two rooms or more): make every room like room 1, set the guests in every
   room, give out room numbers, paste a **rooming list** from Excel or WhatsApp (one name per line;
   a mobile after the name is kept), or change the group owner.
@@ -196,8 +199,25 @@ Reservation has is there, plus:
   email, guest portal access, hiding the rate on the registration card).
 
 The **Billing Summary** on the right shows the room charges, each tax, any coupon and the amount
-due as you go, and holds **Tax exempt** (with the exemption number) and the reason and owner
-approval when a price is changed. **Reserve** is at the bottom of the screen all the time.
+due as you go, and holds:
+
+- **Bill to** — the guest; the **group owner** (one payer for every room); or, with a travel agent
+  or company chosen (Pro), **the company for everything**, or **the company for room and tax with
+  extras to the guest** (the guest gets a second bill for meals and transfers). At check-out the
+  company's bill moves to its city ledger account, and a travel agent's commission is added to
+  theirs.
+- **Tax exempt** (with the exemption number) and the reason and owner approval when a price is
+  changed.
+- **Payment mode** — take a deposit or the whole stay now: choose how the guest paid (cash, card,
+  bank transfer, LankaQR, wallets …), the amount (**Full** fills in the total), the reference
+  number where the method needs one, and a photo or PDF of the slip. Cash goes into your open cash
+  drawer; with cashiering, open a drawer shift first. A deposit on several rooms is shared between
+  them under one receipt number. **Pay later** takes nothing now. A method in another currency
+  (Cash USD) is not offered here yet.
+
+**Reserve** and **Check-in** are at the bottom of the screen all the time. **Check-in** is for a
+walk-in: a confirmed stay arriving today is saved and checked in at once, into the first free room
+of each type (you are told if that room is marked dirty).
 
 ### The Reservations screen
 
@@ -211,7 +231,9 @@ approval when a price is changed. **Reserve** is at the bottom of the screen all
   remembered on this computer. The list pages 25, 50 or 100 at a time.
 - **⋮ on a row**: open, confirm, check in or out, assign a room, registration card, release a
   hold, no-show, cancel — whichever apply. Clicking a guest opens the reservation: its money, the
-  other guests in the room, remarks, tasks, ID documents and (Pro) the folio.
+  other guests in the room, inclusions and transfers (**Mark done** charges a transfer; **Cancel**
+  takes the charge back), remarks, tasks, ID documents and (Pro) the folio — which shows who each
+  bill is for, and every payment with its receipt number and slip.
 - **Make group** (select two or more) and, in the group view, **Merge groups** before anyone has
   arrived. Opening a group card lists its rooms.
 - **Export** downloads every row of the tab as a spreadsheet file, not just the page on screen.

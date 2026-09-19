@@ -29,6 +29,7 @@ import { BusinessSourcesTab } from '@/components/configuration/business-sources-
 import { MarketSegmentsTab } from '@/components/configuration/market-segments-tab';
 import { PaymentMethodsTab } from '@/components/configuration/payment-methods-tab';
 import { SalesPersonsTab } from '@/components/configuration/sales-persons-tab';
+import { TransportModesTab } from '@/components/configuration/transport-modes-tab';
 import { OwnerOnlyNotice, errorMessage } from '@/components/configuration/shared';
 
 const TABS = [
@@ -38,6 +39,7 @@ const TABS = [
   { value: 'segments', label: 'Market segments' },
   { value: 'payments', label: 'Payment methods' },
   { value: 'sales', label: 'Sales persons' },
+  { value: 'transport', label: 'Transport modes' },
 ] as const;
 type TabValue = (typeof TABS)[number]['value'];
 
@@ -138,6 +140,9 @@ function ConfigurationScreen() {
         </TabsContent>
         <TabsContent value="sales">
           <SalesPersonsTab canEdit={canEdit} />
+        </TabsContent>
+        <TabsContent value="transport">
+          <TransportModesTab canEdit={canEdit} currency={property?.currency ?? 'LKR'} />
         </TabsContent>
       </Tabs>
     </div>

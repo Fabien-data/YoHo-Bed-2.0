@@ -180,6 +180,11 @@ generated files are excluded via `.prettierignore` — never hand-format `pnpm-l
 - Remove the login page's pre-filled demo credentials and don't run `db:seed` in production
   (real tenants register self-serve; staff users are inserted manually).
 - `MEDIA_DIR` must be on persistent storage (or swap the `StorageAdapter` for S3 when built).
+- `PRIVATE_FILES_DIR` (payment slips and ID scans, Development Phase 02) must be on persistent
+  storage too, **outside** `MEDIA_DIR` and the app checkout, owned by the runtime user with mode
+  700 — on the VPS `/srv/yohobed/private`, created by `provision.sh` and archived by `backup.sh`.
+  Unset, it defaults to `./private-files` under the API's working directory, which a redeploy of
+  the checkout does not wipe but no backup covers.
 
 ## 6. Troubleshooting
 

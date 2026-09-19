@@ -1,10 +1,13 @@
 import type { StayRange } from '@yohobed/ui';
 import { addDaysIso } from '@yohobed/locale';
 import type {
+  BillTo,
   BookingOrigin,
   CreateReservationInput,
   IdDocumentType,
+  InclusionInput,
   PriceApproval,
+  PrivateFile,
   RemarkInput,
   ReservationConfig,
   ReservationGuestInput,
@@ -12,7 +15,9 @@ import type {
   ReservationStayInput,
   Residency,
   TaskInput,
+  TransferInput,
 } from '@/lib/api';
+import { emptyPayment, type PaymentDraft } from '@/components/payments/payment-fields';
 import {
   emptyLine,
   holdInstant,
@@ -37,6 +42,10 @@ export interface FullLineDraft extends LineDraft {
   tasks: TaskInput[];
   /** Guest List: this room's own guest. Room 1 is always the reservation's guest. */
   guest: GuestDraft | null;
+  /** Breakfast, a driver's room … posted by night audit (Sprint 5). */
+  inclusions: InclusionInput[];
+  /** Pick-ups and drop-offs, charged when done (Sprint 5). */
+  transfers: TransferInput[];
 }
 
 export interface GuestProfileDraft extends GuestDraft {
@@ -51,6 +60,8 @@ export interface GuestProfileDraft extends GuestDraft {
     number: string;
     expiresOn: string;
     issuingCountry: string;
+    /** A scan, in the private file store. Never for Aadhaar. */
+    file: PrivateFile | null;
   };
 }
 
@@ -96,6 +107,10 @@ export interface FullDraft {
   priceReason: string;
   approvals: Partial<Record<PriceApproval, string>>;
   groupName: string;
+  /** Who pays (Sprint 5). */
+  billTo: BillTo;
+  /** Money taken now: a deposit or the whole stay. */
+  payment: PaymentDraft;
 }
 
 export function fullLine(from?: Partial<FullLineDraft>): FullLineDraft {
@@ -109,6 +124,8 @@ export function fullLine(from?: Partial<FullLineDraft>): FullLineDraft {
     remarks: [],
     tasks: [],
     guest: null,
+    inclusions: [],
+    transfers: [],
   };
 }
 
@@ -127,7 +144,7 @@ export function blankGuest(cfg: ReservationConfig): GuestProfileDraft {
     state: '',
     city: '',
     nationalityCode: '',
-    document: { type: '', number: '', expiresOn: '', issuingCountry: '' },
+    document: { type: '', number: '', expiresOn: '', issuingCountry: '', file: null },
   };
 }
 
@@ -178,6 +195,8 @@ export function blankFullDraft(cfg: ReservationConfig, prefill?: Prefill | null)
     priceReason: '',
     approvals: {},
     groupName: '',
+    billTo: 'guest',
+    payment: emptyPayment(),
   };
 }
 
@@ -271,6 +290,7 @@ function guestBody(g: GuestDraft, profile?: GuestProfileDraft): ReservationGuest
             number: doc.number.trim(),
             ...(doc.expiresOn ? { expiresOn: doc.expiresOn } : {}),
             ...(doc.issuingCountry ? { issuingCountry: doc.issuingCountry } : {}),
+            ...(doc.file && doc.type !== 'aadhaar' ? { fileId: doc.file.id } : {}),
             verification: 'original' as const,
             isPrimary: true,
           },
@@ -302,14 +322,47 @@ export function roomGuestGiven(g: GuestDraft | null): boolean {
   return Boolean(g && (g.customerId || g.name.trim()));
 }
 
-/** The full reservation body. */
+/**
+ * The payment methods the reservation can be paid with now. City Ledger only when there is a
+ * travel agent or company to charge, on a plan with the city ledger. A method in another currency
+ * ("Cash (USD)") is left out: the amount would be recorded in the hotel's currency, and a drawer
+ * counted in rupees cannot hold dollars typed as rupees.
+ */
+export function paymentMethodsFor(
+  cfg: ReservationConfig,
+  d: FullDraft,
+  hasCityLedger: boolean,
+): ReservationConfig['paymentMethods'] {
+  const account = d.ledgerAccountId && (d.origin === 'travel_agent' || d.origin === 'corporate');
+  return cfg.paymentMethods.filter(
+    (m) =>
+      (!m.currency || m.currency === cfg.property.currency) &&
+      (m.category !== 'city_ledger' || (hasCityLedger && Boolean(account))),
+  );
+}
+
+/**
+ * The Bill To actually sent: a company option needs the travel agent or company, and a group owner
+ * needs a group. The form only offers what fits; this keeps a stale choice from reaching the API.
+ */
+export function effectiveBillTo(d: FullDraft): BillTo {
+  const account = d.ledgerAccountId && (d.origin === 'travel_agent' || d.origin === 'corporate');
+  if ((d.billTo === 'company' || d.billTo === 'company_room_tax') && !account) return 'guest';
+  if (d.billTo === 'group_owner' && d.lines.length < 2) return 'guest';
+  return d.billTo;
+}
+
+/** The full reservation body. `checkIn`: a walk-in, checked in as it is saved. */
 export function fullCreateBody(
   propertyId: string,
   d: FullDraft,
   expectedTotal?: number,
+  opts: { checkIn?: boolean } = {},
 ): CreateReservationInput | null {
   const stay = fullStayBody(propertyId, d);
   if (!stay) return null;
+  const billTo = effectiveBillTo(d);
+  const p = d.payment;
   const emails = d.other.voucherEmails
     .split(/[,;\s]+/)
     .map((e) => e.trim())
@@ -324,6 +377,8 @@ export function fullCreateBody(
         ...(roomGuest ? { guest: guestBody(roomGuest) } : {}),
         ...(line.remarks.length ? { remarks: line.remarks } : {}),
         ...(line.tasks.length ? { tasks: line.tasks } : {}),
+        ...(line.inclusions.length ? { inclusions: line.inclusions } : {}),
+        ...(line.transfers.length ? { transfers: line.transfers } : {}),
       };
     }),
     guest: guestBody(d.guest, d.guest),
@@ -338,5 +393,17 @@ export function fullCreateBody(
     },
     ...(d.groupName.trim() ? { groupName: d.groupName.trim() } : {}),
     ...(expectedTotal !== undefined ? { expectedTotal } : {}),
+    ...(billTo !== 'guest' ? { billTo } : {}),
+    ...(p.methodId && Number(p.amount) > 0
+      ? {
+          payment: {
+            paymentMethodId: p.methodId,
+            amount: Number(Number(p.amount).toFixed(2)),
+            ...(p.reference.trim() ? { reference: p.reference.trim() } : {}),
+            ...(p.file ? { fileId: p.file.id } : {}),
+          },
+        }
+      : {}),
+    ...(opts.checkIn ? { checkIn: true } : {}),
   };
 }

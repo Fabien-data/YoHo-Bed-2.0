@@ -68,6 +68,8 @@ export function useInvalidateReservations() {
       'stayview',
       'dashboard',
       'booking-extras',
+      // A transfer marked done, or a check-in, changes the bill.
+      'folio',
     ]) {
       qc.invalidateQueries({ queryKey: [key] });
     }

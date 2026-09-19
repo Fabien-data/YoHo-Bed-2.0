@@ -254,6 +254,51 @@ async function apiUpload<T>(path: string, file: File): Promise<T> {
   return data as T;
 }
 
+// --- Private files: payment slips and ID scans (Phase 02, Sprint 5) ------------------------
+
+export type PrivateFilePurpose = 'payment_slip' | 'id_document' | 'other';
+
+export interface PrivateFile {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  purpose: PrivateFilePurpose;
+  createdAt: string;
+}
+
+/** A photo (JPEG, PNG, WebP) or a PDF, at most 8 MB. Attach it to a payment or document by id. */
+export function uploadPrivateFile(purpose: PrivateFilePurpose, file: File): Promise<PrivateFile> {
+  return apiUpload(`/files?purpose=${purpose}`, file);
+}
+
+/** Drop a file that was uploaded but never attached. An attached one is kept (409). */
+export function deletePrivateFile(id: string): Promise<{ id: string; deleted: boolean }> {
+  return apiFetch(`/files/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * Show a private file in a new tab. It needs the session, so it is fetched with the token rather
+ * than linked — a plain URL would not open, and must not. The tab is opened before the fetch so a
+ * popup blocker still sees the click.
+ */
+export async function openPrivateFile(id: string): Promise<void> {
+  const tab = window.open('about:blank', '_blank');
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/files/${id}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    tab?.close();
+    endSessionIfTokenRejected(res.status, token);
+    throw new ApiError(res.status, res.status === 404 ? 'File not found' : res.statusText, null);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  if (tab) tab.location.href = url;
+  else window.location.assign(url);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export function uploadPropertyPhoto(propertyId: string, file: File): Promise<Photo> {
   return apiUpload(`/properties/${propertyId}/photos`, file);
 }
@@ -1210,7 +1255,7 @@ export function updateCustomer(
 
 export interface FolioLine {
   id: string;
-  source: 'room' | 'manual' | 'pos';
+  source: 'room' | 'manual' | 'pos' | 'inclusion';
   description: string;
   postedFor: string;
   bookingDate: string | null;
@@ -1228,9 +1273,18 @@ export interface FolioPaymentRow {
   id: string;
   amount: string;
   method: string;
+  /** The hotel's own method ("LankaQR"), when one was used. */
+  methodName: string | null;
   reference: string | null;
+  receiptNo: string | null;
+  /** A slip photo, served by openPrivateFile. */
+  attachmentFileId: string | null;
+  /** Set when the amount was moved to a travel agent's or company's account. */
+  ledgerAccountId: string | null;
   createdAt: string;
 }
+
+export type FolioPayerType = 'guest' | 'company' | 'travel_agent';
 
 export interface FolioWindow {
   id: string;
@@ -1238,6 +1292,12 @@ export interface FolioWindow {
   label: string;
   status: 'open' | 'closed' | 'void';
   currency: string;
+  /** Who this window bills. */
+  payerType: FolioPayerType;
+  payerName: string | null;
+  payerLedgerAccountId: string | null;
+  /** Charge sources this window takes instead of window 1 ("extras to the guest"). */
+  routes: string[];
   lines: FolioLine[];
   payments: FolioPaymentRow[];
   totals: { charges: string; tax: string; paid: string; balance: string };
@@ -1305,7 +1365,15 @@ export function transferFolioCharges(body: {
 
 export function recordFolioPayment(
   folioId: string,
-  body: { amount: number; method?: string; reference?: string },
+  body: {
+    amount: number;
+    method?: string;
+    /** One of the property's payment methods; decides the category, reference rule and drawer. */
+    paymentMethodId?: string;
+    reference?: string;
+    fileId?: string;
+    drawerSessionId?: string;
+  },
 ): Promise<FolioPaymentRow> {
   return apiFetch(`/folios/${folioId}/payments`, { method: 'POST', body: JSON.stringify(body) });
 }
@@ -1770,6 +1838,15 @@ export interface ReservationConfig {
     defaultMarketSegmentId: string | null;
     hasContractRates: boolean;
   }>;
+  /** The cash drawer shifts open right now: where cash taken with a reservation goes. */
+  openDrawers: Array<{
+    sessionId: string;
+    drawerName: string;
+    openedByUserId: string | null;
+    openedAt: string;
+  }>;
+  /** Vehicles for pick-ups and drop-offs. */
+  transportModes: Array<{ id: string; code: string; name: string; defaultPrice: string }>;
 }
 
 export function getReservationConfig(propertyId: string): Promise<ReservationConfig> {
@@ -2485,6 +2562,8 @@ export interface ReservationLineInput {
   remarks?: RemarkInput[];
   /** Pro: work orders. */
   tasks?: TaskInput[];
+  inclusions?: InclusionInput[];
+  transfers?: TransferInput[];
 }
 
 export interface ReservationGuestInput {
@@ -2594,6 +2673,23 @@ export interface ReservationOptionsInput {
   displayInclusionSeparately?: boolean;
 }
 
+/**
+ * Who pays. `company` bills everything to the travel agent or company; `company_room_tax` bills
+ * room and tax to them and extras to the guest; `group_owner` bills every room to the reservation's
+ * guest. The company options are Pro (city ledger).
+ */
+export type BillTo = 'guest' | 'company' | 'group_owner' | 'company_room_tax';
+
+/** Money taken with the reservation: a deposit, or the whole stay. */
+export interface ReservationPaymentInput {
+  paymentMethodId: string;
+  amount: number;
+  reference?: string;
+  /** A slip photo, from uploadPrivateFile('payment_slip', …). */
+  fileId?: string;
+  drawerSessionId?: string;
+}
+
 export interface CreateReservationInput extends ReservationStayInput {
   guest: ReservationGuestInput;
   options?: ReservationOptionsInput;
@@ -2601,13 +2697,22 @@ export interface CreateReservationInput extends ReservationStayInput {
   remarks?: RemarkInput[];
   expectedTotal?: number;
   groupName?: string;
+  billTo?: BillTo;
+  payment?: ReservationPaymentInput;
+  /** A walk-in: check in now. Arrival must be the property's today. */
+  checkIn?: boolean;
 }
 
 export interface ReservationCreated {
   reference: string;
   groupId: string | null;
   kind: ReservationKind;
-  status: 'Approved' | 'Pending';
+  status: 'Approved' | 'Pending' | 'CheckedIn';
+  checkedIn: boolean;
+  billTo: BillTo;
+  payment: { receiptNo: string | null; amount: string; method: string } | null;
+  /** Things the desk should know but that did not stop it, e.g. a dirty room. */
+  warnings: string[];
   holdUntil: string | null;
   currency: CurrencyCode;
   total: string;
@@ -2735,6 +2840,8 @@ export interface GuestDocumentInput {
   visaExpiresOn?: string;
   verification?: 'original' | 'copy' | 'digital';
   isPrimary?: boolean;
+  /** A scan, from uploadPrivateFile('id_document', …). */
+  fileId?: string;
 }
 
 export interface BookingRemark {
@@ -2839,4 +2946,146 @@ export function addGuestDocument(
 
 export function deleteGuestDocument(documentId: string) {
   return apiFetch(`/guest-documents/${documentId}`, { method: 'DELETE' });
+}
+
+// --- Inclusions, pick-ups and drop-offs (Phase 02, Sprint 5) -------------------------------
+
+export type InclusionRhythm =
+  'once' | 'per_night' | 'per_guest_per_night' | 'per_adult_per_night' | 'per_child_per_night';
+
+/** Something the stay includes: breakfast, dinner, a driver's room. Posted by night audit. */
+export interface InclusionInput {
+  particularId?: string;
+  name: string;
+  rhythm: InclusionRhythm;
+  /** Tax inclusive, per unit (a night, a guest-night …). */
+  unitPrice: number;
+  discountPct?: number;
+  taxRatePct?: number;
+  /** Already in the room rate: nothing is posted. */
+  includedInRate?: boolean;
+  itemize?: boolean;
+}
+
+export interface BookingInclusion {
+  id: string;
+  bookingId: string;
+  particularId: string | null;
+  name: string;
+  rhythm: InclusionRhythm;
+  unitPrice: string;
+  discountPct: string;
+  taxRatePct: string;
+  includedInRate: boolean;
+  itemize: boolean;
+  createdAt: string;
+}
+
+export type TransferDirection = 'pickup' | 'dropoff';
+export type TransferStatus = 'planned' | 'done' | 'cancelled';
+
+export interface TransferInput {
+  direction: TransferDirection;
+  transportModeId?: string;
+  /** ISO instant. */
+  scheduledAt?: string;
+  fromPlace?: string;
+  toPlace?: string;
+  flightNo?: string;
+  pax?: number;
+  vehicle?: string;
+  driver?: string;
+  /** Tax inclusive; 0 for a free transfer. Charged when marked done. */
+  amount?: number;
+  notes?: string;
+}
+
+export interface BookingTransfer {
+  id: string;
+  bookingId: string;
+  direction: TransferDirection;
+  transportModeId: string | null;
+  modeName: string | null;
+  scheduledAt: string | null;
+  fromPlace: string | null;
+  toPlace: string | null;
+  flightNo: string | null;
+  pax: number;
+  vehicle: string | null;
+  driver: string | null;
+  amount: string;
+  status: TransferStatus;
+  chargeId: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export function getBookingInclusions(bookingId: string): Promise<BookingInclusion[]> {
+  return apiFetch(`/bookings/${bookingId}/inclusions`);
+}
+
+export function addBookingInclusion(
+  bookingId: string,
+  body: InclusionInput,
+): Promise<BookingInclusion> {
+  return apiFetch(`/bookings/${bookingId}/inclusions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function removeBookingInclusion(id: string): Promise<{ id: string; deleted: boolean }> {
+  return apiFetch(`/booking-inclusions/${id}`, { method: 'DELETE' });
+}
+
+export function getBookingTransfers(bookingId: string): Promise<BookingTransfer[]> {
+  return apiFetch(`/bookings/${bookingId}/transfers`);
+}
+
+export function addBookingTransfer(
+  bookingId: string,
+  body: TransferInput,
+): Promise<BookingTransfer> {
+  return apiFetch(`/bookings/${bookingId}/transfers`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Marking a transfer done posts its charge; cancelling a done one voids it. */
+export function updateBookingTransfer(
+  id: string,
+  body: Partial<TransferInput> & { status?: TransferStatus },
+): Promise<BookingTransfer> {
+  return apiFetch(`/booking-transfers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export interface TransportMode {
+  id: string;
+  code: string;
+  name: string;
+  defaultPrice: string;
+  sort: number;
+  active: boolean;
+}
+
+export function listTransportModes(): Promise<TransportMode[]> {
+  return apiFetch('/transport-modes');
+}
+
+export function createTransportMode(body: {
+  code: string;
+  name: string;
+  defaultPrice?: number;
+  sort?: number;
+  active?: boolean;
+}): Promise<TransportMode> {
+  return apiFetch('/transport-modes', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateTransportMode(
+  id: string,
+  body: { name?: string; defaultPrice?: number; sort?: number; active?: boolean },
+): Promise<TransportMode> {
+  return apiFetch(`/transport-modes/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }

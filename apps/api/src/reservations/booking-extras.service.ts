@@ -20,6 +20,7 @@ import {
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { addDocuments, cleanDocumentNumber, resolveGuest } from './guest-resolver';
+import { loadOwnFile } from '../files/files.service';
 import type { Actor } from './reservation.service';
 import type {
   AddBookingGuestDto,
@@ -264,6 +265,7 @@ export class BookingExtrasService {
     return this.dbs.withTenant(actor.tenantId, async (tx) => {
       const [doc] = await tx.select().from(guestDocuments).where(eq(guestDocuments.id, documentId));
       if (!doc) throw new NotFoundException('Document not found');
+      if (dto.fileId) await loadOwnFile(tx, dto.fileId, 'id_document');
       const type = dto.type ?? doc.type;
       // A changed type re-checks the number already there: a passport number is no NIC, and a
       // number re-typed as Aadhaar keeps only its last four digits.

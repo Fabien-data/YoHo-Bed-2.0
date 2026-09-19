@@ -9,6 +9,7 @@ import {
   ID_DOCUMENT_LABELS,
 } from '@yohobed/locale';
 import type { GuestDocumentInput, GuestInput } from './dto';
+import { loadOwnFile } from '../files/files.service';
 
 export interface ResolvedGuest {
   id: string;
@@ -127,6 +128,9 @@ export async function addDocuments(
   docs: GuestDocumentInput[],
   verifiedByUserId: string | null,
 ) {
+  for (const d of docs) {
+    if (d.fileId) await loadOwnFile(tx, d.fileId, 'id_document');
+  }
   const rows = docs.map((d) => ({
     tenantId,
     customerId,
@@ -143,6 +147,7 @@ export async function addDocuments(
     verifiedByUserId: d.verification ? verifiedByUserId : null,
     verifiedAt: d.verification ? new Date() : null,
     isPrimary: d.isPrimary ?? false,
+    fileId: d.fileId ?? null,
   }));
   if (rows.length === 0) return [];
   return tx.insert(guestDocuments).values(rows).returning();

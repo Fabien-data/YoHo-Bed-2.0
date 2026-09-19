@@ -38,6 +38,10 @@ Thumbs.db
 
 # Local media storage (Compartment H photos)
 apps/api/uploads/
+# Private files (payment slips, ID scans) — never in git
+apps/api/private-files/
+apps/api/private-e2e/
+apps/api/uploads-e2e/
 
 # Playwright — browser E2E artifacts (traces, screenshots, HTML report)
 apps/web-extranet/test-results/

@@ -16,6 +16,11 @@ export const envSchema = z.object({
   WEB_URL: z.string().url().default('http://localhost:3000'),
   /** Where uploaded photos live (local-disk storage adapter). */
   MEDIA_DIR: z.string().default('./uploads'),
+  /**
+   * Payment slips and ID scans (Development Phase 02). Never inside MEDIA_DIR, which is served
+   * publicly: these are served only to a signed-in member of the tenant.
+   */
+  PRIVATE_FILES_DIR: z.string().default('./private-files'),
 });
 
 export type Env = z.infer<typeof envSchema>;

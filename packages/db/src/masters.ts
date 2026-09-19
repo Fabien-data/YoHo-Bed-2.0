@@ -1,6 +1,6 @@
 import { count, eq } from 'drizzle-orm';
 import { presetFor } from '@yohobed/locale';
-import { businessSources, marketSegments, paymentMethods } from './schema';
+import { businessSources, marketSegments, paymentMethods, transportModes } from './schema';
 import type { Database } from './client';
 import type { Tx } from './scope';
 
@@ -29,6 +29,9 @@ export async function seedDefaultMasters(
   tenantId: string,
   country?: string | null,
 ): Promise<boolean> {
+  // Transport modes arrived after the other lists (Sprint 5), so they are checked on their own:
+  // tenants seeded before then get them on the next migrate.
+  await ensureTransportModes(tx, tenantId, country);
   const [row] = await tx
     .select({ n: count() })
     .from(marketSegments)
@@ -111,4 +114,43 @@ export async function applyRegionPreset(
     businessSources: sources.length,
     paymentMethods: methods.length,
   };
+}
+
+/** The vehicles a hotel offers for pick-ups and drop-offs, by country. */
+function transportModesFor(country?: string | null) {
+  const common = [
+    { code: 'CAR', name: 'Car' },
+    { code: 'VAN', name: 'Van' },
+    { code: 'SUV', name: 'SUV' },
+    { code: 'COACH', name: 'Coach' },
+  ];
+  if (country === 'LK') return [...common, { code: 'TUK', name: 'Tuk-tuk' }];
+  if (country === 'IN') return [...common, { code: 'AUTO', name: 'Auto-rickshaw' }];
+  return common;
+}
+
+/** Seed a tenant's transport modes if it has none. Never touches a list the owner has edited. */
+export async function ensureTransportModes(
+  tx: Tx | Database,
+  tenantId: string,
+  country?: string | null,
+): Promise<number> {
+  const [row] = await tx
+    .select({ n: count() })
+    .from(transportModes)
+    .where(eq(transportModes.tenantId, tenantId));
+  if ((row?.n ?? 0) > 0) return 0;
+  const created = await tx
+    .insert(transportModes)
+    .values(
+      transportModesFor(country).map((m, i) => ({
+        tenantId,
+        code: m.code,
+        name: m.name,
+        sort: (i + 1) * 10,
+      })),
+    )
+    .onConflictDoNothing({ target: [transportModes.tenantId, transportModes.code] })
+    .returning({ id: transportModes.id });
+  return created.length;
 }

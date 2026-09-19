@@ -403,6 +403,39 @@ CREATE POLICY tenant_isolation ON booking_remarks
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- Money at reservation and stay services (Development Phase 02, Sprint 5). private_files in
+-- particular must never be readable across tenants: it holds payment slips and passport scans.
+
+ALTER TABLE private_files ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON private_files;
+CREATE POLICY tenant_isolation ON private_files
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE document_sequences ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON document_sequences;
+CREATE POLICY tenant_isolation ON document_sequences
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE transport_modes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON transport_modes;
+CREATE POLICY tenant_isolation ON transport_modes
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_inclusions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_inclusions;
+CREATE POLICY tenant_isolation ON booking_inclusions
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE booking_transfers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON booking_transfers;
+CREATE POLICY tenant_isolation ON booking_transfers
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 -- Which tenants have reservation-lifecycle work due: a hold past its release time, a hold inside
 -- its reminder window, or an unconfirmed booking past its arrival day at a property that releases
 -- those. The worker runs without a tenant context, so under RLS it can see no bookings at all;

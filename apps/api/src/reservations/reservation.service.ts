@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -6,27 +6,31 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   auditLog,
   availabilityCalendar,
   bookingApprovals,
   bookingDays,
   bookingGroups,
+  bookingInclusions,
   bookingRemarks,
   bookingRooms,
+  bookingTransfers,
   bookings,
   businessSources,
   couponRedemptions,
   coupons,
   customers,
   enqueueOutbox,
+  housekeepingStatus,
   InsufficientAvailabilityError,
   ledgerAccounts,
   maintenanceBlocks,
   marketSegments,
   messages,
   nextBookingReference,
+  nextReceiptNo,
   notifications,
   properties,
   referralCommissions,
@@ -36,6 +40,7 @@ import {
   roomUnits,
   templates,
   tenants,
+  transportModes,
   workOrders,
   type Tx,
 } from '@yohobed/db';
@@ -66,6 +71,15 @@ import { resolveFxRateToLkr } from '../common/fx-rate';
 import { ReservationPricer, type PricedLine, type PricingPolicy } from './pricer';
 import type { PricingSnapshot } from './pricing-snapshot';
 import { resolveGuest, type ResolvedGuest } from './guest-resolver';
+import { BookingService } from '../bookings/booking.service';
+import { ensureWindow } from '../folio/windows';
+import {
+  assertCityLedger,
+  chargeToAccountWithin,
+  insertPayment,
+  resolveDrawerSession,
+  resolvePaymentMethod,
+} from '../payments/take-payment';
 import type { CreateReservationDto, QuoteReservationDto } from './dto';
 
 /** Who is asking — the desk user and their role in the tenant. */
@@ -136,6 +150,7 @@ export class ReservationService {
     private readonly billing: BillingService,
     private readonly stepUp: StepUpService,
     private readonly mailer: MailerService,
+    private readonly bookingService: BookingService,
   ) {}
 
   // --- Quote -----------------------------------------------------------------
@@ -294,14 +309,33 @@ export class ReservationService {
     // Price authority: staff beyond their limits need an owner's approval on the spot.
     const approvedBy = await this.verifyApprovals(actor, dto, p);
 
-    // Tasks are work orders, which are Pro. Say so before anything is written.
-    if (dto.lines.some((l) => l.tasks?.length)) {
-      const { features } = await this.billing.entitlements(tenantId, tx);
-      if (!features.work_orders) {
-        throw new ForbiddenException(
-          'Tasks are part of the Pro plan (work orders). Save the reservation without them, or upgrade.',
-        );
-      }
+    // The plan decides a few things; ask once, and before anything is written.
+    const companyBill = dto.billTo === 'company' || dto.billTo === 'company_room_tax';
+    const hasTasks = dto.lines.some((l) => l.tasks?.length);
+    const features =
+      hasTasks || companyBill || dto.payment
+        ? (await this.billing.entitlements(tenantId, tx)).features
+        : null;
+    // Tasks are work orders, which are Pro.
+    if (hasTasks && !features!.work_orders) {
+      throw new ForbiddenException(
+        'Tasks are part of the Pro plan (work orders). Save the reservation without them, or upgrade.',
+      );
+    }
+    // Billing a travel agent or company is the city ledger, which is Pro.
+    if (companyBill) assertCityLedger(features!.cashiering);
+    if (dto.payment && dto.payment.amount > p.totals.due + 0.004) {
+      throw new BadRequestException({
+        reason: 'payment_exceeds_total',
+        message: `A payment can be at most the reservation's total of ${money(p.totals.due)}.`,
+      });
+    }
+    // A walk-in: the guest is at the desk today, in a confirmed room.
+    if (dto.checkIn && dto.checkin !== p.businessDate) {
+      throw new BadRequestException({
+        reason: 'checkin_not_today',
+        message: `Only a stay starting today (${p.businessDate}) can be checked in now.`,
+      });
     }
 
     if (dto.expectedTotal !== undefined && Math.abs(dto.expectedTotal - p.totals.due) > 0.004) {
@@ -353,6 +387,31 @@ export class ReservationService {
       }
     }
 
+    // 1b. A walk-in needs actual rooms: give every line without one the lowest free room of its type.
+    const walkInUnits = new Map<number, { id: string; code: string }>();
+    const warnings: string[] = [];
+    if (dto.checkIn) {
+      const taken = new Set(
+        p.lines.map((l) => l.unit?.id).filter((id): id is string => Boolean(id)),
+      );
+      for (const l of p.lines) {
+        const unit = l.unit ?? (await this.pickFreeUnit(tx, l, dto.checkin, dto.checkout, taken));
+        taken.add(unit.id);
+        walkInUnits.set(l.index, unit);
+        const [dirty] = await tx
+          .select({ status: housekeepingStatus.status })
+          .from(housekeepingStatus)
+          .where(
+            and(
+              eq(housekeepingStatus.roomUnitId, unit.id),
+              eq(housekeepingStatus.date, dto.checkin),
+              eq(housekeepingStatus.status, 'dirty'),
+            ),
+          );
+        if (dirty) warnings.push(`Room ${unit.code} is marked dirty.`);
+      }
+    }
+
     // 2. The guest, and each room's own guest when the Guest List is used. The reservation's
     //    guest owns the group; a room without its own guest is booked for them.
     const country = p.property.countryCode;
@@ -384,6 +443,7 @@ export class ReservationService {
           code: master,
           name: dto.groupName ?? guest.name,
           kind: 'reservation',
+          billTo: dto.billTo,
           ownerCustomerId: guest.id,
           businessSourceId: p.businessSourceId,
         })
@@ -463,7 +523,7 @@ export class ReservationService {
         children: l.dto.children,
         childAges: l.dto.childAges ?? [],
         extraBeds: l.dto.extraBeds,
-        roomUnitId: meta.holdsInventory ? (l.unit?.id ?? null) : null,
+        roomUnitId: meta.holdsInventory ? ((walkInUnits.get(l.index) ?? l.unit)?.id ?? null) : null,
         preferredRoomUnitId: meta.holdsInventory ? null : (l.unit?.id ?? null),
       };
       try {
@@ -475,7 +535,7 @@ export class ReservationService {
         if ((e as { code?: string })?.code === EXCLUSION_VIOLATION) {
           throw new ConflictException({
             reason: 'room_taken',
-            message: `Room ${l.unit?.code} is no longer free for these dates (room ${l.index + 1}).`,
+            message: `Room ${(walkInUnits.get(l.index) ?? l.unit)?.code} is no longer free for these dates (room ${l.index + 1}).`,
             line: l.index,
             roomUnitId: l.unit?.id,
           });
@@ -535,6 +595,46 @@ export class ReservationService {
           })),
         );
       }
+      if (l.dto.inclusions?.length) {
+        await tx.insert(bookingInclusions).values(
+          l.dto.inclusions.map((inc) => ({
+            tenantId,
+            bookingId: booking!.id,
+            particularId: inc.particularId ?? null,
+            name: inc.name,
+            rhythm: inc.rhythm,
+            unitPrice: money(inc.unitPrice),
+            discountPct: inc.discountPct.toFixed(3),
+            taxRatePct: inc.taxRatePct.toFixed(3),
+            includedInRate: inc.includedInRate,
+            itemize: inc.itemize,
+            createdByUserId: actor.userId,
+          })),
+        );
+      }
+      if (l.dto.transfers?.length) {
+        for (const t of l.dto.transfers) {
+          if (t.transportModeId) await this.loadTransportMode(tx, t.transportModeId);
+        }
+        await tx.insert(bookingTransfers).values(
+          l.dto.transfers.map((t) => ({
+            tenantId,
+            bookingId: booking!.id,
+            direction: t.direction,
+            transportModeId: t.transportModeId ?? null,
+            scheduledAt: t.scheduledAt ? new Date(t.scheduledAt) : null,
+            fromPlace: t.fromPlace ?? null,
+            toPlace: t.toPlace ?? null,
+            flightNo: t.flightNo ?? null,
+            pax: t.pax,
+            vehicle: t.vehicle ?? null,
+            driver: t.driver ?? null,
+            amount: money(t.amount),
+            notes: t.notes ?? null,
+            createdByUserId: actor.userId,
+          })),
+        );
+      }
       created.push({ line: l, booking: booking! });
     }
 
@@ -561,6 +661,118 @@ export class ReservationService {
           bookingId: c.booking.id,
           amount: referralCommission(c.line.priced.raw.commissionable, p.referral.pct).toFixed(2),
         });
+      }
+    }
+
+    // 4b. Who pays: every room's bill (window 1) gets its payer now, from Bill To. With "room and
+    //     tax to the company", the guest gets window 2 and the extras route to it.
+    const account = companyBill
+      ? (
+          await tx.select().from(ledgerAccounts).where(eq(ledgerAccounts.id, p.ledgerAccountId!))
+        )[0]!
+      : null;
+    const windowOne = new Map<string, string>();
+    for (const c of created) {
+      const roomGuest = (roomGuests.get(c.line.index) ?? guest).id;
+      const b = { id: c.booking.id, propertyId: p.property.id, currency: p.property.currency };
+      const w1 = account
+        ? await ensureWindow(tx, tenantId, b, 1, account.name, {
+            payerType: account.type === 'travel_agent' ? 'travel_agent' : 'company',
+            payerLedgerAccountId: account.id,
+          })
+        : await ensureWindow(tx, tenantId, b, 1, 'Guest', {
+            payerType: 'guest',
+            payerCustomerId: dto.billTo === 'group_owner' ? guest.id : roomGuest,
+          });
+      windowOne.set(c.booking.id, w1.id);
+      if (dto.billTo === 'company_room_tax') {
+        await ensureWindow(tx, tenantId, b, 2, 'Guest (extras)', {
+          payerType: 'guest',
+          payerCustomerId: roomGuest,
+          routes: ['manual', 'pos', 'inclusion'],
+        });
+      }
+    }
+
+    // 4c. Money taken with the reservation, spread over the rooms in proportion to what each costs,
+    //     under one receipt.
+    let paymentTaken: { receiptNo: string | null; amount: string; method: string } | null = null;
+    if (dto.payment) {
+      const method = await resolvePaymentMethod(tx, dto.payment.paymentMethodId, p.property.id);
+      const dues = created.map((c) => Number(c.booking.amount) - Number(c.booking.discount));
+      const shares =
+        created.length === 1 ? [dto.payment.amount] : splitProportional(dto.payment.amount, dues);
+      const allocationGroupId = created.length > 1 ? randomUUID() : null;
+      if (method.category === 'city_ledger') {
+        assertCityLedger(features!.cashiering);
+        if (!p.ledgerAccountId) {
+          throw new BadRequestException('City ledger needs the travel agent or company');
+        }
+        for (const [i, c] of created.entries()) {
+          if (shares[i]! <= 0) continue;
+          await chargeToAccountWithin(tx, {
+            tenantId,
+            userId: actor.userId,
+            bookingId: c.booking.id,
+            folioId: windowOne.get(c.booking.id)!,
+            ledgerAccountId: p.ledgerAccountId,
+            amount: shares[i]!,
+            currency: p.property.currency,
+            description: `Reservation ${c.booking.reference}`,
+            reference: dto.payment.reference ?? dto.voucherNo ?? null,
+            enforceCreditLimit: true,
+            allocationGroupId,
+          });
+        }
+        paymentTaken = { receiptNo: null, amount: money(dto.payment.amount), method: method.name };
+      } else {
+        const drawerSessionId =
+          method.method === 'cash'
+            ? await resolveDrawerSession(tx, {
+                propertyId: p.property.id,
+                userId: actor.userId,
+                drawerSessionId: dto.payment.drawerSessionId,
+                required: features!.cashiering,
+              })
+            : null;
+        const receiptNo = await nextReceiptNo(tx, {
+          tenantId,
+          propertyId: p.property.id,
+          date: p.businessDate,
+        });
+        for (const [i, c] of created.entries()) {
+          if (shares[i]! <= 0) continue;
+          await insertPayment(tx, {
+            tenantId,
+            propertyId: p.property.id,
+            userId: actor.userId,
+            bookingId: c.booking.id,
+            folioId: windowOne.get(c.booking.id)!,
+            amount: shares[i]!,
+            currency: p.property.currency,
+            method,
+            reference: dto.payment.reference ?? null,
+            fileId: dto.payment.fileId ?? null,
+            drawerSessionId,
+            receiptNo,
+            allocationGroupId,
+            businessDate: p.businessDate,
+          });
+        }
+        paymentTaken = { receiptNo, amount: money(dto.payment.amount), method: method.name };
+      }
+    }
+
+    // 4d. A walk-in is checked in now, in the same transaction: all rooms or none.
+    if (dto.checkIn) {
+      for (const c of created) {
+        await this.bookingService.transitionWithin(
+          tx,
+          tenantId,
+          c.booking.id,
+          'check_in',
+          'walk-in',
+        );
       }
     }
 
@@ -634,7 +846,11 @@ export class ReservationService {
       reference: master,
       groupId,
       kind: dto.kind,
-      status: meta.initialStatus,
+      status: dto.checkIn ? 'CheckedIn' : meta.initialStatus,
+      checkedIn: dto.checkIn,
+      billTo: dto.billTo,
+      payment: paymentTaken,
+      warnings,
       holdUntil: p.holdUntil?.toISOString() ?? null,
       currency: p.property.currency,
       total: money(p.totals.amount),
@@ -651,8 +867,12 @@ export class ReservationService {
         roomName: line.priced.roomName,
         occupancyId: line.priced.occupancyId,
         rateCode: line.priced.rateCode,
-        roomUnitId: meta.holdsInventory ? (line.unit?.id ?? null) : null,
-        roomCode: meta.holdsInventory ? (line.unit?.code ?? null) : null,
+        roomUnitId: meta.holdsInventory
+          ? ((walkInUnits.get(line.index) ?? line.unit)?.id ?? null)
+          : null,
+        roomCode: meta.holdsInventory
+          ? ((walkInUnits.get(line.index) ?? line.unit)?.code ?? null)
+          : null,
         guestName: (roomGuests.get(line.index) ?? guest).name,
         amount: booking.amount,
         taxes: booking.taxes,
@@ -980,6 +1200,55 @@ export class ReservationService {
       approvedBy[action] = ok.approverId;
     }
     return approvedBy;
+  }
+
+  /**
+   * The lowest-numbered room of a line's type that is in service, not blocked and not occupied for
+   * the stay. The exclusion constraint on booking_rooms still has the last word if two desks pick
+   * the same room at once.
+   */
+  private async pickFreeUnit(
+    tx: Tx,
+    line: PreparedLine,
+    checkin: string,
+    checkout: string,
+    taken: Set<string>,
+  ) {
+    const free = await tx
+      .select({ id: roomUnits.id, code: roomUnits.code })
+      .from(roomUnits)
+      .where(
+        and(
+          eq(roomUnits.roomId, line.dto.roomId),
+          eq(roomUnits.status, 'active'),
+          sql`not exists (
+            select 1 from booking_rooms br
+            where br.room_unit_id = room_units.id and br.released_at is null
+              and daterange(br.checkin, br.checkout, '[)') && daterange(${checkin}::date, ${checkout}::date, '[)')
+          )`,
+          sql`not exists (
+            select 1 from maintenance_blocks mb
+            where mb.room_unit_id = room_units.id and mb.released_at is null
+              and daterange(mb.block_from, mb.block_to, '[)') && daterange(${checkin}::date, ${checkout}::date, '[)')
+          )`,
+        ),
+      )
+      .orderBy(asc(roomUnits.displayOrder));
+    const unit = free.find((u) => !taken.has(u.id));
+    if (!unit) {
+      throw new ConflictException({
+        reason: 'no_room_free',
+        message: `No ${line.priced.roomName} room is free to check room ${line.index + 1} into.`,
+        line: line.index,
+      });
+    }
+    return unit;
+  }
+
+  private async loadTransportMode(tx: Tx, id: string) {
+    const [m] = await tx.select().from(transportModes).where(eq(transportModes.id, id));
+    if (!m) throw new NotFoundException('Transport mode not found');
+    return m;
   }
 
   /** Rooms of each type free on every night (a closed or unopened night counts as none). */

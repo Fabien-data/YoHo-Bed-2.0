@@ -44,8 +44,8 @@ Every sprint deploys on its own.
 | P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Live**³   |
 | P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴   |
 | P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
-| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Built**⁶  |
-| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ⬜ Not started |
+| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶   |
+| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Built**⁷  |
 | P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
 | P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
 
@@ -83,7 +83,9 @@ seen in the 2026-08-29 run); PR #4's CI run passed.
 
 ⁵ P2-S3 (2026-09-18) — live since 2026-09-18 (PR #4).
 
-⁶ P2-S4 (2026-09-18) — on `feat/phase-02-reservations`, not yet deployed.
+⁶ P2-S4 (2026-09-18) — live since 2026-09-18 (`main@a0154e3`, PR #5). The migration was rehearsed
+on a copy of the live database first (every total unchanged), and `deploy.sh` took its own
+pre-migration dump for the first time.
 
 - **Add Reservation page** (`/app/reservations/new`, and "More options" from Quick Reservation):
   booking and business source, travel agent or company with voucher, segment, sales person; Rate
@@ -100,6 +102,29 @@ seen in the 2026-08-29 run); PR #4's CI run passed.
   new tenant table lacks RLS.
 - **Fixed on the way**: Stay View drew overlapping unassigned and tentative stays on top of each
   other (a five-room group without room numbers looked like one booking); they now stack.
+
+⁷ P2-S5 (2026-09-18) — built and tested; not deployed yet (needs `PRIVATE_FILES_DIR` on the
+server, see OPERATIONS).
+
+- **Payment Mode** in the Billing Summary: the hotel's own methods, amount (Full), reference where
+  the method needs one, a slip photo or PDF in the new **private file store** (`GET /files/:id`,
+  signed-in only, `no-store`; never `media`). Cash goes into the open drawer (**409**
+  `drawer_closed` with cashiering on). A multi-room deposit is split by price under one gap-free
+  receipt number (`RC26-00001`, `document_sequences`). City Ledger charges the agent or company.
+- **Bill To**: guest, group owner, company (everything), or company for room and tax with extras
+  routed to a guest window 2. Window payers and `routes` on `folios`.
+- **Walk-in Check-in** button: a confirmed stay arriving today is saved and checked in, into the
+  lowest free room of each type, with a dirty-room warning.
+- **Inclusions** (per night, per guest, per adult/child, once; discount; in-rate) posted by night
+  audit to the routed window, once per night; **pick-ups and drop-offs** with configurable
+  transport modes, charged when marked done and voided when cancelled.
+- **Check-out** (Pro) moves a company or travel agent window to its city ledger account and
+  accrues the travel agent's commission (4 plan types, on room revenue net of tax).
+- **Folio**: Take Payment uses the hotel's methods and slips; every window shows who it bills and
+  every payment its receipt number and slip. ID scans can be attached to a guest's document
+  (never for Aadhaar).
+- **Open items.** A payment method in a foreign currency (Cash USD) is hidden until payments can be
+  converted. Early check-out still holds its remaining nights.
 
 - **UI kit.** Calendar, date/time pickers, stay row with an editable Nights chip, stepper,
   searchable combobox, phone and country inputs, inline alert, summary list and confirm dialog.

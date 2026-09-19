@@ -93,10 +93,11 @@ export class FolioController {
   @HttpCode(201)
   recordPayment(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(recordFolioPaymentSchema)) dto: RecordFolioPaymentDto,
   ) {
-    return this.folio.recordPayment(tenantId, id, dto);
+    return this.folio.recordPayment(tenantId, id, dto, user.sub);
   }
 
   /** Close a window. Refuses on a non-zero balance unless `force` is asked for explicitly. */
