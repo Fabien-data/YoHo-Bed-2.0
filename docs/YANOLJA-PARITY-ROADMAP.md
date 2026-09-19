@@ -45,7 +45,7 @@ Every sprint deploys on its own.
 | P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴   |
 | P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
 | P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶   |
-| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Built**⁷  |
+| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Live**⁷   |
 | P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
 | P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
 
@@ -103,8 +103,9 @@ pre-migration dump for the first time.
 - **Fixed on the way**: Stay View drew overlapping unassigned and tentative stays on top of each
   other (a five-room group without room numbers looked like one booking); they now stack.
 
-⁷ P2-S5 (2026-09-18) — built and tested; not deployed yet (needs `PRIVATE_FILES_DIR` on the
-server, see OPERATIONS).
+⁷ P2-S5 (2026-09-18) — live since 2026-09-19 (`main@6a081fb`, PR #6). The migration was rehearsed
+on a copy of the live database first (every total unchanged); the server now has
+`PRIVATE_FILES_DIR=/srv/yohobed/private` (yoho, 700), and the installed `backup.sh` archives it.
 
 - **Payment Mode** in the Billing Summary: the hotel's own methods, amount (Full), reference where
   the method needs one, a slip photo or PDF in the new **private file store** (`GET /files/:id`,
