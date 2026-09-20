@@ -46,7 +46,7 @@ Every sprint deploys on its own.
 | P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
 | P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶   |
 | P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Live**⁷   |
-| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ✅ **Built**⁸  |
+| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ✅ **Live**⁸   |
 | P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
 
 ³ P2-S1 (2026-09-17) — live on yova.markui.lk since 2026-09-18 (`main@391be6e`, PR #4).
@@ -127,7 +127,9 @@ on a copy of the live database first (every total unchanged); the server now has
 - **Open items.** A payment method in a foreign currency (Cash USD) is hidden until payments can be
   converted. Early check-out still holds its remaining nights.
 
-⁸ P2-S6 (2026-09-20) — built and tested; not deployed yet.
+⁸ P2-S6 (2026-09-20) — live since 2026-09-20 (`main@0e602c0`, PR #7). Rehearsed on a copy of the
+live database first: every total unchanged, the two existing invoices kept as `legacy`, and the
+window-1 payer backfill left no bill unnamed.
 
 - **Invoices.** A folio window (or a booking) is invoiced once. A Sri Lankan hotel with a TIN issues
   a TAX INVOICE for the VAT-able lines and a BILL for the rest, to Gazette 2481/22: serial
