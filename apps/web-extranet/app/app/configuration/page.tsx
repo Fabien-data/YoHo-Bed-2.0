@@ -30,6 +30,7 @@ import { MarketSegmentsTab } from '@/components/configuration/market-segments-ta
 import { PaymentMethodsTab } from '@/components/configuration/payment-methods-tab';
 import { SalesPersonsTab } from '@/components/configuration/sales-persons-tab';
 import { TransportModesTab } from '@/components/configuration/transport-modes-tab';
+import { DocumentSeries } from '@/components/configuration/document-series';
 import { OwnerOnlyNotice, errorMessage } from '@/components/configuration/shared';
 
 const TABS = [
@@ -121,7 +122,10 @@ function ConfigurationScreen() {
 
         <TabsContent value="property">
           {property ? (
-            <PropertyProfileForm property={property} canEdit={canEdit} />
+            <>
+              <PropertyProfileForm property={property} canEdit={canEdit} />
+              <DocumentSeries propertyId={property.id} canEdit={canEdit} />
+            </>
           ) : (
             <Skeleton className="h-96 w-full" />
           )}

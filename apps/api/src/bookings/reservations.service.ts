@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { resolveReservationOptions } from '@yohobed/domain';
 import {
   bookingGroups,
+  bookingInclusions,
   bookingRooms,
   bookings,
   businessSources,
@@ -733,7 +735,36 @@ export class ReservationsService {
         .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)))
         .orderBy(asc(bookingRooms.legIndex));
 
-      return { ...row, legs };
+      // What the stay includes, for the card (Development Phase 02, Sprint 6); prices only when
+      // the reservation shows its rate.
+      const [opts] = await tx
+        .select({ options: bookings.options })
+        .from(bookings)
+        .where(eq(bookings.id, bookingId));
+      const options = resolveReservationOptions(opts?.options);
+      const inclusions = await tx
+        .select({
+          name: bookingInclusions.name,
+          rhythm: bookingInclusions.rhythm,
+          unitPrice: bookingInclusions.unitPrice,
+          includedInRate: bookingInclusions.includedInRate,
+          itemize: bookingInclusions.itemize,
+        })
+        .from(bookingInclusions)
+        .where(eq(bookingInclusions.bookingId, bookingId))
+        .orderBy(asc(bookingInclusions.createdAt));
+
+      const hide = options.suppressRateOnGrCard;
+      return {
+        ...row,
+        amount: hide ? null : row.amount,
+        taxes: hide ? null : row.taxes,
+        rateSuppressed: hide,
+        legs,
+        inclusions: inclusions
+          .filter((i) => i.itemize || !i.includedInRate)
+          .map((i) => ({ ...i, unitPrice: hide ? null : i.unitPrice })),
+      };
     });
   }
 }

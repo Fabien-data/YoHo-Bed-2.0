@@ -73,6 +73,7 @@ import type { PricingSnapshot } from './pricing-snapshot';
 import { resolveGuest, type ResolvedGuest } from './guest-resolver';
 import { BookingService } from '../bookings/booking.service';
 import { ensureWindow } from '../folio/windows';
+import { buildVoucher, queueVoucher } from '../vouchers/voucher';
 import {
   assertCityLedger,
   chargeToAccountWithin,
@@ -814,7 +815,19 @@ export class ReservationService {
       entity: 'booking',
       entityId: created[0]!.booking.id,
     });
-    if (guest.email) {
+    // "Email booking vouchers" sends the voucher (Sprint 6) to the addresses asked for — the guest
+    // included, when no address is given — in place of the plain confirmation to those addresses.
+    let voucherTo: string[] = [];
+    if (options.emailVoucher) {
+      voucherTo = options.voucherEmails.length
+        ? options.voucherEmails
+        : guest.email
+          ? [guest.email.toLowerCase()]
+          : [];
+      const voucher = await buildVoucher(tx, created[0]!.booking.id);
+      if (voucher) await queueVoucher(tx, voucher, voucherTo, null);
+    }
+    if (guest.email && !voucherTo.includes(guest.email.toLowerCase())) {
       const [tpl] = await tx
         .select()
         .from(templates)

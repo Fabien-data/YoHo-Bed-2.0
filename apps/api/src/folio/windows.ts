@@ -1,5 +1,5 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { folios, type Tx } from '@yohobed/db';
+import { bookings, folios, type Tx } from '@yohobed/db';
 
 /**
  * Folio windows and who pays them (Development Phase 02, Sprint 5).
@@ -47,6 +47,16 @@ export async function ensureWindow(
       .returning();
     return updated!;
   }
+  // Window 1 with no payer given bills the booking's guest.
+  const guestId =
+    !payer && window === 1
+      ? ((
+          await tx
+            .select({ customerId: bookings.customerId })
+            .from(bookings)
+            .where(eq(bookings.id, booking.id))
+        )[0]?.customerId ?? null)
+      : null;
   const [created] = await tx
     .insert(folios)
     .values({
@@ -57,7 +67,7 @@ export async function ensureWindow(
       label,
       currency: booking.currency,
       payerType: payer?.payerType ?? 'guest',
-      payerCustomerId: payer?.payerCustomerId ?? null,
+      payerCustomerId: payer?.payerCustomerId ?? guestId,
       payerLedgerAccountId: payer?.payerLedgerAccountId ?? null,
       routes: payer?.routes ?? [],
     })

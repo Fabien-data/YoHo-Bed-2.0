@@ -1,17 +1,22 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AirplaneLanding,
   AirplaneTakeoff,
   ChatText,
   ClipboardText,
+  Copy,
+  Envelope,
   ForkKnife,
   IdentificationCard,
+  Link as LinkIcon,
   Plus,
+  Receipt,
   Trash,
   UserPlus,
+  WhatsappLogo,
 } from '@phosphor-icons/react';
 import {
   Badge,
@@ -37,9 +42,17 @@ import {
   type PhoneValue,
 } from '@yohobed/ui';
 import { ID_DOCUMENT_LABELS, displayMealCode, formatDate, idTypesFor } from '@yohobed/locale';
+import Link from 'next/link';
 import {
   ApiError,
+  createProforma,
+  createVoucherLink,
   getUser,
+  issueBookingInvoice,
+  listInvoices,
+  previewVoucher,
+  revokeVoucherLink,
+  sendVoucher,
   addBookingGuest,
   addBookingInclusion,
   addBookingRemark,
@@ -223,6 +236,8 @@ function Details({
 
       <GuestsBlock bookingId={row.id} country={cfg.property.countryCode} />
       <StayServicesBlock row={row} cfg={cfg} money={money} />
+      <VoucherBlock row={row} />
+      <InvoicesBlock row={row} />
       <RemarksBlock bookingId={row.id} />
       <TasksBlock bookingId={row.id} />
       <DocumentsBlock customerId={row.customerId} country={cfg.property.countryCode} />
@@ -531,6 +546,228 @@ function StayServicesBlock({
           if (added) addTransfer.mutate(added);
         }}
       />
+    </Block>
+  );
+}
+
+/**
+ * The booking voucher (Development Phase 02, Sprint 6): email it, or share the guest's own page —
+ * the link a guest opens with no login, over WhatsApp or however they were reached.
+ */
+function VoucherBlock({ row }: { row: ReservationRow }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = React.useState(false);
+  const [to, setTo] = React.useState('');
+  const voucher = useQuery({
+    queryKey: ['voucher', row.id],
+    queryFn: () => previewVoucher(row.id),
+  });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['voucher', row.id] });
+
+  React.useEffect(() => {
+    if (open && voucher.data && !to) setTo(voucher.data.recipients.join(', '));
+  }, [open, voucher.data, to]);
+
+  const send = useMutation({
+    mutationFn: () =>
+      sendVoucher(
+        row.id,
+        to
+          .split(/[,;\s]+/)
+          .map((e) => e.trim())
+          .filter(Boolean),
+      ),
+    onSuccess: (r) => {
+      toast.success(`Voucher sent to ${r.queued} address${r.queued === 1 ? '' : 'es'}`);
+      setOpen(false);
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const makeLink = useMutation({
+    mutationFn: () => createVoucherLink(row.id),
+    onSuccess: (r) => {
+      navigator.clipboard?.writeText(r.url).catch(() => undefined);
+      toast.success(r.created ? 'Guest link created and copied' : 'Guest link copied');
+      refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const revoke = useMutation({
+    mutationFn: () => revokeVoucherLink(row.id),
+    onSuccess: () => {
+      toast.success('Guest link closed');
+      refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+
+  const link = voucher.data?.link ?? null;
+  return (
+    <Block icon={<Envelope size={16} />} title="Voucher and guest page">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Envelope size={14} /> Send voucher
+        </Button>
+        {link ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard?.writeText(link.url).catch(() => undefined);
+                toast.success('Guest link copied');
+              }}
+            >
+              <Copy size={14} /> Copy guest link
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              loading={revoke.isPending}
+              onClick={() => revoke.mutate()}
+            >
+              Close link
+            </Button>
+          </>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            loading={makeLink.isPending}
+            onClick={() => makeLink.mutate()}
+          >
+            <LinkIcon size={14} /> Create guest link
+          </Button>
+        )}
+        {voucher.data && (
+          <a
+            href={voucher.data.whatsappUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-sm text-ink-2 transition duration-1 hover:border-ink-3 hover:text-ink"
+          >
+            <WhatsappLogo size={14} /> WhatsApp
+          </a>
+        )}
+      </div>
+      {link && (
+        <p className="text-xs text-ink-3">
+          The guest page is open until {formatDate(link.expiresAt.slice(0, 10))}.
+        </p>
+      )}
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent
+          title="Send the booking voucher"
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button loading={send.isPending} disabled={!to.trim()} onClick={() => send.mutate()}>
+                Send
+              </Button>
+            </div>
+          }
+        >
+          {voucher.isLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <Field
+                label="To"
+                hint="One email per line or separated by commas; each gets its own email."
+              >
+                <Textarea rows={2} value={to} onChange={(e) => setTo(e.target.value)} />
+              </Field>
+              <Field label="Subject">
+                <Input readOnly value={voucher.data?.subject ?? ''} />
+              </Field>
+              <Field label="Message" hint="Edit the wording under Comms → Templates.">
+                <Textarea
+                  rows={14}
+                  readOnly
+                  value={voucher.data?.body ?? ''}
+                  className="font-mono text-xs"
+                />
+              </Field>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+    </Block>
+  );
+}
+
+/** The documents issued for this booking, and the two the desk can raise from here. */
+function InvoicesBlock({ row }: { row: ReservationRow }) {
+  const qc = useQueryClient();
+  const documents = useQuery({
+    queryKey: ['invoices', 'booking', row.id],
+    queryFn: () => listInvoices({ bookingId: row.id }),
+  });
+  const done = (label: string) => (doc: { id: string; number: string }) => {
+    toast.success(`${label} ${doc.number} issued`);
+    qc.invalidateQueries({ queryKey: ['invoices'] });
+  };
+  const proforma = useMutation({
+    mutationFn: () => createProforma(row.id),
+    onSuccess: done('Pro-forma'),
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const invoice = useMutation({
+    mutationFn: () => issueBookingInvoice(row.id),
+    onSuccess: (r) => done('Invoice')(r.documents[0]!),
+    onError: (e) => toast.error(errorText(e)),
+  });
+
+  return (
+    <Block icon={<Receipt size={16} />} title="Invoices">
+      {documents.data?.length ? (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {documents.data.map((d) => (
+            <li key={d.id} className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/app/invoices/${d.id}`}
+                className="font-mono text-ink underline-offset-2 hover:underline"
+              >
+                {d.number}
+              </Link>
+              <Badge tone={d.creditedAt ? 'closed' : 'muted'} dot={false}>
+                {d.creditedAt ? 'credited' : d.title.toLowerCase()}
+              </Badge>
+              <span className="text-xs text-ink-3">
+                {formatDate(d.invoiceDate ?? d.issuedAt.slice(0, 10))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        !documents.isLoading && <p className="text-sm text-ink-3">Nothing issued yet.</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          loading={invoice.isPending}
+          onClick={() => invoice.mutate()}
+        >
+          <Receipt size={14} /> Invoice
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          loading={proforma.isPending}
+          onClick={() => proforma.mutate()}
+        >
+          Pro-forma
+        </Button>
+      </div>
     </Block>
   );
 }

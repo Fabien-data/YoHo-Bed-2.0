@@ -42,6 +42,31 @@ export function defaultTemplates(tenantId: string): (typeof templates.$inferInse
         'We would love to hear about your stay — it takes a minute:\n{{link}}\n\nYoHoBed',
     },
     {
+      // The booking voucher (Development Phase 02, Sprint 6). Money arrives already formatted in the
+      // booking's currency, so a USD booking never reads "Rs".
+      tenantId,
+      key: 'booking_voucher',
+      language: 'en',
+      channel: 'email' as const,
+      subject: 'Your booking at {{propertyName}} — {{reference}}',
+      body:
+        'Dear {{guestName}},\n\nThank you for booking with {{propertyName}}. Your booking voucher:\n\n' +
+        'Booking no.: {{reference}}\nArrival: {{checkin}} from {{checkinTime}}\n' +
+        'Departure: {{checkout}} by {{checkoutTime}}\nNights: {{nights}}\n\nRooms:\n{{rooms}}\n\n' +
+        'Total: {{total}}\nPaid: {{paid}}\nBalance due: {{balance}}\n\n{{linkLine}}' +
+        '{{propertyName}}\n{{propertyAddress}}\n{{propertyContact}}',
+    },
+    {
+      tenantId,
+      key: 'checkout_thank_you',
+      language: 'en',
+      channel: 'email' as const,
+      subject: 'Thank you for staying at {{propertyName}}',
+      body:
+        'Dear {{guestName}},\n\nThank you for staying with us ({{checkin}} → {{checkout}}). ' +
+        'We hope you had a pleasant stay and look forward to welcoming you back.\n\n{{propertyName}}',
+    },
+    {
       tenantId,
       key: 'booking_created',
       language: 'si',
@@ -52,6 +77,24 @@ export function defaultTemplates(tenantId: string): (typeof templates.$inferInse
         '({{nights}} රාත්‍රී) තහවුරු කර ඇත.\nමුළු මුදල: රු {{amount}}.\n\nස්තූතියි.\nYoHoBed',
     },
   ];
+}
+
+/**
+ * Add the named starter templates a tenant does not have yet (in any form it has edited, the
+ * tenant's version stays). Run on every migrate, so tenants created before a template existed get
+ * it too.
+ */
+export async function ensureTemplates(
+  tx: Tx | Database,
+  tenantId: string,
+  keys: readonly string[],
+): Promise<void> {
+  const wanted = defaultTemplates(tenantId).filter((t) => keys.includes(t.key));
+  if (wanted.length === 0) return;
+  await tx
+    .insert(templates)
+    .values(wanted)
+    .onConflictDoNothing({ target: [templates.tenantId, templates.key, templates.language] });
 }
 
 /** Give a new tenant its starter templates. Idempotent — safe on re-registration/re-seed. */

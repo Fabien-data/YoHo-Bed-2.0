@@ -4,7 +4,15 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Printer } from '@phosphor-icons/react';
 import { Button, Skeleton } from '@yohobed/ui';
-import { getRegistrationCard } from '@/lib/api';
+import { getRegistrationCard, type InclusionRhythm } from '@/lib/api';
+
+const RHYTHM: Record<InclusionRhythm, string> = {
+  once: 'once',
+  per_night: 'per night',
+  per_guest_per_night: 'per guest, per night',
+  per_adult_per_night: 'per adult, per night',
+  per_child_per_night: 'per child, per night',
+};
 
 /**
  * The printable guest registration card — Yanolja's "Print GR".
@@ -116,10 +124,32 @@ export function RegistrationCardSheet({ bookingId }: { bookingId: string }) {
           </div>
         </Section>
 
-        <Section title="Charges">
-          <Field label="Amount" value={`${c.currency} ${Number(c.amount).toFixed(2)}`} />
-          <Field label="of which tax" value={`${c.currency} ${Number(c.taxes).toFixed(2)}`} />
-        </Section>
+        {c.inclusions.length > 0 && (
+          <Section title="Included in the stay">
+            <div className="col-span-2">
+              <ul className="flex flex-col gap-0.5 text-xs">
+                {c.inclusions.map((i, n) => (
+                  <li key={n}>
+                    {i.name}
+                    {i.includedInRate
+                      ? ' — included in the rate'
+                      : i.unitPrice
+                        ? ` — ${c.currency} ${Number(i.unitPrice).toFixed(2)} ${RHYTHM[i.rhythm]}`
+                        : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Section>
+        )}
+
+        {/* "Suppress rate on registration card": the guest signs for the stay, not for the price. */}
+        {!c.rateSuppressed && (
+          <Section title="Charges">
+            <Field label="Amount" value={`${c.currency} ${Number(c.amount).toFixed(2)}`} />
+            <Field label="of which tax" value={`${c.currency} ${Number(c.taxes).toFixed(2)}`} />
+          </Section>
+        )}
 
         <div className="grid grid-cols-2 gap-8 pt-6">
           <SignatureLine label="Guest signature" />

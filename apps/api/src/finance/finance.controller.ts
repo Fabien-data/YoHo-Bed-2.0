@@ -23,15 +23,7 @@ export class FinanceController {
     return this.finance.createInvoiceForBooking(tenantId, bookingId);
   }
 
-  @Get('invoices')
-  listInvoices(@TenantId() tenantId: string) {
-    return this.finance.listInvoices(tenantId);
-  }
-
-  @Get('invoices/:id')
-  getInvoice(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.finance.getInvoice(tenantId, id);
-  }
+  // GET /invoices and /invoices/:id live in InvoicesController (Development Phase 02, Sprint 6).
 
   // Payments
   @Post('bookings/:id/payments')

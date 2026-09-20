@@ -632,6 +632,7 @@ export class FolioService {
         rooms: bookings.rooms,
         checkin: bookings.checkin,
         checkout: bookings.checkout,
+        customerId: bookings.customerId,
         guestName: customers.name,
       })
       .from(bookings)
@@ -641,11 +642,14 @@ export class FolioService {
     return b;
   }
 
-  /** Get or create a window. Idempotent, so callers never have to check first. */
+  /**
+   * Get or create a window. Idempotent, so callers never have to check first. Window 1 bills the
+   * booking's guest unless Bill To said otherwise when the reservation was made.
+   */
   private async ensureWindow(
     tx: Tx,
     tenantId: string,
-    booking: { id: string; propertyId: string; currency: string },
+    booking: { id: string; propertyId: string; currency: string; customerId?: string | null },
     window: number,
     label: string,
   ) {
@@ -664,6 +668,8 @@ export class FolioService {
         window,
         label,
         currency: booking.currency,
+        payerType: 'guest',
+        payerCustomerId: window === 1 ? (booking.customerId ?? null) : null,
       })
       .onConflictDoNothing({ target: [folios.bookingId, folios.window] })
       .returning();

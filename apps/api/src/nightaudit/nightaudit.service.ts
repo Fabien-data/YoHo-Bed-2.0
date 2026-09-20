@@ -366,6 +366,8 @@ export class NightAuditService {
         window: 1,
         label: 'Guest',
         currency: booking!.currency,
+        payerType: 'guest',
+        payerCustomerId: booking!.customerId,
       })
       .onConflictDoNothing({ target: [folios.bookingId, folios.window] })
       .returning();

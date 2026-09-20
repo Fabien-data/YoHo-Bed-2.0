@@ -45,8 +45,8 @@ Every sprint deploys on its own.
 | P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴   |
 | P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
 | P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶   |
-| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Built**⁷  |
-| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ⬜ Not started |
+| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Live**⁷   |
+| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ✅ **Built**⁸  |
 | P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
 
 ³ P2-S1 (2026-09-17) — live on yova.markui.lk since 2026-09-18 (`main@391be6e`, PR #4).
@@ -103,8 +103,9 @@ pre-migration dump for the first time.
 - **Fixed on the way**: Stay View drew overlapping unassigned and tentative stays on top of each
   other (a five-room group without room numbers looked like one booking); they now stack.
 
-⁷ P2-S5 (2026-09-18) — built and tested; not deployed yet (needs `PRIVATE_FILES_DIR` on the
-server, see OPERATIONS).
+⁷ P2-S5 (2026-09-18) — live since 2026-09-19 (`main@6a081fb`, PR #6). The migration was rehearsed
+on a copy of the live database first (every total unchanged); the server now has
+`PRIVATE_FILES_DIR=/srv/yohobed/private` (yoho, 700), and the installed `backup.sh` archives it.
 
 - **Payment Mode** in the Billing Summary: the hotel's own methods, amount (Full), reference where
   the method needs one, a slip photo or PDF in the new **private file store** (`GET /files/:id`,
@@ -125,6 +126,24 @@ server, see OPERATIONS).
   (never for Aadhaar).
 - **Open items.** A payment method in a foreign currency (Cash USD) is hidden until payments can be
   converted. Early check-out still holds its remaining nights.
+
+⁸ P2-S6 (2026-09-20) — built and tested; not deployed yet.
+
+- **Invoices.** A folio window (or a booking) is invoiced once. A Sri Lankan hotel with a TIN issues
+  a TAX INVOICE for the VAT-able lines and a BILL for the rest, to Gazette 2481/22: serial
+  `YYMMM-QQQQ-n`, supplier and purchaser TINs, MM/DD/YYYY dates, LKR equivalents on a
+  foreign-currency invoice. Anyone else gets one INVOICE. Pro-formas quote a stay before it happens.
+- **Corrections.** An issued document is never edited or voided; a credit note with a reason cancels
+  it and frees the window. Numbers are gap-free per property from `document_sequences`, and an owner
+  can continue a series from another system (forward only).
+- **Voucher and guest page.** Preview and send the voucher (one email per recipient), a WhatsApp
+  click-to-chat link, and a read-only guest booking page opened by an unguessable token — closed by
+  the desk or 30 days after check-out, never indexed, and carrying no guest contact details.
+  "Email booking vouchers" and "Send email at check-out" now actually send.
+- **Also.** The registration card honours "Suppress rate" and lists inclusions. A folio window
+  opened on demand now names its guest as payer (the Sprint 5 follow-up).
+- **Migration 0031**: invoice columns + number unique per property + one live document per window,
+  invoice line detail, `voucher_tokens` (no RLS, like `review_invites`).
 
 - **UI kit.** Calendar, date/time pickers, stay row with an editable Nights chip, stepper,
   searchable combobox, phone and country inputs, inline alert, summary list and confirm dialog.

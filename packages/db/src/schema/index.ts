@@ -18,6 +18,7 @@ export * from './audit';
 export * from './ota';
 export * from './profile';
 export * from './crm';
+export * from './vouchers';
 export * from './housekeeping';
 export * from './folio';
 export * from './configuration';

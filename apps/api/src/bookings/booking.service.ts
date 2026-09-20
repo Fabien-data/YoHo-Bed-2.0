@@ -38,6 +38,7 @@ import {
   kindAfterApproval,
   referralCommission,
   renderTemplate,
+  resolveReservationOptions,
   CURRENCY_META,
   isCurrencyCode,
   type ReservationKind,
@@ -473,7 +474,10 @@ export class BookingService {
 
     // Check-out opens the review window: mint a single-use invite + queue the guest email
     // (Compartment I). The invite row has no RLS — its unguessable token IS the authorization.
-    if (kind === 'check_out') await this.queueReviewInvite(tx, tenantId, b);
+    if (kind === 'check_out') {
+      await this.queueReviewInvite(tx, tenantId, b);
+      await this.queueCheckoutEmail(tx, tenantId, b);
+    }
     return updated;
   }
 
@@ -534,6 +538,45 @@ export class BookingService {
         payload: { propertyId: b.propertyId, bookingId: b.id, reference: b.reference },
       });
     }
+  }
+
+  /**
+   * "Send email at check-out" (Development Phase 02): a thank-you from the reservation's chosen
+   * template, or the starter one, to the guest.
+   */
+  private async queueCheckoutEmail(tx: Tx, tenantId: string, b: typeof bookings.$inferSelect) {
+    const options = resolveReservationOptions(b.options);
+    if (!options.sendCheckoutEmail) return;
+    const [cust] = await tx.select().from(customers).where(eq(customers.id, b.customerId));
+    if (!cust?.email) return;
+    const key = options.checkoutTemplate ?? 'checkout_thank_you';
+    const [tpl] = await tx
+      .select()
+      .from(templates)
+      .where(and(eq(templates.key, key), eq(templates.language, 'en')));
+    if (!tpl) return;
+    const [prop] = await tx
+      .select({ name: properties.name })
+      .from(properties)
+      .where(eq(properties.id, b.propertyId));
+    const vars = {
+      guestName: cust.name,
+      propertyName: prop?.name ?? '',
+      reference: b.reference,
+      checkin: b.checkin,
+      checkout: b.checkout,
+    };
+    await tx.insert(messages).values({
+      tenantId,
+      bookingId: b.id,
+      channel: 'email',
+      toAddress: cust.email,
+      templateKey: key,
+      language: 'en',
+      subject: renderTemplate(tpl.subject, vars),
+      body: renderTemplate(tpl.body, vars),
+      status: 'queued',
+    });
   }
 
   private async queueReviewInvite(tx: Tx, tenantId: string, b: typeof bookings.$inferSelect) {
