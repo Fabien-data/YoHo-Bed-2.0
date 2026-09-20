@@ -348,12 +348,77 @@ routed for `inclusion`: `once` on the first night only, the per-guest rhythms by
 tax decomposed out of the inclusive price. One posting per inclusion per night (a partial unique
 index backs it up). An `includedInRate` inclusion is never posted.
 
+The registration card honours the reservation's Other Information: with "Suppress rate on
+registration card" the money is left off (`amount` and `taxes` are null, `rateSuppressed` true), and
+the card lists what the stay includes.
+
 `PATCH /customers/:id` records the guest depth the card and reporting need — nationality, ID type
 and number, date of birth, address and the VIP flag — plus the regional profile of Development
 Phase 02: title, given/family name, WhatsApp, ISO nationality and country codes, state, zip,
 gender, occupation, company and tax number, and privacy consent (`consentVersion`; the server
 stamps the time). A phone is stored as typed and normalised to `mobileE164`. Every field is optional: an OTA booking
 arrives with a name and little else, and demanding more would block the check-in this supports.
+
+### Invoices, pro-formas and credit notes (Sprint 6)
+
+| Method & path                                             | Auth              | Purpose                                                                                                                                                        |
+| --------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /folios/:id/invoice`                                | JWT+Tenant        | Invoice a folio window. Body: an optional `payer` (what the desk types at the counter — a company's name and tax number) and `notes`. Returns `{ documents }`. |
+| `POST /bookings/:id/invoices`                             | JWT+Tenant        | The same, from the booking: opens window 1 if the stay never had one, and bills the booking's own nights when no room charge was ever posted.                  |
+| `POST /bookings/:id/proforma`                             | JWT+Tenant        | What the stay will cost — nights, inclusions by their rhythm, transfers booked. Its own series; never a tax document.                                          |
+| `POST /invoices/:id/credit-note`                          | JWT+Tenant        | Cancel an invoice. `reason` required. **409** `already_credited`; **400** `not_creditable` for a pro-forma or the legacy invoice.                              |
+| `GET /invoices?propertyId&bookingId&folioId&kind&from&to` | JWT+Tenant        | The documents issued, newest first.                                                                                                                            |
+| `GET /invoices/:id`                                       | JWT+Tenant        | One document with its lines, its payer and supplier snapshots, its taxes, and the credit notes against it.                                                     |
+| `GET /properties/:id/document-sequences`                  | JWT+Tenant        | Each series and what the next document of each kind would be numbered today.                                                                                   |
+| `PATCH /properties/:id/document-sequences`                | JWT+Tenant, owner | Continue a series from another system: `{ docType, period, nextValue }`. Forward only — **409** `sequence_backwards`.                                          |
+
+Ungated: every hotel that sells a room has to invoice it.
+
+**What is issued.** A folio window is invoiced **once** — a partial unique index allows one live
+document of each folio kind per window, and a second attempt is **409** `already_invoiced`. An
+issued document is never edited or voided; a credit note cancels it (stamping `credited_at`), and
+the window can then be invoiced again. An empty window is **400** `nothing_to_invoice`.
+
+**Sri Lanka (Gazette 2481/22).** A hotel in Sri Lanka with a TIN gets profile `lk_vat`: the
+VAT-able lines go on a **TAX INVOICE** and everything else on a **BILL**, because the gazette allows
+only VAT-able supplies on a tax invoice. The serial is `YYMMM-QQQQ-n` (year, month, branch code,
+the month's running number), at most 40 characters; dates print MM/DD/YYYY; a foreign-currency
+invoice carries the LKR equivalent at the invoice date's rate (**409** `fx_rate_unavailable` with no
+rate). Anyone else gets one **INVOICE** numbered `<prefix>-<fiscal year>-00001`.
+
+**Where the numbers come from.** `document_sequences`, per property, document type and period — a
+month for Sri Lankan tax invoices (the serial carries it), the fiscal year for everything else.
+The number is taken inside the issuing transaction, so a failure gives it back and the series stays
+gap-free. Credit notes and pro-formas have their own series.
+
+**What a line carries.** Room lines take their per-tax split from `booking_days.tax_lines` scaled to
+the rooms, so an invoice's taxes add up to the stored tax to the cent. Any other charge with tax
+gets one line at its own rate. `net + tax = amount` on every line, and `subtotal + tax_total +
+rounding = amount` on the document.
+
+The pre-Phase-02 `POST /bookings/:id/invoice` (`INV-<reference>`, one per booking) is untouched and
+still idempotent; it is `kind: 'legacy'`.
+
+### The booking voucher and the guest booking page (Sprint 6)
+
+| Method & path                            | Auth       | Purpose                                                                                                                                  |
+| ---------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /reservations/:id/voucher/preview` | JWT+Tenant | The voucher as it will be sent: subject, body, default recipients, the WhatsApp click-to-chat link, and the guest link if one is open.   |
+| `POST /reservations/:id/voucher/send`    | JWT+Tenant | `{ emails: [1..10] }` — **one message per address**, never one addressed to many. Queued in the transaction, delivered after it commits. |
+| `POST /reservations/:id/voucher/link`    | JWT+Tenant | The guest page link: the live one, or a new one. Making it turns "Access to guest portal" on for the reservation.                        |
+| `DELETE /reservations/:id/voucher/link`  | JWT+Tenant | Close the page. The link answers 404 from then on.                                                                                       |
+| `GET /public/vouchers/:token`            | **public** | The guest booking page. `X-Robots-Tag: noindex`, `Cache-Control: no-store`.                                                              |
+
+The voucher covers the **whole reservation** — every sibling room of a multi-room booking, under its
+master reference. `voucher_tokens` has no RLS, like `review_invites`: a guest has no tenant context,
+so the unguessable token is the authorization and resolves the tenant; everything the page shows is
+then read under that tenant's RLS. An unknown, revoked or expired token is the same 404, so a guess
+learns nothing. The page shows the stay, the money and the hotel — never the guest's email, phone or
+documents, and only their first name.
+
+A reservation with "Email booking vouchers" sends the voucher to the addresses it names when it is
+created, in place of the plain confirmation to those addresses. "Send email at check-out" sends the
+`checkout_thank_you` template (or the reservation's chosen one) when the guest leaves.
 
 ## Room view & housekeeping
 

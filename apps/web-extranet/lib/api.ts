@@ -1194,8 +1194,10 @@ export interface RegistrationCard {
   checkout: string;
   nights: number;
   rooms: number;
-  amount: string;
-  taxes: string;
+  /** Null when the reservation asked for the card to be printed without its rate. */
+  amount: string | null;
+  taxes: string | null;
+  rateSuppressed: boolean;
   currency: string;
   guest: {
     name: string;
@@ -1222,6 +1224,14 @@ export interface RegistrationCard {
     checkoutTime: string | null;
   };
   legs: Array<{ legIndex: number; code: string | null; adults: number; children: number }>;
+  /** What the stay includes; the price is null when the rate is suppressed. */
+  inclusions: Array<{
+    name: string;
+    rhythm: InclusionRhythm;
+    unitPrice: string | null;
+    includedInRate: boolean;
+    itemize: boolean;
+  }>;
 }
 
 export function getRegistrationCard(bookingId: string): Promise<RegistrationCard> {
@@ -3058,6 +3068,247 @@ export function updateBookingTransfer(
   body: Partial<TransferInput> & { status?: TransferStatus },
 ): Promise<BookingTransfer> {
   return apiFetch(`/booking-transfers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+// --- Invoices, pro-formas and credit notes (Phase 02, Sprint 6) --------------------------
+
+export type InvoiceKind =
+  'legacy' | 'tax_invoice' | 'invoice' | 'bill' | 'proforma' | 'credit_note';
+export type InvoiceProfile = 'lk_vat' | 'generic';
+
+/** Supplier or purchaser, as printed on the document — frozen when it was issued. */
+export interface InvoiceParty {
+  name: string;
+  legalName?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  taxId?: string | null;
+  registrationNo?: string | null;
+  branchCode?: string | null;
+}
+
+export interface InvoiceTaxTotal {
+  key: string;
+  name: string;
+  rate: number;
+  priority: number;
+  amount: number;
+}
+
+export interface InvoiceLine {
+  id: string;
+  sort: number;
+  description: string;
+  quantity: string;
+  unitPrice: string | null;
+  /** Taxes excluded, and all taxes: `net + tax = amount`. */
+  net: string | null;
+  tax: string | null;
+  amount: string;
+  taxLines: Array<{
+    key: string;
+    name: string;
+    rate: number;
+    priority: number;
+    amount: number;
+  }> | null;
+  hsnSac: string | null;
+  postedFor: string | null;
+  folioChargeId: string | null;
+}
+
+export interface InvoiceRow {
+  id: string;
+  propertyId: string;
+  bookingId: string | null;
+  folioId: string | null;
+  number: string;
+  kind: InvoiceKind;
+  profile: InvoiceProfile;
+  status: 'draft' | 'issued' | 'paid' | 'void';
+  amount: string;
+  currency: string;
+  invoiceDate: string | null;
+  issuedAt: string;
+  creditedAt: string | null;
+  originalInvoiceId: string | null;
+  payerName: string | null;
+  bookingReference: string | null;
+  title: string;
+}
+
+export interface Invoice extends Omit<InvoiceRow, 'payerName' | 'bookingReference'> {
+  supplier: InvoiceParty | null;
+  payer: InvoiceParty | null;
+  placeOfSupply: string | null;
+  fiscalYear: string | null;
+  supplyDate: string | null;
+  subtotal: string | null;
+  taxTotal: string | null;
+  rounding: string;
+  taxSummary: InvoiceTaxTotal[] | null;
+  /** A foreign-currency invoice's rate to the local currency (`fxQuote`) on the invoice date. */
+  fxRate: string | null;
+  fxQuote: string | null;
+  creditReason: string | null;
+  notes: string | null;
+  booking: { reference: string; checkin: string; checkout: string; guestName: string } | null;
+  original: { id: string; number: string } | null;
+  creditNotes: Array<{ id: string; number: string; creditReason: string | null }>;
+  lines: InvoiceLine[];
+}
+
+export interface IssueInvoiceInput {
+  /** What the desk types at the counter — a company's name and tax number for the invoice. */
+  payer?: Partial<InvoiceParty>;
+  notes?: string;
+}
+
+/** Invoice a folio window: a tax invoice and a bill in Sri Lanka, one invoice elsewhere. */
+export function issueFolioInvoice(
+  folioId: string,
+  body: IssueInvoiceInput = {},
+): Promise<{ documents: Invoice[] }> {
+  return apiFetch(`/folios/${folioId}/invoice`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Invoice a booking's own bill, opening it if the stay never had one. */
+export function issueBookingInvoice(
+  bookingId: string,
+  body: IssueInvoiceInput = {},
+): Promise<{ documents: Invoice[] }> {
+  return apiFetch(`/bookings/${bookingId}/invoices`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createProforma(bookingId: string, body: IssueInvoiceInput = {}): Promise<Invoice> {
+  return apiFetch(`/bookings/${bookingId}/proforma`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createCreditNote(invoiceId: string, reason: string): Promise<Invoice> {
+  return apiFetch(`/invoices/${invoiceId}/credit-note`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function listInvoices(
+  query: {
+    propertyId?: string;
+    bookingId?: string;
+    folioId?: string;
+    kind?: InvoiceKind;
+    from?: string;
+    to?: string;
+  } = {},
+): Promise<InvoiceRow[]> {
+  const q = new URLSearchParams(
+    Object.entries(query).filter(([, v]) => Boolean(v)) as [string, string][],
+  ).toString();
+  return apiFetch(`/invoices${q ? `?${q}` : ''}`);
+}
+
+export function getInvoice(id: string): Promise<Invoice> {
+  return apiFetch(`/invoices/${id}`);
+}
+
+export interface DocumentSeries {
+  profile: InvoiceProfile;
+  date: string;
+  series: Array<{ docType: string; period: string; nextValue: number; updatedAt: string }>;
+  /** What the next document of each kind would be numbered today. */
+  next: Array<{ docType: string; period: string; number: string }>;
+}
+
+export function getDocumentSequences(propertyId: string): Promise<DocumentSeries> {
+  return apiFetch(`/properties/${propertyId}/document-sequences`);
+}
+
+export function setDocumentSequence(
+  propertyId: string,
+  body: { docType: string; period: string; nextValue: number },
+): Promise<{ docType: string; period: string; nextValue: number }> {
+  return apiFetch(`/properties/${propertyId}/document-sequences`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+// --- The booking voucher and the guest page (Phase 02, Sprint 6) --------------------------
+
+export interface VoucherPreview {
+  reference: string;
+  subject: string;
+  body: string;
+  /** The guest and any addresses the reservation asked for. */
+  recipients: string[];
+  whatsappUrl: string;
+  link: { url: string; expiresAt: string } | null;
+}
+
+export function previewVoucher(bookingId: string): Promise<VoucherPreview> {
+  return apiFetch(`/reservations/${bookingId}/voucher/preview`, { method: 'POST' });
+}
+
+export function sendVoucher(
+  bookingId: string,
+  emails: string[],
+): Promise<{ queued: number; recipients: string[] }> {
+  return apiFetch(`/reservations/${bookingId}/voucher/send`, {
+    method: 'POST',
+    body: JSON.stringify({ emails }),
+  });
+}
+
+export function createVoucherLink(bookingId: string): Promise<{
+  url: string;
+  token: string;
+  expiresAt: string;
+  created: boolean;
+  whatsappUrl: string;
+}> {
+  return apiFetch(`/reservations/${bookingId}/voucher/link`, { method: 'POST' });
+}
+
+export function revokeVoucherLink(bookingId: string): Promise<{ revoked: number }> {
+  return apiFetch(`/reservations/${bookingId}/voucher/link`, { method: 'DELETE' });
+}
+
+/** The guest booking page — no login; the token in the link is the key. */
+export interface GuestBookingPage {
+  reference: string;
+  status: string;
+  guestFirstName: string;
+  property: {
+    name: string;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    mapUrl: string | null;
+    whatsappUrl: string | null;
+  };
+  checkin: string;
+  checkout: string;
+  checkinTime: string;
+  checkoutTime: string;
+  nights: number;
+  rooms: Array<{ roomType: string; mealPlan: string | null; adults: number; children: number }>;
+  currency: string;
+  total: string;
+  paid: string;
+  balance: string;
+}
+
+export function getGuestBookingPage(token: string): Promise<GuestBookingPage> {
+  return apiFetch(`/public/vouchers/${token}`);
 }
 
 export interface TransportMode {

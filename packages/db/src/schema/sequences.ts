@@ -20,7 +20,7 @@ export const documentSequences = pgTable(
     propertyId: uuid('property_id')
       .notNull()
       .references(() => properties.id, { onDelete: 'cascade' }),
-    /** receipt | invoice | credit_note | proforma */
+    /** receipt | tax_invoice | invoice | bill | credit_note | proforma */
     docType: text('doc_type').notNull(),
     /** The numbering period: a year (`2026`), a fiscal year (`26-27`), or `all`. */
     period: text('period').notNull(),

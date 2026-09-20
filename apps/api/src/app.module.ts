@@ -28,6 +28,7 @@ import { ProfileModule } from './profile/profile.module';
 import { MediaModule } from './media/media.module';
 import { FilesModule } from './files/files.module';
 import { ReservationsModule } from './reservations/reservations.module';
+import { VouchersModule } from './vouchers/vouchers.module';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthController } from './health/health.controller';
 
@@ -62,6 +63,7 @@ import { HealthController } from './health/health.controller';
     FxModule,
     ConfigurationModule,
     ReservationsModule,
+    VouchersModule,
   ],
   controllers: [HealthController],
 })

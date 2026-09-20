@@ -228,6 +228,10 @@ CREATE POLICY tenant_isolation ON reviews
 -- review_invites deliberately has NO RLS (like cm_room_mappings): a guest submitting a review
 -- has no tenant context; the unguessable 128-bit token IS the authorization and resolves the
 -- tenant. The service only ever reads by exact token.
+--
+-- voucher_tokens (Development Phase 02, Sprint 6) likewise has NO RLS, for the same reason: the
+-- guest booking page is opened by a guest with no tenant context. The public route reads it by
+-- exact token only; everything the page shows is then read under the token's tenant.
 
 ALTER TABLE ari_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON ari_history;

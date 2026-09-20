@@ -32,7 +32,11 @@ export class FinanceService {
       const [b] = await tx.select().from(bookings).where(eq(bookings.id, bookingId));
       if (!b) throw new NotFoundException('Booking not found');
 
-      const [existing] = await tx.select().from(invoices).where(eq(invoices.bookingId, bookingId));
+      // The one-per-booking INV-<reference>; a booking's tax invoices are separate documents.
+      const [existing] = await tx
+        .select()
+        .from(invoices)
+        .where(and(eq(invoices.bookingId, bookingId), eq(invoices.kind, 'legacy')));
       if (existing) {
         const lines = await tx
           .select()
@@ -74,20 +78,7 @@ export class FinanceService {
     });
   }
 
-  listInvoices(tenantId: string) {
-    return this.dbs.withTenant(tenantId, (tx) =>
-      tx.select().from(invoices).orderBy(desc(invoices.issuedAt)),
-    );
-  }
-
-  getInvoice(tenantId: string, id: string) {
-    return this.dbs.withTenant(tenantId, async (tx) => {
-      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, id));
-      if (!inv) throw new NotFoundException('Invoice not found');
-      const lines = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, id));
-      return { ...inv, lines };
-    });
-  }
+  // Listing and reading invoices: InvoicesService (Development Phase 02, Sprint 6).
 
   // --- Payments ---------------------------------------------------------------
 
@@ -128,6 +119,8 @@ export class FinanceService {
               window: 1,
               label: 'Guest',
               currency: b.currency,
+              payerType: 'guest',
+              payerCustomerId: b.customerId,
             })
             .onConflictDoNothing({ target: [folios.bookingId, folios.window] })
             .returning();
@@ -163,7 +156,10 @@ export class FinanceService {
               eq(payments.currency, b.currency),
             ),
           );
-        const [inv] = await tx.select().from(invoices).where(eq(invoices.bookingId, bookingId));
+        const [inv] = await tx
+          .select()
+          .from(invoices)
+          .where(and(eq(invoices.bookingId, bookingId), eq(invoices.kind, 'legacy')));
         if (
           inv &&
           inv.status !== 'paid' &&

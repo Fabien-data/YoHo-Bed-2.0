@@ -109,6 +109,8 @@ run('tenant isolation (RLS)', () => {
       'outbox',
       // A guest leaving a review has no tenant context; the token is the key.
       'review_invites',
+      // The guest booking page, likewise: the token is the key.
+      'voucher_tokens',
     ]);
   });
 });

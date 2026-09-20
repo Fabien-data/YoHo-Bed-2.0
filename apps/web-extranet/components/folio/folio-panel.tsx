@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowsLeftRight,
@@ -33,6 +34,8 @@ import {
 import {
   ApiError,
   closeFolioWindow,
+  issueFolioInvoice,
+  listInvoices,
   openPrivateFile,
   getBookingFolio,
   listChargeParticulars,
@@ -46,6 +49,7 @@ import {
   type FolioPaymentRow,
   type FolioWindow,
 } from '@/lib/api';
+import Link from 'next/link';
 import { usePaymentMethods } from '@/lib/queries';
 import {
   PaymentFields,
@@ -184,6 +188,27 @@ function WindowView({
   const [adding, setAdding] = React.useState(false);
   const [paying, setPaying] = React.useState(false);
   const closed = w.status !== 'open';
+  const router = useRouter();
+  const qc = useQueryClient();
+
+  // What this window has been invoiced with: a tax invoice and a bill, or one invoice.
+  const documents = useQuery({
+    queryKey: ['invoices', 'folio', w.id],
+    queryFn: () => listInvoices({ folioId: w.id }),
+  });
+  const live = (documents.data ?? []).filter((d) => !d.creditedAt && d.kind !== 'credit_note');
+  const invoice = useMutation({
+    mutationFn: () => issueFolioInvoice(w.id),
+    onSuccess: (r) => {
+      const numbers = r.documents.map((d) => d.number).join(' and ');
+      toast.success(`Issued ${numbers}`);
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      onChanged();
+      router.push(`/app/invoices/${r.documents[0]!.id}`);
+    },
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? e.message : 'The invoice could not be issued.'),
+  });
 
   const voidLine = useMutation({
     mutationFn: (id: string) => voidFolioCharge(id),
@@ -306,6 +331,18 @@ function WindowView({
             <Wallet size={14} />
             Take payment
           </Button>
+          {live.length === 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => invoice.mutate()}
+              loading={invoice.isPending}
+              disabled={invoice.isPending}
+            >
+              <Receipt size={14} />
+              Invoice
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -337,6 +374,26 @@ function WindowView({
           }}
         />
       )}
+      {(documents.data?.length ?? 0) > 0 && (
+        <ul className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-ink-3">Documents:</span>
+          {documents.data!.map((d) => (
+            <li key={d.id}>
+              <Link
+                href={`/app/invoices/${d.id}`}
+                className={cn(
+                  'rounded-md border border-line-strong px-2 py-1 font-mono transition duration-1 hover:border-ink-3',
+                  d.creditedAt && 'text-ink-3 line-through',
+                )}
+                title={d.title}
+              >
+                {d.number}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {close.isError && <p className="text-sm text-closed-ink">{(close.error as Error).message}</p>}
     </div>
   );

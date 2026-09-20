@@ -24,6 +24,7 @@ import {
 } from '@/lib/api';
 import { todayISO, firstOfMonth, monthDays, addMonths, monthYear } from '@/lib/format';
 import { useMoney } from '@/components/currency';
+import { RecentInvoices } from '@/components/invoices/recent-invoices';
 
 export default function FinancePage() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -245,6 +246,8 @@ export default function FinancePage() {
           )}
         </Card>
       </div>
+
+      <RecentInvoices propertyId={propertyId} />
     </div>
   );
 }

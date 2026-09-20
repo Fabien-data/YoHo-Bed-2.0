@@ -232,8 +232,37 @@ of each type (you are told if that room is marked dirty).
 - **⋮ on a row**: open, confirm, check in or out, assign a room, registration card, release a
   hold, no-show, cancel — whichever apply. Clicking a guest opens the reservation: its money, the
   other guests in the room, inclusions and transfers (**Mark done** charges a transfer; **Cancel**
-  takes the charge back), remarks, tasks, ID documents and (Pro) the folio — which shows who each
-  bill is for, and every payment with its receipt number and slip.
+  takes the charge back), remarks, tasks, ID documents, the voucher and invoices, and (Pro) the
+  folio — which shows who each bill is for, and every payment with its receipt number and slip.
+
+### Sending the voucher and the guest's own page
+
+Open a reservation and look for **Voucher and guest page**:
+
+- **Send voucher** shows the email exactly as the guest will get it, already addressed to them and
+  to any addresses the reservation asked for. Each address gets its own email. Change the wording
+  under Comms → Templates.
+- **Create guest link** makes a page the guest can open with no login — their dates, rooms, what is
+  paid and still due, and how to reach you. The link is copied for you to paste into WhatsApp or an
+  email; **WhatsApp** opens a chat with the message ready. **Close link** shuts the page again: the
+  link then says it is no longer valid. A link closes itself 30 days after check-out.
+- The guest page never shows their email, phone or ID, and search engines are told to ignore it.
+
+### Invoices
+
+The **Invoices** block on a reservation, and the **Invoice** button on each folio window, issue the
+document. In Sri Lanka, a hotel that has entered its **TIN** (Configuration → Property profile)
+issues a **TAX INVOICE** for everything carrying VAT and a separate **BILL** for anything that does
+not — that is what the 2026 gazette requires. Everywhere else it is one **INVOICE**.
+
+- **Pro-forma** quotes the stay before it happens: nights, inclusions and transfers. It is not a tax
+  document and has its own numbering.
+- A bill is invoiced **once**. An issued invoice is never edited or deleted — if something is wrong,
+  open it and press **Credit note**, give the reason, and the bill can be invoiced again.
+- Numbering is gap-free per hotel. **Configuration → Property profile → Document numbering** shows
+  the next number of each series, and lets the owner continue the numbering of a system you are
+  moving from (forward only).
+- **Finance → Invoices & credit notes** lists everything issued; click a number to open or print it.
 - **Make group** (select two or more) and, in the group view, **Merge groups** before anyone has
   arrived. Opening a group card lists its rooms.
 - **Export** downloads every row of the tab as a spreadsheet file, not just the page on screen.

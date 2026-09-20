@@ -2,7 +2,17 @@ import { sql } from 'drizzle-orm';
 import { documentSequences } from './schema';
 import type { Tx } from './scope';
 
-export type DocumentType = 'receipt' | 'invoice' | 'credit_note' | 'proforma';
+export type DocumentType =
+  'receipt' | 'tax_invoice' | 'invoice' | 'bill' | 'credit_note' | 'proforma';
+
+export const DOCUMENT_TYPES: readonly DocumentType[] = [
+  'receipt',
+  'tax_invoice',
+  'invoice',
+  'bill',
+  'credit_note',
+  'proforma',
+];
 
 /**
  * Take the next number of a property's document series, inside the caller's transaction.
