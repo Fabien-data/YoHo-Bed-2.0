@@ -434,6 +434,26 @@ created, in place of the plain confirmation to those addresses. "Send email at c
 Room View and the House Status grid share one code path — they are the same data rendered two
 ways, so the two screens cannot disagree about whether room 05 is dirty.
 
+Room View also exposes room attributes (`smokingPolicy`, `wheelchairAccessible`,
+`connectedRoomUnitId`), map coordinates, separate front-desk and housekeeping states, cleaning
+task/assignee, work-order count, next arrival, booking source, meal plan, group and move signals.
+The guest-requested safety flag is returned only to Owner and Owner Staff. Housekeeping roles receive
+operational room data without reservation identifiers, email, reference, source, or payment status.
+
+| Method & path                                         | Auth                                       | Purpose                                                                                                     |
+| ----------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `GET /room-updates?propertyId&date`                   | JWT+Tenant+room_view                       | Server-sent room changes and a three-second refresh signal; clients reconnect and poll if the stream fails. |
+| `GET` / `PUT /properties/:propertyId/floor-layouts`   | JWT+Tenant+room_view; PUT Owner/Supervisor | Read or version-save room positions and floor landmarks. Missing layouts use the automatic corridor.        |
+| `GET /properties/:propertyId/housekeeping/tasks?date` | JWT+Tenant+housekeeping                    | Date queue, scoped to the assigned attendant where applicable.                                              |
+| `PATCH /housekeeping/tasks/:id`                       | JWT+Tenant+housekeeping                    | Assign, rush, start, complete, or cancel a task; supervisors/owners manage assignment and inspection.       |
+| `PATCH /bookings/:id/room-signals`                    | JWT+Tenant; Owner/Owner Staff              | Explicit DND and guest-requested safety signal.                                                             |
+
+The property-local 02:00 sweep creates one stayover task per occupied room and date, resets its
+condition to Dirty once, and reconciles arrival-preparation tasks with current assignments and VIP
+priority. Checkout dirties the departed room in the same transaction. Task completion sets Clean;
+only an Owner or housekeeping supervisor may approve Inspected after Clean. Dated maintenance blocks
+remain separate from housekeeping condition and update availability through the inventory outbox.
+
 **Entitlements.** Housekeeping is in every plan; even a one-property Starter hotel has to clean
 rooms. Work orders are Pro and above, so those three routes carry their own `@Feature` —
 method-level metadata overrides the controller default in `EntitlementGuard`.

@@ -68,6 +68,80 @@ export async function sweepStayoverCleaning(
   return created;
 }
 
+/** Reconcile the day's arrival queue with the current room assignments and VIP flags. */
+export async function reconcileArrivalPreparation(
+  tx: Tx,
+  tenantId: string,
+  propertyId: string,
+  date: string,
+) {
+  const arrivals = await tx
+    .select({ roomUnitId: bookingRooms.roomUnitId, bookingId: bookings.id, vip: customers.vip })
+    .from(bookingRooms)
+    .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+    .innerJoin(customers, eq(customers.id, bookings.customerId))
+    .where(
+      and(
+        eq(bookings.propertyId, propertyId),
+        isNull(bookingRooms.releasedAt),
+        eq(bookingRooms.checkin, date),
+        sql`${bookings.status} in ('Pending', 'Approved')`,
+      ),
+    );
+  const byRoom = new Map(arrivals.filter((a) => a.roomUnitId).map((a) => [a.roomUnitId!, a]));
+  const existing = await tx
+    .select()
+    .from(housekeepingTasks)
+    .where(
+      and(
+        eq(housekeepingTasks.propertyId, propertyId),
+        eq(housekeepingTasks.date, date),
+        eq(housekeepingTasks.kind, 'arrival_prep'),
+      ),
+    );
+  for (const task of existing) {
+    if (!byRoom.has(task.roomUnitId) && task.status !== 'cancelled' && task.status !== 'done') {
+      await tx
+        .update(housekeepingTasks)
+        .set({ status: 'cancelled', updatedAt: new Date() })
+        .where(eq(housekeepingTasks.id, task.id));
+    }
+  }
+  let created = 0;
+  for (const [roomUnitId, arrival] of byRoom) {
+    const previous = existing.find((task) => task.roomUnitId === roomUnitId);
+    if (!previous) created++;
+    await tx
+      .insert(housekeepingTasks)
+      .values({
+        tenantId,
+        propertyId,
+        roomUnitId,
+        date,
+        kind: 'arrival_prep',
+        bookingId: arrival.bookingId,
+        rush: arrival.vip,
+      })
+      .onConflictDoUpdate({
+        target: [housekeepingTasks.roomUnitId, housekeepingTasks.date, housekeepingTasks.kind],
+        set: {
+          bookingId: arrival.bookingId,
+          rush: arrival.vip,
+          status:
+            previous?.bookingId === arrival.bookingId && previous.status !== 'cancelled'
+              ? previous.status
+              : 'queued',
+          completedAt:
+            previous?.bookingId === arrival.bookingId && previous.status === 'done'
+              ? previous.completedAt
+              : null,
+          updatedAt: new Date(),
+        },
+      });
+  }
+  return created;
+}
+
 /** Called inside check-out's transaction so the room and task change together. */
 export async function enqueueDepartureCleaning(
   tx: Tx,
@@ -228,14 +302,17 @@ export async function applyPlannedRoomMoves(
 export async function sweepHousekeeping(db: Database, at: Date = new Date()) {
   const due = await housekeepingDueProperties(db, at);
   let created = 0;
+  let arrivals = 0;
   let moved = 0;
   for (const p of due) {
     const result = await withTenant(db, p.tenantId, async (tx) => ({
       created: await sweepStayoverCleaning(tx, p.tenantId, p.propertyId, p.localDate),
+      arrivals: await reconcileArrivalPreparation(tx, p.tenantId, p.propertyId, p.localDate),
       moved: await applyPlannedRoomMoves(tx, p.tenantId, p.propertyId, p.localDate),
     }));
     created += result.created;
+    arrivals += result.arrivals;
     moved += result.moved;
   }
-  return { properties: due.length, created, moved };
+  return { properties: due.length, created, arrivals, moved };
 }

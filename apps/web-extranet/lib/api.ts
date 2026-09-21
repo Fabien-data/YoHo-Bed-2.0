@@ -941,9 +941,11 @@ export interface RoomCard {
   connectedRoomUnitId: string | null;
   unitStatus: 'active' | 'inactive';
   state: RoomState;
+  frontDeskLabel: string;
   housekeeping: HousekeepingState;
   remarks: string | null;
   assignedTo: string | null;
+  assignedToName: string | null;
   guestName: string | null;
   guestEmail: string | null;
   bookingId: string | null;
@@ -962,6 +964,10 @@ export interface RoomCard {
   doNotDisturb: boolean;
   requestedSafetyFlag: boolean;
   groupBooking: boolean;
+  groupOwner: boolean;
+  splitReservation: boolean;
+  plannedMove: boolean;
+  dayUse: boolean;
   mealPlan: string | null;
   nextReservation: { guestName: string; checkin: string } | null;
   cleaningTask: { id: string; status: string; rush: boolean; kind: string } | null;

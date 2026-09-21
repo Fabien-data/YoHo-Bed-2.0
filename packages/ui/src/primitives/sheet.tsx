@@ -43,6 +43,8 @@ export interface SheetContentProps extends React.ComponentPropsWithoutRef<
   footer?: React.ReactNode;
   /** Rendered on the header row, right of the title — for actions like Export or Audit Trail. */
   headerActions?: React.ReactNode;
+  /** Keep the workspace usable behind a non-modal sheet. */
+  showOverlay?: boolean;
   wide?: boolean;
   /**
    * `half`: half the screen on a desktop — Yanolja's Quick Reservation, wide enough for a room
@@ -62,6 +64,7 @@ export const SheetContent = React.forwardRef<
     hideTitle,
     footer,
     headerActions,
+    showOverlay = true,
     wide,
     size = 'default',
     className,
@@ -72,14 +75,16 @@ export const SheetContent = React.forwardRef<
 ) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay
-        className={cn(
-          'fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]',
-          'data-[state=open]:animate-in data-[state=open]:fade-in-0',
-          'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
-          'data-[state=open]:duration-3 data-[state=closed]:duration-2',
-        )}
-      />
+      {showOverlay && (
+        <DialogPrimitive.Overlay
+          className={cn(
+            'fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]',
+            'data-[state=open]:animate-in data-[state=open]:fade-in-0',
+            'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
+            'data-[state=open]:duration-3 data-[state=closed]:duration-2',
+          )}
+        />
+      )}
       <DialogPrimitive.Content
         ref={ref}
         className={cn(

@@ -154,12 +154,15 @@ test.describe('Quick Reservation', () => {
   });
 
   test('will not reserve without a guest, and says why', async ({ page }) => {
+    const { checkin } = await findStay(page, 1, 1);
     const posts: string[] = [];
     page.on('request', (r) => {
       if (r.url().endsWith('/reservations') && r.method() === 'POST') posts.push(r.url());
     });
     await page.getByRole('button', { name: 'New reservation' }).first().click();
     const sheet = sheetOf(page);
+    await sheet.getByLabel('Check-in date').fill(dmy(checkin));
+    await sheet.getByLabel('Check-in date').press('Tab');
     await sheet.getByRole('combobox', { name: 'Room type, room 1' }).click();
     await page.getByRole('option').first().click();
     await sheet.getByRole('button', { name: 'Reserve' }).click();
