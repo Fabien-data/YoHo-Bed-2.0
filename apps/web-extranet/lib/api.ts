@@ -34,13 +34,23 @@ export interface Property {
   /** Base currency the property prices/settles in. */
   currency?: CurrencyCode;
   code?: string | null;
+  propertyType?: string | null;
   legalName?: string | null;
   address?: string | null;
+  addressLine2?: string | null;
   city?: string | null;
   state?: string | null;
   zip?: string | null;
   phone?: string | null;
+  reservationPhone?: string | null;
   email?: string | null;
+  website?: string | null;
+  fax?: string | null;
+  registrationNumber?: string | null;
+  additionalRegistrationNumbers?: string[];
+  latitude?: number | null;
+  longitude?: number | null;
+  logoMediaId?: string | null;
   /** ISO 3166-1 alpha-2; selects the regional preset. */
   countryCode?: string;
   /** ISO subdivision (LK/MY) or GST state code (IN). */
@@ -167,6 +177,25 @@ export function resetPassword(token: string, password: string): Promise<{ messag
     method: 'POST',
     body: JSON.stringify({ token, password }),
   });
+}
+
+export type OperationalRole = 'OWNER_STAFF' | 'HOUSEKEEPING_ATTENDANT' | 'HOUSEKEEPING_SUPERVISOR';
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  status: 'active' | 'invited' | 'disabled';
+  role: 'OWNER' | OperationalRole;
+  createdAt: string;
+}
+export function listTeamMembers(): Promise<TeamMember[]> {
+  return apiFetch('/auth/staff');
+}
+export function inviteTeamMember(body: { name: string; email: string; role: OperationalRole }): Promise<TeamMember> {
+  return apiFetch('/auth/staff', { method: 'POST', body: JSON.stringify(body) });
+}
+export function updateTeamMember(id: string, body: { role?: OperationalRole; status?: 'active' | 'disabled' }): Promise<TeamMember> {
+  return apiFetch(`/auth/staff/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function changePassword(
@@ -545,6 +574,10 @@ export function bookingTransition(
   });
 }
 
+export function voidBooking(id: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/void`, { method: 'POST' });
+}
+
 export function amendBooking(
   id: string,
   body: {
@@ -770,6 +803,36 @@ export function autoAssignRooms(
   return apiFetch(`/bookings/${bookingId}/auto-assign`, { method: 'POST' });
 }
 
+export interface RoomMove {
+  id: string;
+  bookingId: string;
+  legId: string;
+  fromRoomUnitId: string;
+  toRoomUnitId: string;
+  effectiveDate: string;
+  status: 'planned' | 'completed' | 'stopped';
+  createdAt: string;
+}
+
+export function listRoomMoves(bookingId: string): Promise<RoomMove[]> {
+  return apiFetch(`/bookings/${bookingId}/room-moves`);
+}
+
+export function moveRoom(
+  bookingId: string,
+  body: { legId: string; toRoomUnitId: string; effectiveDate?: string },
+): Promise<RoomMove> {
+  return apiFetch(`/bookings/${bookingId}/room-move`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function exchangeRooms(legId: string, otherLegId: string): Promise<RoomMove[]> {
+  return apiFetch('/room-moves/exchange', { method: 'POST', body: JSON.stringify({ legId, otherLegId }) });
+}
+
+export function stopRoomMove(id: string): Promise<RoomMove> {
+  return apiFetch(`/room-moves/${id}/stop`, { method: 'POST' });
+}
+
 export interface RoomUnit {
   id: string;
   propertyId: string;
@@ -779,11 +842,28 @@ export interface RoomUnit {
   displayOrder: number;
   floor: string | null;
   notes: string | null;
+  smokingPolicy: 'unspecified' | 'smoking' | 'non_smoking';
+  wheelchairAccessible: boolean;
+  connectedRoomUnitId: string | null;
+  mapX: number | null;
+  mapY: number | null;
   status: 'active' | 'inactive';
 }
 
 export function listRoomUnits(propertyId: string): Promise<RoomUnit[]> {
   return apiFetch<RoomUnit[]>(`/properties/${propertyId}/room-units`);
+}
+
+export function createRoomUnit(propertyId: string, body: {
+  roomId: string; code: string; floor?: string; smokingPolicy?: RoomUnit['smokingPolicy'];
+  wheelchairAccessible?: boolean; connectedRoomUnitId?: string | null;
+}): Promise<RoomUnit> {
+  return apiFetch(`/properties/${propertyId}/room-units`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateRoomUnit(id: string, body: Partial<Pick<RoomUnit,
+  'code' | 'floor' | 'notes' | 'smokingPolicy' | 'wheelchairAccessible' | 'connectedRoomUnitId' | 'status'>>): Promise<RoomUnit> {
+  return apiFetch(`/room-units/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function createBlock(
@@ -818,13 +898,21 @@ export interface RoomCard {
   roomId: string;
   roomName: string;
   floor: string | null;
+  mapX: number | null;
+  mapY: number | null;
+  smokingPolicy: 'unspecified' | 'smoking' | 'non_smoking';
+  wheelchairAccessible: boolean;
+  connectedRoomUnitId: string | null;
   unitStatus: 'active' | 'inactive';
   state: RoomState;
   housekeeping: HousekeepingState;
   remarks: string | null;
   assignedTo: string | null;
   guestName: string | null;
+  guestEmail: string | null;
   bookingId: string | null;
+  legId: string | null;
+  bookingStatus: BookingStatus | null;
   reference: string | null;
   checkin: string | null;
   checkout: string | null;
@@ -835,6 +923,42 @@ export interface RoomCard {
   source: string | null;
   blockReason: string | null;
   openWorkOrders: number;
+  doNotDisturb: boolean;
+  requestedSafetyFlag: boolean;
+  groupBooking: boolean;
+  mealPlan: string | null;
+  nextReservation: { guestName: string; checkin: string } | null;
+  cleaningTask: { id: string; status: string; rush: boolean; kind: string } | null;
+}
+
+export interface FloorLayout {
+  id: string;
+  floor: string;
+  version: number;
+  landmarks: Array<{ id: string; kind: 'corridor' | 'lift' | 'stairs' | 'service'; x: number; y: number; label?: string }>;
+}
+export function listFloorLayouts(propertyId: string): Promise<FloorLayout[]> {
+  return apiFetch(`/properties/${propertyId}/floor-layouts`);
+}
+export function saveFloorLayout(propertyId: string, body: {
+  floor: string; expectedVersion: number | null;
+  rooms: Array<{ unitId: string; x: number; y: number }>;
+  landmarks: FloorLayout['landmarks'];
+}): Promise<FloorLayout> {
+  return apiFetch(`/properties/${propertyId}/floor-layouts`, { method: 'PUT', body: JSON.stringify(body) });
+}
+export interface CleaningTask {
+  id: string; roomUnitId: string; code: string; kind: string; status: string;
+  rush: boolean; assignedToUserId: string | null; notes: string | null; guestName: string | null;
+}
+export function listCleaningTasks(propertyId: string, date: string): Promise<CleaningTask[]> {
+  return apiFetch(`/properties/${propertyId}/housekeeping/tasks?date=${date}`);
+}
+export function updateCleaningTask(id: string, body: { status?: string; rush?: boolean; assignedToUserId?: string | null; notes?: string | null }): Promise<CleaningTask> {
+  return apiFetch(`/housekeeping/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function setRoomSignals(bookingId: string, body: { doNotDisturb?: boolean; requestedSafetyFlag?: boolean }): Promise<unknown> {
+  return apiFetch(`/bookings/${bookingId}/room-signals`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export interface HouseSummary {
@@ -851,6 +975,46 @@ export interface HouseSummary {
 
 export function getRoomView(propertyId: string, date: string): Promise<RoomCard[]> {
   return apiFetch<RoomCard[]>(`/room-view?propertyId=${propertyId}&date=${date}`);
+}
+
+/**
+ * Authenticated SSE over fetch (native EventSource cannot attach the bearer token). It reconnects
+ * until the caller aborts; Room View also polls, so a proxy that buffers streams cannot stale it.
+ */
+export function subscribeRoomUpdates(
+  propertyId: string,
+  date: string,
+  onUpdate: () => void,
+): AbortController {
+  const controller = new AbortController();
+  const connect = async () => {
+    while (!controller.signal.aborted) {
+      try {
+        const token = getToken();
+        const res = await fetch(`${API_BASE}/room-updates?propertyId=${encodeURIComponent(propertyId)}&date=${encodeURIComponent(date)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) throw new Error(`Room update stream returned ${res.status}`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() ?? '';
+          if (events.some(event => event.split('\n').some(line => line.startsWith('data:')))) onUpdate();
+        }
+      } catch {
+        if (controller.signal.aborted) break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1_500));
+    }
+  };
+  void connect();
+  return controller;
 }
 
 export function getHouseSummary(propertyId: string, date: string): Promise<HouseSummary> {
@@ -1737,14 +1901,25 @@ export interface PropertyProfilePatch {
   name?: string;
   legalName?: string | null;
   code?: string | null;
+  propertyType?:
+    'Hotel' | 'Resort' | 'Guesthouse' | 'Villa' | 'Apartment' | 'Hostel' | 'Other' | null;
   countryCode?: string;
   stateCode?: string | null;
   state?: string | null;
   address?: string | null;
+  addressLine2?: string | null;
   city?: string | null;
   zip?: string | null;
   phone?: string | null;
+  reservationPhone?: string | null;
   email?: string | null;
+  website?: string | null;
+  fax?: string | null;
+  registrationNumber?: string | null;
+  additionalRegistrationNumbers?: string[];
+  latitude?: number | null;
+  longitude?: number | null;
+  logoMediaId?: string | null;
   timezone?: string;
   /** 'HH:MM' */
   checkinTime?: string;
@@ -3266,6 +3441,21 @@ export function sendVoucher(
     method: 'POST',
     body: JSON.stringify({ emails }),
   });
+}
+
+export async function fetchDocumentPdf(kind: 'voucher' | 'invoice', id: string): Promise<Blob> {
+  const path = kind === 'voucher' ? `/reservations/${id}/voucher/pdf` : `/invoices/${id}/pdf`;
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    endSessionIfTokenRejected(res.status, token);
+    throw new ApiError(res.status, 'Could not open the document');
+  }
+  return res.blob();
+}
+
+export function sendInvoice(id: string, emails: string[]): Promise<{ queued: number; recipients: string[] }> {
+  return apiFetch(`/invoices/${id}/send`, { method: 'POST', body: JSON.stringify({ emails }) });
 }
 
 export function createVoucherLink(bookingId: string): Promise<{

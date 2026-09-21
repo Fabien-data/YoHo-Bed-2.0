@@ -1,0 +1,2 @@
+ALTER TABLE "booking_rooms" DROP CONSTRAINT "booking_rooms_booking_leg_uq";--> statement-breakpoint
+ALTER TABLE "booking_rooms" ADD CONSTRAINT "booking_rooms_booking_leg_uq" UNIQUE("booking_id","leg_index","checkin");

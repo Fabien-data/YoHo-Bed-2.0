@@ -1,15 +1,21 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
-import { TenantId } from '../tenancy/decorators';
+import { CurrentUser, TenantId } from '../tenancy/decorators';
+import type { AuthPrincipal } from '../auth/dto';
+import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RoomUnitsService } from './room-units.service';
 import {
   assignRoomsSchema,
   createRoomUnitSchema,
+  exchangeRoomsSchema,
+  moveRoomSchema,
   updateRoomUnitSchema,
   type AssignRoomsDto,
   type CreateRoomUnitDto,
+  type ExchangeRoomsDto,
+  type MoveRoomDto,
   type UpdateRoomUnitDto,
 } from './dto';
 
@@ -42,7 +48,7 @@ export class PropertyRoomUnitsController {
 }
 
 @Controller()
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
 export class RoomUnitsController {
   constructor(private readonly units: RoomUnitsService) {}
 
@@ -76,5 +82,40 @@ export class RoomUnitsController {
   @HttpCode(200)
   autoAssign(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.units.autoAssign(tenantId, id);
+  }
+
+  @Get('bookings/:id/room-moves')
+  moves(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.units.listMoves(tenantId, id);
+  }
+
+  @Post('bookings/:id/room-move')
+  @HttpCode(200)
+  @TenantRoles('OWNER', 'OWNER_STAFF', 'HOUSEKEEPING_SUPERVISOR')
+  move(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(moveRoomSchema)) dto: MoveRoomDto,
+  ) {
+    return this.units.move(tenantId, id, user.sub, dto);
+  }
+
+  @Post('room-moves/exchange')
+  @HttpCode(200)
+  @TenantRoles('OWNER', 'OWNER_STAFF')
+  exchange(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Body(new ZodValidationPipe(exchangeRoomsSchema)) dto: ExchangeRoomsDto,
+  ) {
+    return this.units.exchange(tenantId, user.sub, dto);
+  }
+
+  @Post('room-moves/:id/stop')
+  @HttpCode(200)
+  @TenantRoles('OWNER', 'OWNER_STAFF', 'HOUSEKEEPING_SUPERVISOR')
+  stopMove(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.units.stopMove(tenantId, id);
   }
 }

@@ -734,6 +734,7 @@ bought, so support never demonstrates a module the customer cannot use.
 
 ### apps/web-extranet
 
-| Variable              | Default                 | Purpose                            |
-| --------------------- | ----------------------- | ---------------------------------- |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | Where the browser reaches the API. |
+| Variable                            | Default                 | Purpose                                                                                                                                                                                                                              |
+| ----------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_API_URL`               | `http://localhost:3001` | Where the browser reaches the API.                                                                                                                                                                                                   |
+| `NEXT_PUBLIC_GOOGLE_MAPS_EMBED_KEY` | unset                   | Google Maps Embed API key for the Property profile map preview. Restrict it to the web app's HTTP referrers and enable Maps Embed API. Without it, the profile offers an external Google Maps link. Set before building the web app. |

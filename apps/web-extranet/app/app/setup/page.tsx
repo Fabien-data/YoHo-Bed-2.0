@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   listProperties,
   createProperty,
@@ -34,6 +34,8 @@ import {
   toast,
 } from '@yohobed/ui';
 import { PhotoManager } from '@/components/photo-manager';
+import { PropertyProfileForm } from '@/components/configuration/property-profile-form';
+import { queryKeys, useTenantRole } from '@/lib/queries';
 
 function Section({
   step,
@@ -58,6 +60,8 @@ function Section({
 }
 
 export default function SetupPage() {
+  const qc = useQueryClient();
+  const role = useTenantRole();
   const [properties, setProperties] = useState<Property[]>([]);
   const [propertyId, setPropertyId] = useState('');
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -105,6 +109,14 @@ export default function SetupPage() {
     () => rooms.filter((r) => r.propertyId === propertyId),
     [rooms, propertyId],
   );
+
+  const refreshPropertyPhotos = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['property-photos', propertyId] }),
+      qc.invalidateQueries({ queryKey: queryKeys.properties }),
+    ]);
+    setProperties(await listProperties());
+  };
 
   async function selectProperty(pid: string) {
     setPropertyId(pid);
@@ -223,17 +235,21 @@ export default function SetupPage() {
               Add
             </Button>
           </form>
-          <Link
-            href="/app/configuration?tab=property"
-            className="mt-3 text-sm font-medium text-info-ink hover:underline"
-          >
-            Address, check-in times and tax registration →
-          </Link>
+          {propertyId && (
+            <a
+              href="#property-profile"
+              className="mt-3 text-sm font-medium text-info-ink hover:underline"
+            >
+              Edit property profile below ↓
+            </a>
+          )}
           {propertyId && (
             <PhotoManager
+              key={`${propertyId}:${properties.find((p) => p.id === propertyId)?.logoMediaId ?? ''}`}
               target="property"
               id={propertyId}
               label={properties.find((p) => p.id === propertyId)?.name ?? 'property'}
+              onChanged={refreshPropertyPhotos}
             />
           )}
         </Section>
@@ -388,6 +404,18 @@ export default function SetupPage() {
           )}
         </Section>
       </div>
+      {properties.find((p) => p.id === propertyId) && (
+        <div id="property-profile" className="mt-6 scroll-mt-6">
+          <h2 className="mb-3 text-lg font-semibold text-ink">Property profile</h2>
+          <PropertyProfileForm
+            property={properties.find((p) => p.id === propertyId)!}
+            canEdit={role === 'OWNER'}
+            onSaved={(updated) =>
+              setProperties((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+            }
+          />
+        </div>
+      )}
     </div>
   );
 }

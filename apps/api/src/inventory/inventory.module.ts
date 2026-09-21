@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { TenantGuard } from '../tenancy/tenant.guard';
+import { TenantRoleGuard } from '../common/tenant-role';
 import { InventoryService } from './inventory.service';
 import { RoomsService } from './rooms.service';
 import { RoomUnitsService } from './room-units.service';
@@ -18,7 +19,7 @@ import { PropertyRoomUnitsController, RoomUnitsController } from './room-units.c
     PropertyRoomUnitsController,
     RoomUnitsController,
   ],
-  providers: [InventoryService, RoomsService, RoomUnitsService, TenantGuard],
+  providers: [InventoryService, RoomsService, RoomUnitsService, TenantGuard, TenantRoleGuard],
   exports: [RoomUnitsService],
 })
 export class InventoryModule {}

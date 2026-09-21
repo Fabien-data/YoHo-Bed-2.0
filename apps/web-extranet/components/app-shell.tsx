@@ -91,6 +91,8 @@ export function AppShell({
   const { data: entitlements } = useEntitlements();
   const active = activeNavItem(pathname);
   const { openComposer } = useReservationComposer();
+  const tenantRole = user?.memberships.find(membership => membership.tenantId !== null)?.role;
+  const housekeepingUser = tenantRole === 'HOUSEKEEPING_ATTENDANT' || tenantRole === 'HOUSEKEEPING_SUPERVISOR';
 
   // Restore persisted UI state after mount (SSR renders the default).
   React.useEffect(() => {
@@ -144,7 +146,10 @@ export function AppShell({
 
   const visibleGroups = NAV.map((group) => ({
     ...group,
-    items: group.items.filter((i) => !i.feature || entitlements?.features[i.feature] !== false),
+    items: group.items.filter((i) =>
+      (!housekeepingUser || i.href === '/app/roomview' || i.href === '/app/profile') &&
+      (!i.feature || entitlements?.features[i.feature] !== false),
+    ),
   })).filter((g) => g.items.length > 0);
 
   const propertyIdentity = (
@@ -219,7 +224,7 @@ export function AppShell({
         </button>
 
         <div className="ml-auto flex items-center gap-0.5">
-          <Button
+          {!housekeepingUser && <Button
             variant="ghost"
             size="icon"
             onClick={() => setPaletteOpen(true)}
@@ -227,10 +232,10 @@ export function AppShell({
             className="md:hidden"
           >
             <MagnifyingGlass size={18} />
-          </Button>
+          </Button>}
 
           {/* Quick actions — the Yanolja icon strip, entitlement-filtered like the sidebar. */}
-          <div className="hidden items-center gap-0.5 lg:flex">
+          {!housekeepingUser && <div className="hidden items-center gap-0.5 lg:flex">
             <Tooltip label="New reservation (Alt+N)">
               <Button
                 variant="ghost"
@@ -253,10 +258,10 @@ export function AppShell({
               </Tooltip>
             ))}
             <span className="mx-1 h-5 w-px bg-line" aria-hidden />
-          </div>
+          </div>}
 
           {/* Quick Menu grid */}
-          <Popover>
+          {!housekeepingUser && <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Quick menu">
                 <DotsNine size={18} weight="bold" />
@@ -279,7 +284,7 @@ export function AppShell({
                 ))}
               </div>
             </PopoverContent>
-          </Popover>
+          </Popover>}
 
           <NotificationsBell />
           <ThemeToggle />
@@ -417,7 +422,7 @@ export function AppShell({
         </main>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {!housekeepingUser && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
     </div>
   );
 }

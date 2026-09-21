@@ -108,6 +108,12 @@ export class MediaService {
         .from(media)
         .where(and(eq(media.id, id), eq(media.tenantId, tenantId)));
       if (!m) throw new NotFoundException('Photo not found');
+      if (m.propertyId) {
+        await tx
+          .update(properties)
+          .set({ logoMediaId: null })
+          .where(and(eq(properties.id, m.propertyId), eq(properties.logoMediaId, m.id)));
+      }
       await tx.delete(media).where(eq(media.id, id));
       return m;
     });

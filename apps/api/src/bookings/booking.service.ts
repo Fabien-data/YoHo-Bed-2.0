@@ -27,10 +27,13 @@ import {
   referralPartners,
   referralCommissions,
   notifications,
+  payments,
+  invoices,
   messages,
   templates,
   reviewInvites,
   enqueueOutbox,
+  enqueueDepartureCleaning,
   type Tx,
 } from '@yohobed/db';
 import {
@@ -385,6 +388,53 @@ export class BookingService {
     return updated;
   }
 
+  /**
+   * Correct a reservation that should never have existed. This deliberately has a much narrower
+   * gate than cancellation: once money or an issued fiscal document exists, the audit-safe
+   * cancellation and credit flows must be used instead.
+   */
+  void(tenantId: string, id: string, actorUserId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
+      if (!b) throw new NotFoundException('Booking not found');
+      if (b.voidedAt) throw new ConflictException('This reservation is already voided');
+      if (b.status !== 'Pending' && b.status !== 'Approved') {
+        throw new ConflictException('Only a pre-arrival reservation can be voided');
+      }
+
+      const [money] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(payments)
+        .where(eq(payments.bookingId, id));
+      if ((money?.count ?? 0) > 0) {
+        throw new ConflictException('This reservation has a payment; cancel it and use the financial correction flow');
+      }
+
+      const [document] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(invoices)
+        .where(and(eq(invoices.bookingId, id), sql`${invoices.status} in ('issued', 'paid')`));
+      if ((document?.count ?? 0) > 0) {
+        throw new ConflictException('This reservation has an issued invoice; cancel it and use a credit note');
+      }
+
+      await this.giveRoomsBack(tx, b);
+      const [updated] = await tx
+        .update(bookings)
+        .set({ status: 'Cancelled', voidedAt: new Date(), updatedAt: new Date() })
+        .where(eq(bookings.id, id))
+        .returning();
+      await tx.insert(bookingApprovals).values({
+        tenantId,
+        bookingId: id,
+        action: 'voided',
+        reason: 'Owner correction: reservation voided before arrival',
+        actorUserId,
+      });
+      return updated;
+    });
+  }
+
   private transition(tenantId: string, id: string, kind: Transition, reason?: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
       this.transitionWithin(tx, tenantId, id, kind, reason),
@@ -468,6 +518,8 @@ export class BookingService {
     // Check-out settles with the city ledger: a company's or travel agent's window moves to its
     // account and a travel agent's commission is accrued (Pro, Development Phase 02).
     if (kind === 'check_out') {
+      const [property] = await tx.select({ timezone: properties.timezone }).from(properties).where(eq(properties.id, b.propertyId));
+      await enqueueDepartureCleaning(tx, tenantId, b.propertyId, b.id, localToday(property?.timezone));
       const { features } = await this.billing.entitlements(tenantId, tx);
       if (features.cashiering) await settleAtCheckout(tx, tenantId, updated!, null);
     }

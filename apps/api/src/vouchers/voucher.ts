@@ -280,6 +280,7 @@ export async function queueVoucher(
   v: Voucher,
   emails: string[],
   link: string | null,
+  pdf?: Buffer,
 ): Promise<number> {
   const unique = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
   if (unique.length === 0) return 0;
@@ -294,6 +295,7 @@ export async function queueVoucher(
       language: 'en',
       subject,
       body,
+      attachments: pdf ? [{ filename: `reservation-${v.reference}.pdf`, content: pdf.toString('base64') }] : null,
       status: 'queued' as const,
     })),
   );

@@ -8,6 +8,7 @@ import {
   timestamp,
   unique,
   check,
+  boolean,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { tenants, properties } from './identity';
@@ -87,6 +88,11 @@ export const roomUnits = pgTable(
     displayOrder: integer('display_order').notNull().default(0),
     floor: text('floor'),
     notes: text('notes'),
+    smokingPolicy: text('smoking_policy').notNull().default('unspecified'),
+    wheelchairAccessible: boolean('wheelchair_accessible').notNull().default(false),
+    connectedRoomUnitId: uuid('connected_room_unit_id'),
+    mapX: integer('map_x'),
+    mapY: integer('map_y'),
     status: roomUnitStatus('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

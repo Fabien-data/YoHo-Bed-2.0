@@ -68,6 +68,10 @@ export const updatePropertyProfileSchema = z
     name: z.string().trim().min(1).max(200).optional(),
     legalName: optionalText(200),
     code: optionalText(32),
+    propertyType: z
+      .enum(['Hotel', 'Resort', 'Guesthouse', 'Villa', 'Apartment', 'Hostel', 'Other'])
+      .nullable()
+      .optional(),
     countryCode: z
       .string()
       .trim()
@@ -77,10 +81,26 @@ export const updatePropertyProfileSchema = z
     stateCode: optionalText(10),
     state: optionalText(80),
     address: optionalText(300),
+    addressLine2: optionalText(300),
     city: optionalText(80),
     zip: optionalText(16),
     phone: optionalText(40),
+    reservationPhone: optionalText(40),
     email: z.string().trim().email().nullable().optional(),
+    website: z
+      .string()
+      .trim()
+      .url()
+      .max(300)
+      .refine((value) => /^https?:\/\//i.test(value), 'website must use http or https')
+      .nullable()
+      .optional(),
+    fax: optionalText(40),
+    registrationNumber: optionalText(80),
+    additionalRegistrationNumbers: z.array(z.string().trim().max(80)).max(4).optional(),
+    latitude: z.number().finite().min(-90).max(90).nullable().optional(),
+    longitude: z.number().finite().min(-180).max(180).nullable().optional(),
+    logoMediaId: z.string().uuid().nullable().optional(),
     timezone: z.string().refine(isValidTimeZone, 'unknown timezone').optional(),
     checkinTime: hhmm.optional(),
     checkoutTime: hhmm.optional(),

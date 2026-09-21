@@ -84,6 +84,9 @@ export const createRoomUnitSchema = z.object({
   displayOrder: z.number().int().min(0).optional(),
   floor: z.string().max(32).optional(),
   notes: z.string().max(500).optional(),
+  smokingPolicy: z.enum(['unspecified', 'smoking', 'non_smoking']).optional(),
+  wheelchairAccessible: z.boolean().optional(),
+  connectedRoomUnitId: z.string().uuid().nullable().optional(),
 });
 export type CreateRoomUnitDto = z.infer<typeof createRoomUnitSchema>;
 
@@ -93,6 +96,11 @@ export const updateRoomUnitSchema = z
     displayOrder: z.number().int().min(0).optional(),
     floor: z.string().max(32).nullable().optional(),
     notes: z.string().max(500).nullable().optional(),
+    smokingPolicy: z.enum(['unspecified', 'smoking', 'non_smoking']).optional(),
+    wheelchairAccessible: z.boolean().optional(),
+    connectedRoomUnitId: z.string().uuid().nullable().optional(),
+    mapX: z.number().int().min(0).max(1000).nullable().optional(),
+    mapY: z.number().int().min(0).max(1000).nullable().optional(),
     status: z.enum(['active', 'inactive']).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
@@ -110,3 +118,17 @@ export const assignRoomsSchema = z.object({
     .min(1),
 });
 export type AssignRoomsDto = z.infer<typeof assignRoomsSchema>;
+
+export const moveRoomSchema = z.object({
+  legId: z.string().uuid(),
+  toRoomUnitId: z.string().uuid(),
+  /** Today or omitted applies immediately; a later date creates a stoppable planned move. */
+  effectiveDate: isoDate.optional(),
+});
+export type MoveRoomDto = z.infer<typeof moveRoomSchema>;
+
+export const exchangeRoomsSchema = z.object({
+  legId: z.string().uuid(),
+  otherLegId: z.string().uuid(),
+}).refine(v => v.legId !== v.otherLegId, { message: 'choose two different room assignments' });
+export type ExchangeRoomsDto = z.infer<typeof exchangeRoomsSchema>;

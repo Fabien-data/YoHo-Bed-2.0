@@ -8,9 +8,11 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { z } from 'zod';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
@@ -18,6 +20,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { MailerService } from '../email/mailer.service';
 import type { AuthPrincipal } from '../auth/dto';
 import { VouchersService } from './vouchers.service';
+import { renderVoucherPdf } from './document-pdf';
 
 const uuid = new ParseUUIDPipe();
 
@@ -39,6 +42,16 @@ export class VouchersController {
   @HttpCode(200)
   preview(@TenantId() tenantId: string, @Param('id', uuid) id: string) {
     return this.vouchers.preview(tenantId, id);
+  }
+
+  @Get('pdf')
+  async pdf(@TenantId() tenantId: string, @Param('id', uuid) id: string, @Res() res: Response) {
+    const voucher = await this.vouchers.printable(tenantId, id);
+    const pdf = await renderVoucherPdf(voucher);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="reservation-${voucher.reference}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(pdf);
   }
 
   @Post('send')

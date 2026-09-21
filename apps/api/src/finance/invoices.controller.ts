@@ -7,9 +7,12 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { z } from 'zod';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
@@ -17,6 +20,8 @@ import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type { AuthPrincipal } from '../auth/dto';
 import { InvoicesService } from './invoices.service';
+import { MailerService } from '../email/mailer.service';
+import { renderInvoicePdf } from '../vouchers/document-pdf';
 import {
   creditNoteSchema,
   issueInvoiceSchema,
@@ -32,6 +37,7 @@ import {
 
 const uuid = new ParseUUIDPipe();
 const noBody = new ZodValidationPipe(issueInvoiceSchema);
+const sendInvoiceSchema = z.object({ emails: z.array(z.string().trim().email()).min(1).max(10) });
 
 /**
  * Invoices, pro-formas, credit notes and the document series (Development Phase 02, Sprint 6).
@@ -40,7 +46,7 @@ const noBody = new ZodValidationPipe(issueInvoiceSchema);
 @Controller()
 @UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
 export class InvoicesController {
-  constructor(private readonly invoices: InvoicesService) {}
+  constructor(private readonly invoices: InvoicesService, private readonly mailer: MailerService) {}
 
   @Post('folios/:id/invoice')
   @HttpCode(201)
@@ -98,6 +104,25 @@ export class InvoicesController {
   @Get('invoices/:id')
   detail(@TenantId() tenantId: string, @Param('id', uuid) id: string) {
     return this.invoices.detail(tenantId, id);
+  }
+
+  @Get('invoices/:id/pdf')
+  async pdf(@TenantId() tenantId: string, @Param('id', uuid) id: string, @Res() res: Response) {
+    const invoice = await this.invoices.detail(tenantId, id);
+    const pdf = await renderInvoicePdf(invoice);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${invoice.number}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(pdf);
+  }
+
+  @Post('invoices/:id/send')
+  @HttpCode(201)
+  async send(@TenantId() tenantId: string, @Param('id', uuid) id: string,
+    @Body(new ZodValidationPipe(sendInvoiceSchema)) dto: z.infer<typeof sendInvoiceSchema>) {
+    const result = await this.invoices.queueEmail(tenantId, id, dto.emails);
+    this.mailer.deliverQueuedSafe(tenantId);
+    return result;
   }
 
   @Get('properties/:id/document-sequences')

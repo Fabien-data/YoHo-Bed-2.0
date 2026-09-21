@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { StepUpController } from './step-up.controller';
 import { StepUpService } from './step-up.service';
+import { TenantRoleGuard } from '../common/tenant-role';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { StepUpService } from './step-up.service';
     }),
   ],
   controllers: [AuthController, StepUpController],
-  providers: [AuthService, JwtAuthGuard, TenantGuard, StepUpService],
+  providers: [AuthService, JwtAuthGuard, TenantGuard, TenantRoleGuard, StepUpService],
   exports: [JwtAuthGuard, JwtModule, StepUpService],
 })
 export class AuthModule {}

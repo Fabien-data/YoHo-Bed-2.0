@@ -53,6 +53,7 @@ export const bookingAction = pgEnum('booking_action', [
   'held',
   'released',
   'confirmed',
+  'voided',
 ]);
 
 export const customers = pgTable(
@@ -177,6 +178,7 @@ export const bookings = pgTable(
     /** Front-desk timestamps (Compartment G): set when the guest physically arrives/leaves. */
     checkedInAt: timestamp('checked_in_at', { withTimezone: true }),
     checkedOutAt: timestamp('checked_out_at', { withTimezone: true }),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
 
     /**
      * Yanolja's "Reservation Type" (Development Phase 02) — see RESERVATION_KINDS. A second axis
@@ -370,7 +372,9 @@ export const bookingRooms = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    bookingLegUnique: unique('booking_rooms_booking_leg_uq').on(t.bookingId, t.legIndex),
+    // A mid-stay room move splits one logical leg into dated segments. The original segment is
+    // retained, so room history and date-specific occupancy remain truthful.
+    bookingLegUnique: unique('booking_rooms_booking_leg_uq').on(t.bookingId, t.legIndex, t.checkin),
     paxValid: check(
       'booking_rooms_pax_valid',
       sql`${t.adults} >= 0 and ${t.children} >= 0 and ${t.extraBeds} >= 0`,

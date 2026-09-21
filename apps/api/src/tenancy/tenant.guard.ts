@@ -60,6 +60,36 @@ export class TenantGuard implements CanActivate {
 
     req.tenantId = active as string;
     req.role = membership.role;
+    if (
+      (membership.role === 'HOUSEKEEPING_ATTENDANT' || membership.role === 'HOUSEKEEPING_SUPERVISOR') &&
+      !this.housekeepingRouteAllowed(req.method, req.path, membership.role)
+    ) {
+      throw new ForbiddenException('This housekeeping account only has access to room operations');
+    }
     return true;
+  }
+
+  private housekeepingRouteAllowed(method: string, path: string, role: string): boolean {
+    const read = method === 'GET';
+    if (read && [
+      /^\/properties\/?$/,
+      /^\/profile\/?$/,
+      /^\/billing\/entitlements\/?$/,
+      /^\/room-view\/?$/,
+      /^\/room-updates\/?$/,
+      /^\/house-status\/summary\/?$/,
+      /^\/properties\/[^/]+\/floor-layouts\/?$/,
+      /^\/properties\/[^/]+\/housekeeping\/tasks\/?$/,
+      /^\/properties\/[^/]+\/work-orders\/?$/,
+      /^\/notifications(?:\/.*)?$/,
+    ].some(pattern => pattern.test(path))) return true;
+    if (read && role === 'HOUSEKEEPING_SUPERVISOR' && /^\/auth\/staff\/?$/.test(path)) return true;
+    if (method === 'PATCH' && (/^\/housekeeping\/tasks\/[^/]+\/?$/.test(path) || /^\/work-orders\/[^/]+\/?$/.test(path))) return true;
+    if (method === 'POST' && (/^\/properties\/[^/]+\/housekeeping\/?$/.test(path) || /^\/properties\/[^/]+\/housekeeping\/mark-departures-dirty\/?$/.test(path))) return true;
+    if (role === 'HOUSEKEEPING_SUPERVISOR') {
+      if (method === 'PUT' && /^\/properties\/[^/]+\/floor-layouts\/?$/.test(path)) return true;
+      if (method === 'POST' && /^\/properties\/[^/]+\/work-orders\/?$/.test(path)) return true;
+    }
+    return false;
   }
 }
