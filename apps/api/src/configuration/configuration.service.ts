@@ -9,6 +9,7 @@ import {
   bookings,
   businessSources,
   ledgerAccounts,
+  media,
   marketSegments,
   paymentMethods,
   properties,
@@ -48,6 +49,28 @@ export class ConfigurationService {
       const current = await this.loadProperty(tx, propertyId);
       const country = dto.countryCode ?? current.countryCode;
 
+      const latitude = dto.latitude === undefined ? current.latitude : dto.latitude;
+      const longitude = dto.longitude === undefined ? current.longitude : dto.longitude;
+      if ((latitude === null) !== (longitude === null)) {
+        throw new BadRequestException('Latitude and longitude must be provided together');
+      }
+      if (dto.logoMediaId) {
+        const [logo] = await tx
+          .select({ id: media.id, sizeBytes: media.sizeBytes })
+          .from(media)
+          .where(
+            and(
+              eq(media.id, dto.logoMediaId),
+              eq(media.tenantId, tenantId),
+              eq(media.propertyId, propertyId),
+              isNull(media.roomId),
+            ),
+          );
+        if (!logo) throw new BadRequestException('Logo must be a photo of this property');
+        if (logo.sizeBytes > 1024 * 1024)
+          throw new BadRequestException('Logo must be smaller than 1 MB');
+      }
+
       if (dto.countryCode && dto.countryCode !== current.countryCode) {
         const [used] = await tx
           .select({ id: bookings.id })
@@ -83,14 +106,30 @@ export class ConfigurationService {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.legalName !== undefined && { legalName: dto.legalName || null }),
           ...(dto.code !== undefined && { code: dto.code || null }),
+          ...(dto.propertyType !== undefined && { propertyType: dto.propertyType }),
           ...(dto.countryCode !== undefined && { countryCode: dto.countryCode }),
           stateCode: stateCode || null,
           ...(dto.state !== undefined && { state: dto.state || null }),
           ...(dto.address !== undefined && { address: dto.address || null }),
+          ...(dto.addressLine2 !== undefined && { addressLine2: dto.addressLine2 || null }),
           ...(dto.city !== undefined && { city: dto.city || null }),
           ...(dto.zip !== undefined && { zip: dto.zip || null }),
           ...(dto.phone !== undefined && { phone: dto.phone || null }),
+          ...(dto.reservationPhone !== undefined && {
+            reservationPhone: dto.reservationPhone || null,
+          }),
           ...(dto.email !== undefined && { email: dto.email || null }),
+          ...(dto.website !== undefined && { website: dto.website || null }),
+          ...(dto.fax !== undefined && { fax: dto.fax || null }),
+          ...(dto.registrationNumber !== undefined && {
+            registrationNumber: dto.registrationNumber || null,
+          }),
+          ...(dto.additionalRegistrationNumbers !== undefined && {
+            additionalRegistrationNumbers: dto.additionalRegistrationNumbers,
+          }),
+          ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+          ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+          ...(dto.logoMediaId !== undefined && { logoMediaId: dto.logoMediaId }),
           ...(dto.timezone !== undefined && { timezone: dto.timezone }),
           ...(dto.checkinTime !== undefined && { checkinTime: `${dto.checkinTime}:00` }),
           ...(dto.checkoutTime !== undefined && { checkoutTime: `${dto.checkoutTime}:00` }),

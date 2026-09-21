@@ -11,6 +11,7 @@ import {
   unique,
   jsonb,
   check,
+  doublePrecision,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -48,7 +49,14 @@ export const tenantStatus = pgEnum('tenant_status', ['pending', 'active', 'inact
 export const userStatus = pgEnum('user_status', ['active', 'invited', 'disabled']);
 
 /** OWNER/OWNER_STAFF are tenant-scoped; YOHO_STAFF/YOHO_ADMIN are cross-tenant staff roles. */
-export const roleKey = pgEnum('role_key', ['OWNER', 'OWNER_STAFF', 'YOHO_STAFF', 'YOHO_ADMIN']);
+export const roleKey = pgEnum('role_key', [
+  'OWNER',
+  'OWNER_STAFF',
+  'HOUSEKEEPING_ATTENDANT',
+  'HOUSEKEEPING_SUPERVISOR',
+  'YOHO_STAFF',
+  'YOHO_ADMIN',
+]);
 
 /**
  * How a tenant reaches the market — see DistributionMode in @yohobed/domain.
@@ -153,13 +161,25 @@ export const properties = pgTable(
      * audit rolls the business date against; the check-in/out times seed every reservation.
      */
     code: text('code'),
+    propertyType: text('property_type'),
     address: text('address'),
+    addressLine2: text('address_line_2'),
     city: text('city'),
     state: text('state'),
     country: text('country'),
     zip: text('zip'),
     phone: text('phone'),
+    reservationPhone: text('reservation_phone'),
     email: text('email'),
+    website: text('website'),
+    fax: text('fax'),
+    registrationNumber: text('registration_number'),
+    additionalRegistrationNumbers: jsonb('additional_registration_numbers')
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
     timezone: text('timezone').notNull().default('Asia/Colombo'),
     checkinTime: time('checkin_time').notNull().default('14:00:00'),
     checkoutTime: time('checkout_time').notNull().default('11:00:00'),
@@ -198,5 +218,9 @@ export const properties = pgTable(
       sql`${t.fyStartMonth} between 1 and 12`,
     ),
     countryCodeShape: check('properties_country_code_shape', sql`${t.countryCode} ~ '^[A-Z]{2}$'`),
+    coordinatesPair: check(
+      'properties_coordinates_pair',
+      sql`(${t.latitude} is null and ${t.longitude} is null) or (${t.latitude} is not null and ${t.longitude} is not null and ${t.latitude} between -90 and 90 and ${t.longitude} between -180 and 180)`,
+    ),
   }),
 );

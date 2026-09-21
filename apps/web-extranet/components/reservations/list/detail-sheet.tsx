@@ -107,12 +107,14 @@ export function ReservationDetailSheet({
   money,
   onClose,
   onCard,
+  initialTab = 'details',
 }: {
   row: ReservationRow | null;
   cfg: ReservationConfig;
   money: (v: string | number) => string;
   onClose: () => void;
   onCard: (id: string) => void;
+  initialTab?: 'details' | 'folio';
 }) {
   const hasFolio = useHasFeature('folio');
   return (
@@ -127,7 +129,10 @@ export function ReservationDetailSheet({
         }
       >
         {row && (
-          <Tabs defaultValue="details">
+          <Tabs
+            key={`${row.id}:${initialTab}`}
+            defaultValue={initialTab === 'folio' && hasFolio ? 'folio' : 'details'}
+          >
             <TabsList className="mb-4">
               <TabsTrigger value="details">Details</TabsTrigger>
               {hasFolio && <TabsTrigger value="folio">Folio</TabsTrigger>}

@@ -4,8 +4,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
-import { bookingRooms, maintenanceBlocks, roomUnits, type Tx } from '@yohobed/db';
+import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import {
+  availabilityCalendar,
+  bookingRooms,
+  maintenanceBlocks,
+  roomUnits,
+  reserveStay,
+  releaseStay,
+  stayNights,
+  enqueueOutbox,
+  InsufficientAvailabilityError,
+  type Tx,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import type { CreateBlockDto, UpdateBlockDto } from './dto';
 
@@ -60,6 +71,30 @@ export class BlocksService {
             blockedByUserId: userId,
           })
           .returning();
+        const nights = stayNights(dto.blockFrom, dto.blockTo);
+        try {
+          await this.reserveConfiguredInventory(tx, unit.roomId, nights);
+        } catch (error) {
+          if (error instanceof InsufficientAvailabilityError)
+            throw new ConflictException(
+              `No sellable inventory on ${error.date}; shorten or move this block`,
+            );
+          throw error;
+        }
+        await enqueueOutbox(tx, {
+          tenantId,
+          aggregate: 'availability',
+          aggregateId: unit.roomId,
+          eventType: 'ari.availability',
+          payload: {
+            propertyId,
+            roomId: unit.roomId,
+            nights,
+            rooms: 1,
+            action: 'reserve',
+            origin: 'maintenance_block',
+          },
+        });
         return created;
       } catch (e) {
         if ((e as { code?: string })?.code === EXCLUSION_VIOLATION) {
@@ -91,6 +126,31 @@ export class BlocksService {
           .set({ blockFrom, blockTo, reason: dto.reason ?? block.reason, updatedAt: new Date() })
           .where(eq(maintenanceBlocks.id, id))
           .returning();
+        await releaseStay(tx, unit!.roomId, stayNights(block.blockFrom, block.blockTo), 1);
+        const nights = stayNights(blockFrom, blockTo);
+        try {
+          await this.reserveConfiguredInventory(tx, unit!.roomId, nights);
+        } catch (error) {
+          if (error instanceof InsufficientAvailabilityError)
+            throw new ConflictException(
+              `No sellable inventory on ${error.date}; shorten or move this block`,
+            );
+          throw error;
+        }
+        await enqueueOutbox(tx, {
+          tenantId,
+          aggregate: 'availability',
+          aggregateId: unit!.roomId,
+          eventType: 'ari.availability',
+          payload: {
+            propertyId: block.propertyId,
+            roomId: unit!.roomId,
+            nights,
+            rooms: 1,
+            action: 'reserve',
+            origin: 'maintenance_block',
+          },
+        });
         return updated;
       } catch (e) {
         if ((e as { code?: string })?.code === EXCLUSION_VIOLATION) {
@@ -106,11 +166,29 @@ export class BlocksService {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [block] = await tx.select().from(maintenanceBlocks).where(eq(maintenanceBlocks.id, id));
       if (!block) throw new NotFoundException('Block not found');
+      if (block.releasedAt) throw new ConflictException('Block already released');
+      const [unit] = await tx.select().from(roomUnits).where(eq(roomUnits.id, block.roomUnitId));
       const [updated] = await tx
         .update(maintenanceBlocks)
         .set({ releasedAt: new Date(), updatedAt: new Date() })
         .where(eq(maintenanceBlocks.id, id))
         .returning();
+      const nights = stayNights(block.blockFrom, block.blockTo);
+      await releaseStay(tx, unit!.roomId, nights, 1);
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'availability',
+        aggregateId: unit!.roomId,
+        eventType: 'ari.availability',
+        payload: {
+          propertyId: block.propertyId,
+          roomId: unit!.roomId,
+          nights,
+          rooms: 1,
+          action: 'release',
+          origin: 'maintenance_block',
+        },
+      });
       return updated;
     });
   }
@@ -144,5 +222,17 @@ export class BlocksService {
         `Room ${code} has a guest over those dates. Move them before blocking it.`,
       );
     }
+  }
+
+  /** A property may create its physical floor before opening its ARI calendar. */
+  private async reserveConfiguredInventory(tx: Tx, roomId: string, nights: string[]) {
+    const [configured] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(availabilityCalendar)
+      .where(
+        and(eq(availabilityCalendar.roomId, roomId), inArray(availabilityCalendar.date, nights)),
+      );
+    if ((configured?.count ?? 0) === 0) return;
+    await reserveStay(tx, roomId, nights, 1);
   }
 }

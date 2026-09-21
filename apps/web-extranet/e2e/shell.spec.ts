@@ -29,13 +29,14 @@ const ROUTES: Array<{ path: string; heading: RegExp }> = [
   // The Yanolja-parity screens (Sprints 3–7). These are exactly the pages a provider or shell
   // regression is most likely to white-screen, so they must be in the smoke list too.
   { path: '/app/stayview', heading: /stay view/i },
-  { path: '/app/roomview', heading: /room view/i },
+  { path: '/app/roomview', heading: /rooms/i },
   { path: '/app/reservations', heading: /reservation/i },
   { path: '/app/folios', heading: /folio|unsettled/i },
   { path: '/app/cashiering', heading: /cashiering/i },
   { path: '/app/night-audit', heading: /night audit/i },
   // Development Phase 02.
   { path: '/app/configuration', heading: /reservation setup/i },
+  { path: '/app/team', heading: /team/i },
   { path: '/app/reservations/new', heading: /add reservation/i },
 ];
 

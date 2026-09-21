@@ -1,0 +1,1 @@
+ALTER TABLE "room_moves" ADD COLUMN "destination_leg_id" uuid;

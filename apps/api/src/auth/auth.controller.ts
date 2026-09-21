@@ -1,19 +1,35 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards, UsePipes } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+  UsePipes,
+} from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { CurrentUser } from '../tenancy/decorators';
+import { CurrentUser, TenantId } from '../tenancy/decorators';
+import { TenantGuard } from '../tenancy/tenant.guard';
+import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { AuthService } from './auth.service';
 import {
   changePasswordSchema,
   forgotPasswordSchema,
+  inviteStaffSchema,
   loginSchema,
   registerSchema,
   resetPasswordSchema,
+  updateStaffSchema,
   type AuthPrincipal,
   type ChangePasswordDto,
   type ForgotPasswordDto,
+  type InviteStaffDto,
   type LoginDto,
   type RegisterDto,
   type ResetPasswordDto,
+  type UpdateStaffDto,
 } from './dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -67,5 +83,34 @@ export class AuthController {
   ) {
     await this.auth.changePassword(user.sub, dto);
     return { message: 'Password updated.' };
+  }
+
+  @Get('staff')
+  @UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
+  @TenantRoles('OWNER', 'HOUSEKEEPING_SUPERVISOR')
+  staff(@TenantId() tenantId: string) {
+    return this.auth.listStaff(tenantId);
+  }
+
+  @Post('staff')
+  @HttpCode(201)
+  @UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
+  @TenantRoles('OWNER')
+  inviteStaff(
+    @TenantId() tenantId: string,
+    @Body(new ZodValidationPipe(inviteStaffSchema)) dto: InviteStaffDto,
+  ) {
+    return this.auth.inviteStaff(tenantId, dto);
+  }
+
+  @Patch('staff/:id')
+  @UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
+  @TenantRoles('OWNER')
+  updateStaff(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateStaffSchema)) dto: UpdateStaffDto,
+  ) {
+    return this.auth.updateStaff(tenantId, id, dto);
   }
 }

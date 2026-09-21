@@ -12,6 +12,7 @@ import {
   folios,
   invoiceLines,
   invoices,
+  messages,
   nextDocumentNumber,
   properties,
   type DocumentType,
@@ -34,6 +35,7 @@ import {
 } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { propertyBusinessDate } from '../common/local-date';
+import { renderInvoicePdf } from '../vouchers/document-pdf';
 import { ensureWindow } from '../folio/windows';
 import {
   folioLines,
@@ -314,6 +316,32 @@ export class InvoicesService {
 
   detail(tenantId: string, id: string) {
     return this.dbs.withTenant(tenantId, (tx) => this.detailWithin(tx, id));
+  }
+
+  async queueEmail(tenantId: string, id: string, emails: string[]) {
+    const invoice = await this.detail(tenantId, id);
+    if (invoice.creditedAt || invoice.status === 'void' || invoice.kind === 'proforma') {
+      throw new ConflictException('Only an active issued invoice or bill can be sent');
+    }
+    const pdf = await renderInvoicePdf(invoice);
+    const recipients = [...new Set(emails.map((e) => e.trim().toLowerCase()))];
+    await this.dbs.withTenant(tenantId, (tx) =>
+      tx.insert(messages).values(
+        recipients.map((to) => ({
+          tenantId,
+          bookingId: invoice.bookingId,
+          channel: 'email' as const,
+          toAddress: to,
+          templateKey: 'issued_invoice',
+          language: 'en',
+          subject: `${invoice.title} ${invoice.number}`,
+          body: `Please find ${invoice.title.toLowerCase()} ${invoice.number} attached.`,
+          attachments: [{ filename: `${invoice.number}.pdf`, content: pdf.toString('base64') }],
+          status: 'queued' as const,
+        })),
+      ),
+    );
+    return { queued: recipients.length, recipients };
   }
 
   // --- Document series ---------------------------------------------------------------------

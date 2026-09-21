@@ -12,6 +12,7 @@ import {
   whatsappUrl,
   type Voucher,
 } from './voucher';
+import { renderVoucherPdf } from './document-pdf';
 
 /** How long a guest page link lives after the guest leaves. */
 const LINK_DAYS_AFTER_CHECKOUT = 30;
@@ -57,11 +58,16 @@ export class VouchersService {
   }
 
   /** Queue the voucher, one email per address. Delivered after the transaction commits. */
+  printable(tenantId: string, bookingId: string) {
+    return this.dbs.withTenant(tenantId, (tx) => this.voucher(tx, bookingId));
+  }
+
   send(tenantId: string, bookingId: string, emails: string[]) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const v = await this.voucher(tx, bookingId);
       const link = await activeLink(tx, v.bookingIds);
-      const queued = await queueVoucher(tx, v, emails, link ? this.url(link.token) : null);
+      const pdf = await renderVoucherPdf(v);
+      const queued = await queueVoucher(tx, v, emails, link ? this.url(link.token) : null, pdf);
       return { queued, recipients: [...new Set(emails.map((e) => e.trim().toLowerCase()))] };
     });
   }

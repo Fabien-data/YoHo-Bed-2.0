@@ -18,10 +18,12 @@ export function PhotoManager({
   target,
   id,
   label,
+  onChanged,
 }: {
   target: 'property' | 'room';
   id: string;
   label: string;
+  onChanged?: () => void | Promise<void>;
 }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [busy, setBusy] = useState(false);
@@ -47,6 +49,7 @@ export function PhotoManager({
     try {
       await (target === 'property' ? uploadPropertyPhoto(id, file) : uploadRoomPhoto(id, file));
       await load();
+      await onChanged?.();
     } catch (error) {
       setErr(error instanceof ApiError ? error.message : 'Upload failed');
     } finally {
@@ -59,6 +62,7 @@ export function PhotoManager({
     try {
       await deletePhoto(photoId);
       await load();
+      await onChanged?.();
     } finally {
       setBusy(false);
     }

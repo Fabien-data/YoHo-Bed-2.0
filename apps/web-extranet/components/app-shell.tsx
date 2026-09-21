@@ -91,6 +91,9 @@ export function AppShell({
   const { data: entitlements } = useEntitlements();
   const active = activeNavItem(pathname);
   const { openComposer } = useReservationComposer();
+  const tenantRole = user?.memberships.find((membership) => membership.tenantId !== null)?.role;
+  const housekeepingUser =
+    tenantRole === 'HOUSEKEEPING_ATTENDANT' || tenantRole === 'HOUSEKEEPING_SUPERVISOR';
 
   // Restore persisted UI state after mount (SSR renders the default).
   React.useEffect(() => {
@@ -144,7 +147,11 @@ export function AppShell({
 
   const visibleGroups = NAV.map((group) => ({
     ...group,
-    items: group.items.filter((i) => !i.feature || entitlements?.features[i.feature] !== false),
+    items: group.items.filter(
+      (i) =>
+        (!housekeepingUser || i.href === '/app/roomview' || i.href === '/app/profile') &&
+        (!i.feature || entitlements?.features[i.feature] !== false),
+    ),
   })).filter((g) => g.items.length > 0);
 
   const propertyIdentity = (
@@ -219,67 +226,73 @@ export function AppShell({
         </button>
 
         <div className="ml-auto flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setPaletteOpen(true)}
-            aria-label="Search"
-            className="md:hidden"
-          >
-            <MagnifyingGlass size={18} />
-          </Button>
+          {!housekeepingUser && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Search"
+              className="md:hidden"
+            >
+              <MagnifyingGlass size={18} />
+            </Button>
+          )}
 
           {/* Quick actions — the Yanolja icon strip, entitlement-filtered like the sidebar. */}
-          <div className="hidden items-center gap-0.5 lg:flex">
-            <Tooltip label="New reservation (Alt+N)">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="New reservation"
-                onClick={() => openComposer()}
-              >
-                <CalendarPlus size={18} />
-              </Button>
-            </Tooltip>
-            {QUICK_ACTIONS.filter(
-              (qa) => !qa.feature || entitlements?.features[qa.feature] !== false,
-            ).map((qa) => (
-              <Tooltip key={qa.href} label={qa.label}>
-                <Button asChild variant="ghost" size="icon" aria-label={qa.label}>
-                  <Link href={qa.href}>
-                    <qa.icon size={18} />
-                  </Link>
+          {!housekeepingUser && (
+            <div className="hidden items-center gap-0.5 lg:flex">
+              <Tooltip label="New reservation (Alt+N)">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="New reservation"
+                  onClick={() => openComposer()}
+                >
+                  <CalendarPlus size={18} />
                 </Button>
               </Tooltip>
-            ))}
-            <span className="mx-1 h-5 w-px bg-line" aria-hidden />
-          </div>
+              {QUICK_ACTIONS.filter(
+                (qa) => !qa.feature || entitlements?.features[qa.feature] !== false,
+              ).map((qa) => (
+                <Tooltip key={qa.href} label={qa.label}>
+                  <Button asChild variant="ghost" size="icon" aria-label={qa.label}>
+                    <Link href={qa.href}>
+                      <qa.icon size={18} />
+                    </Link>
+                  </Button>
+                </Tooltip>
+              ))}
+              <span className="mx-1 h-5 w-px bg-line" aria-hidden />
+            </div>
+          )}
 
           {/* Quick Menu grid */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Quick menu">
-                <DotsNine size={18} weight="bold" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-2">
-              <p className="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-                Quick menu
-              </p>
-              <div className="grid grid-cols-3 gap-1">
-                {QUICK_MENU.map((q) => (
-                  <Link
-                    key={q.label}
-                    href={q.href}
-                    className="flex flex-col items-center gap-1.5 rounded-lg p-3 text-center text-xs font-medium text-ink-2 transition duration-1 hover:bg-surface-2 hover:text-ink"
-                  >
-                    <q.icon size={20} weight="duotone" />
-                    {q.label}
-                  </Link>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+          {!housekeepingUser && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Quick menu">
+                  <DotsNine size={18} weight="bold" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-2">
+                <p className="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+                  Quick menu
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  {QUICK_MENU.map((q) => (
+                    <Link
+                      key={q.label}
+                      href={q.href}
+                      className="flex flex-col items-center gap-1.5 rounded-lg p-3 text-center text-xs font-medium text-ink-2 transition duration-1 hover:bg-surface-2 hover:text-ink"
+                    >
+                      <q.icon size={20} weight="duotone" />
+                      {q.label}
+                    </Link>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
 
           <NotificationsBell />
           <ThemeToggle />
@@ -417,7 +430,7 @@ export function AppShell({
         </main>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {!housekeepingUser && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
     </div>
   );
 }

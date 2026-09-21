@@ -7,6 +7,7 @@ export interface EmailInput {
   subject: string;
   html?: string;
   text?: string;
+  attachments?: Array<{ filename: string; content: string }>;
 }
 export type EmailResult = { ok: true; id: string } | { ok: false; error: string };
 
@@ -41,6 +42,7 @@ class ResendEmailProvider implements EmailProvider {
           subject: input.subject,
           ...(input.html ? { html: input.html } : {}),
           ...(input.text ? { text: input.text } : {}),
+          ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         }),
       });
       const data = (await res.json().catch(() => null)) as { id?: string; message?: string } | null;

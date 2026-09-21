@@ -225,6 +225,48 @@
       "when": 1789812477790,
       "tag": "0031_invoices_and_vouchers",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789979182242,
+      "tag": "0032_yellow_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789982356143,
+      "tag": "0033_flimsy_bloodstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789983484079,
+      "tag": "0034_exotic_gunslinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789983657874,
+      "tag": "0035_happy_union_jack",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789983711822,
+      "tag": "0036_awesome_rhodey",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789987180432,
+      "tag": "0037_goofy_joystick",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,9 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
+import { CurrentUser } from '../tenancy/decorators';
+import type { AuthPrincipal } from '../auth/dto';
+import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { BookingService } from './booking.service';
 import {
@@ -14,7 +17,7 @@ import {
 } from './dto';
 
 @Controller('bookings')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
 export class BookingsController {
   constructor(private readonly bookings: BookingService) {}
 
@@ -75,6 +78,13 @@ export class BookingsController {
   @HttpCode(200)
   checkOut(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.bookings.checkOut(tenantId, id);
+  }
+
+  @Post(':id/void')
+  @HttpCode(200)
+  @TenantRoles('OWNER')
+  void(@TenantId() tenantId: string, @CurrentUser() user: AuthPrincipal, @Param('id') id: string) {
+    return this.bookings.void(tenantId, id, user.sub);
   }
 
   @Patch(':id')

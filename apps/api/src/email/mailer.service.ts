@@ -51,7 +51,12 @@ export class MailerService {
       if (!m.toAddress) {
         error = 'no recipient email';
       } else {
-        const res = await this.email.send({ to: m.toAddress, subject: m.subject, text: m.body });
+        const res = await this.email.send({
+          to: m.toAddress,
+          subject: m.subject,
+          text: m.body,
+          attachments: m.attachments ?? undefined,
+        });
         ok = res.ok;
         if (!res.ok) error = res.error;
       }

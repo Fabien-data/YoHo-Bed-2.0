@@ -1,20 +1,36 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, asc, desc, eq, gt, isNull, lte, sql } from 'drizzle-orm';
 import {
   bookingRooms,
   bookings,
   customers,
   housekeepingStatus,
+  housekeepingTasks,
+  floorLayouts,
+  roomStaySignals,
   maintenanceBlocks,
   roomUnits,
   rooms,
   users,
+  memberships,
   workOrders,
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { propertyToday } from '../common/local-date';
-import type { SetHousekeepingDto, CreateWorkOrderDto, UpdateWorkOrderDto } from './dto';
+import type {
+  SetHousekeepingDto,
+  CreateWorkOrderDto,
+  UpdateWorkOrderDto,
+  FloorLayoutDto,
+  UpdateTaskDto,
+  RoomSignalsDto,
+} from './dto';
 
 /**
  * What the front desk calls the room's state, derived rather than stored.
@@ -31,6 +47,11 @@ export interface RoomCard {
   roomId: string;
   roomName: string;
   floor: string | null;
+  mapX: number | null;
+  mapY: number | null;
+  smokingPolicy: string;
+  wheelchairAccessible: boolean;
+  connectedRoomUnitId: string | null;
   unitStatus: 'active' | 'inactive';
   state: RoomState;
   housekeeping: 'dirty' | 'clean' | 'inspected' | 'out_of_order';
@@ -38,7 +59,10 @@ export interface RoomCard {
   assignedTo: string | null;
   /** The stay occupying the room today, if any. */
   guestName: string | null;
+  guestEmail: string | null;
   bookingId: string | null;
+  legId: string | null;
+  bookingStatus: string | null;
   reference: string | null;
   checkin: string | null;
   checkout: string | null;
@@ -49,6 +73,12 @@ export interface RoomCard {
   source: string | null;
   blockReason: string | null;
   openWorkOrders: number;
+  doNotDisturb: boolean;
+  requestedSafetyFlag: boolean;
+  groupBooking: boolean;
+  mealPlan: string | null;
+  nextReservation: { guestName: string; checkin: string } | null;
+  cleaningTask: { id: string; status: string; rush: boolean; kind: string } | null;
 }
 
 /**
@@ -79,7 +109,12 @@ export class HousekeepingService {
    * rendered two ways, and keeping them on one code path means the two screens can never disagree
    * about whether room 05 is dirty.
    */
-  async roomCards(tenantId: string, propertyId: string, date: string): Promise<RoomCard[]> {
+  async roomCards(
+    tenantId: string,
+    propertyId: string,
+    date: string,
+    canSeeSafety = false,
+  ): Promise<RoomCard[]> {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const units = await tx
         .select({
@@ -88,6 +123,11 @@ export class HousekeepingService {
           roomId: roomUnits.roomId,
           roomName: rooms.name,
           floor: roomUnits.floor,
+          mapX: roomUnits.mapX,
+          mapY: roomUnits.mapY,
+          smokingPolicy: roomUnits.smokingPolicy,
+          wheelchairAccessible: roomUnits.wheelchairAccessible,
+          connectedRoomUnitId: roomUnits.connectedRoomUnitId,
           unitStatus: roomUnits.status,
         })
         .from(roomUnits)
@@ -95,7 +135,7 @@ export class HousekeepingService {
         .where(eq(roomUnits.propertyId, propertyId))
         .orderBy(asc(roomUnits.displayOrder), asc(roomUnits.code));
 
-      const [stays, hk, blocks, orders] = await Promise.all([
+      const [stays, hk, blocks, orders, tasks, signals, upcoming] = await Promise.all([
         // The stay that covers `date`, plus arrivals on `date` for rooms that are otherwise free.
         tx
           .select({
@@ -105,12 +145,18 @@ export class HousekeepingService {
             adults: bookingRooms.adults,
             children: bookingRooms.children,
             bookingId: bookings.id,
+            legId: bookingRooms.id,
             reference: bookings.reference,
             status: bookings.status,
             source: bookings.source,
             amount: bookings.amount,
             guestName: customers.name,
+            guestEmail: customers.email,
             vip: customers.vip,
+            groupId: bookings.groupId,
+            mealPlan: sql<
+              string | null
+            >`(select rc.code from occupancies o join rate_plans rp on rp.id = o.rate_plan_id join rate_codes rc on rc.id = rp.rate_code_id where o.id = ${bookings.occupancyId} limit 1)`,
             paid: sql<string>`coalesce((
               select sum(p.amount) from payments p
               where p.booking_id = ${bookings.id} and p.direction = 'received'
@@ -158,13 +204,61 @@ export class HousekeepingService {
             ),
           )
           .groupBy(workOrders.roomUnitId),
+        tx
+          .select()
+          .from(housekeepingTasks)
+          .where(
+            and(eq(housekeepingTasks.propertyId, propertyId), eq(housekeepingTasks.date, date)),
+          ),
+        tx
+          .select({
+            bookingId: roomStaySignals.bookingId,
+            doNotDisturb: roomStaySignals.doNotDisturb,
+            requestedSafetyFlag: roomStaySignals.requestedSafetyFlag,
+          })
+          .from(roomStaySignals),
+        tx
+          .select({
+            roomUnitId: bookingRooms.roomUnitId,
+            checkin: bookingRooms.checkin,
+            guestName: customers.name,
+          })
+          .from(bookingRooms)
+          .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+          .innerJoin(customers, eq(customers.id, bookings.customerId))
+          .where(
+            and(
+              eq(bookings.propertyId, propertyId),
+              isNull(bookingRooms.releasedAt),
+              gt(bookingRooms.checkin, date),
+              sql`${bookings.status} in ('Pending', 'Approved')`,
+            ),
+          )
+          .orderBy(asc(bookingRooms.checkin)),
       ]);
 
       // A guest departing TODAY is excluded by the half-open overlap above (checkout is
       // exclusive) but is still physically in the room until they leave — that is precisely the
       // "pending checkout" the desk chases at 11am, so it needs its own query.
       const departures = await tx
-        .select({ roomUnitId: bookingRooms.roomUnitId, guestName: customers.name })
+        .select({
+          roomUnitId: bookingRooms.roomUnitId,
+          legId: bookingRooms.id,
+          checkin: bookingRooms.checkin,
+          checkout: bookingRooms.checkout,
+          adults: bookingRooms.adults,
+          children: bookingRooms.children,
+          bookingId: bookings.id,
+          reference: bookings.reference,
+          status: bookings.status,
+          source: bookings.source,
+          amount: bookings.amount,
+          guestName: customers.name,
+          guestEmail: customers.email,
+          vip: customers.vip,
+          groupId: bookings.groupId,
+          paid: sql<string>`coalesce((select sum(p.amount) from payments p where p.booking_id = ${bookings.id} and p.direction = 'received'), 0)`,
+        })
         .from(bookingRooms)
         .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
         .innerJoin(customers, eq(customers.id, bookings.customerId))
@@ -197,6 +291,12 @@ export class HousekeepingService {
       const hkBy = new Map(hk.map((h) => [h.roomUnitId, h]));
       const blockBy = new Map(blocks.map((b) => [b.roomUnitId, b]));
       const ordersBy = new Map(orders.filter((o) => o.roomUnitId).map((o) => [o.roomUnitId!, o.n]));
+      const taskBy = new Map(tasks.map((t) => [t.roomUnitId, t]));
+      const signalBy = new Map(signals.map((s) => [s.bookingId, s]));
+      const nextBy = new Map<string, { guestName: string; checkin: string }>();
+      for (const n of upcoming)
+        if (n.roomUnitId && !nextBy.has(n.roomUnitId))
+          nextBy.set(n.roomUnitId, { guestName: n.guestName, checkin: n.checkin });
       const arrivingBy = new Set(arrivals.map((a) => a.roomUnitId).filter(Boolean) as string[]);
       const departingBy = new Map(
         departures.filter((d) => d.roomUnitId).map((d) => [d.roomUnitId!, d]),
@@ -209,6 +309,7 @@ export class HousekeepingService {
         const housekeeping = hkBy.get(u.unitId)?.status ?? 'clean';
 
         const departing = departingBy.get(u.unitId);
+        const active = stay ?? departing;
 
         let state: RoomState;
         if (u.unitStatus === 'inactive' || housekeeping === 'out_of_order' || block) {
@@ -229,18 +330,37 @@ export class HousekeepingService {
           housekeeping,
           remarks: hkBy.get(u.unitId)?.remarks ?? null,
           assignedTo: hkBy.get(u.unitId)?.assignedToUserId ?? null,
-          guestName: stay?.guestName ?? departing?.guestName ?? null,
-          bookingId: stay?.bookingId ?? null,
-          reference: stay?.reference ?? null,
-          checkin: stay?.checkin ?? null,
-          checkout: stay?.checkout ?? null,
-          vip: stay?.vip ?? false,
-          balanceDue: stay ? Number(stay.amount) > Number(stay.paid ?? 0) : false,
-          adults: stay?.adults ?? null,
-          children: stay?.children ?? null,
-          source: stay?.source ?? null,
+          guestName: active?.guestName ?? null,
+          guestEmail: active?.guestEmail ?? null,
+          bookingId: active?.bookingId ?? null,
+          legId: active?.legId ?? null,
+          bookingStatus: active?.status ?? null,
+          reference: active?.reference ?? null,
+          checkin: active?.checkin ?? null,
+          checkout: active?.checkout ?? null,
+          vip: active?.vip ?? false,
+          balanceDue: active ? Number(active.amount) > Number(active.paid ?? 0) : false,
+          adults: active?.adults ?? null,
+          children: active?.children ?? null,
+          source: active?.source ?? null,
           blockReason: block?.reason ?? null,
           openWorkOrders: ordersBy.get(u.unitId) ?? 0,
+          doNotDisturb: active ? (signalBy.get(active.bookingId)?.doNotDisturb ?? false) : false,
+          requestedSafetyFlag:
+            canSeeSafety && active
+              ? (signalBy.get(active.bookingId)?.requestedSafetyFlag ?? false)
+              : false,
+          groupBooking: Boolean(active?.groupId),
+          mealPlan: stay?.mealPlan ?? null,
+          nextReservation: nextBy.get(u.unitId) ?? null,
+          cleaningTask: taskBy.has(u.unitId)
+            ? {
+                id: taskBy.get(u.unitId)!.id,
+                status: taskBy.get(u.unitId)!.status,
+                rush: taskBy.get(u.unitId)!.rush,
+                kind: taskBy.get(u.unitId)!.kind,
+              }
+            : null,
         };
       });
     });
@@ -284,6 +404,177 @@ export class HousekeepingService {
         })
         .returning();
       return row;
+    });
+  }
+
+  listFloorLayouts(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx.select().from(floorLayouts).where(eq(floorLayouts.propertyId, propertyId)),
+    );
+  }
+
+  saveFloorLayout(tenantId: string, propertyId: string, dto: FloorLayoutDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(floorLayouts)
+        .where(and(eq(floorLayouts.propertyId, propertyId), eq(floorLayouts.floor, dto.floor)))
+        .for('update');
+      if ((existing?.version ?? null) !== dto.expectedVersion)
+        throw new ConflictException('Floor layout changed; reload before saving');
+      const units = await tx
+        .select({ id: roomUnits.id })
+        .from(roomUnits)
+        .where(and(eq(roomUnits.propertyId, propertyId), eq(roomUnits.floor, dto.floor)));
+      const allowed = new Set(units.map((u) => u.id));
+      if (
+        dto.rooms.some((r) => !allowed.has(r.unitId)) ||
+        new Set(dto.rooms.map((r) => r.unitId)).size !== dto.rooms.length
+      ) {
+        throw new ConflictException('Layout includes a duplicate or a room from another floor');
+      }
+      await tx
+        .update(roomUnits)
+        .set({ mapX: null, mapY: null })
+        .where(and(eq(roomUnits.propertyId, propertyId), eq(roomUnits.floor, dto.floor)));
+      for (const room of dto.rooms)
+        await tx
+          .update(roomUnits)
+          .set({ mapX: room.x, mapY: room.y })
+          .where(eq(roomUnits.id, room.unitId));
+      const [saved] = existing
+        ? await tx
+            .update(floorLayouts)
+            .set({ landmarks: dto.landmarks, version: existing.version + 1, updatedAt: new Date() })
+            .where(eq(floorLayouts.id, existing.id))
+            .returning()
+        : await tx
+            .insert(floorLayouts)
+            .values({ tenantId, propertyId, floor: dto.floor, landmarks: dto.landmarks })
+            .returning();
+      return saved;
+    });
+  }
+
+  listTasks(tenantId: string, propertyId: string, date: string, role: string, userId: string) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select({
+          id: housekeepingTasks.id,
+          roomUnitId: housekeepingTasks.roomUnitId,
+          code: roomUnits.code,
+          kind: housekeepingTasks.kind,
+          status: housekeepingTasks.status,
+          rush: housekeepingTasks.rush,
+          assignedToUserId: housekeepingTasks.assignedToUserId,
+          notes: housekeepingTasks.notes,
+          guestName: customers.name,
+        })
+        .from(housekeepingTasks)
+        .innerJoin(roomUnits, eq(roomUnits.id, housekeepingTasks.roomUnitId))
+        .leftJoin(bookings, eq(bookings.id, housekeepingTasks.bookingId))
+        .leftJoin(customers, eq(customers.id, bookings.customerId))
+        .where(
+          and(
+            eq(housekeepingTasks.propertyId, propertyId),
+            eq(housekeepingTasks.date, date),
+            role === 'HOUSEKEEPING_ATTENDANT'
+              ? eq(housekeepingTasks.assignedToUserId, userId)
+              : sql`true`,
+          ),
+        )
+        .orderBy(desc(housekeepingTasks.rush), asc(roomUnits.code)),
+    );
+  }
+
+  updateTask(tenantId: string, id: string, dto: UpdateTaskDto, role: string, userId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [task] = await tx
+        .select()
+        .from(housekeepingTasks)
+        .where(eq(housekeepingTasks.id, id))
+        .for('update');
+      if (!task) throw new NotFoundException('Cleaning task not found');
+      const manager = role === 'OWNER' || role === 'HOUSEKEEPING_SUPERVISOR';
+      if (
+        !manager &&
+        (role !== 'HOUSEKEEPING_ATTENDANT' ||
+          task.assignedToUserId !== userId ||
+          dto.rush !== undefined ||
+          dto.assignedToUserId !== undefined ||
+          dto.status === 'cancelled')
+      ) {
+        throw new ForbiddenException('Only a supervisor can assign, rush or cancel cleaning');
+      }
+      if (dto.assignedToUserId) {
+        const [assignee] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .innerJoin(
+            memberships,
+            and(eq(memberships.userId, users.id), eq(memberships.tenantId, tenantId)),
+          )
+          .where(
+            and(
+              eq(users.id, dto.assignedToUserId),
+              eq(users.tenantId, tenantId),
+              sql`${memberships.role} in ('HOUSEKEEPING_ATTENDANT', 'HOUSEKEEPING_SUPERVISOR')`,
+            ),
+          );
+        if (!assignee) throw new NotFoundException('Housekeeper not found in this tenant');
+      }
+      if (task.status === 'done' && dto.status && dto.status !== 'done')
+        throw new ConflictException('Completed cleaning cannot be reopened');
+      const [saved] = await tx
+        .update(housekeepingTasks)
+        .set({
+          ...dto,
+          completedAt: dto.status === 'done' ? new Date() : task.completedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(housekeepingTasks.id, id))
+        .returning();
+      if (dto.status === 'done') {
+        await tx
+          .insert(housekeepingStatus)
+          .values({
+            tenantId,
+            propertyId: task.propertyId,
+            roomUnitId: task.roomUnitId,
+            date: task.date,
+            status: 'clean',
+            changedByUserId: userId,
+          })
+          .onConflictDoUpdate({
+            target: [housekeepingStatus.roomUnitId, housekeepingStatus.date],
+            set: {
+              status: 'clean',
+              changedAt: new Date(),
+              changedByUserId: userId,
+              updatedAt: new Date(),
+            },
+          });
+      }
+      return saved;
+    });
+  }
+
+  updateSignals(tenantId: string, bookingId: string, dto: RoomSignalsDto, userId: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [booking] = await tx
+        .select({ id: bookings.id })
+        .from(bookings)
+        .where(eq(bookings.id, bookingId));
+      if (!booking) throw new NotFoundException('Reservation not found');
+      const [saved] = await tx
+        .insert(roomStaySignals)
+        .values({ tenantId, bookingId, ...dto, updatedByUserId: userId })
+        .onConflictDoUpdate({
+          target: roomStaySignals.bookingId,
+          set: { ...dto, updatedByUserId: userId, updatedAt: new Date() },
+        })
+        .returning();
+      return saved;
     });
   }
 

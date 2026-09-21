@@ -1,4 +1,13 @@
-import { pgTable, pgEnum, uuid, text, boolean, timestamp, unique } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  boolean,
+  timestamp,
+  unique,
+  jsonb,
+} from 'drizzle-orm/pg-core';
 import { tenants, users } from './identity';
 import { bookings } from './bookings';
 
@@ -75,6 +84,8 @@ export const messages = pgTable('messages', {
   language: text('language').notNull().default('en'),
   subject: text('subject').notNull(),
   body: text('body').notNull(),
+  /** Frozen PDF bytes so a retried email sends the document the operator previewed. */
+  attachments: jsonb('attachments').$type<Array<{ filename: string; content: string }>>(),
   status: messageStatus('status').notNull().default('queued'),
   sentAt: timestamp('sent_at', { withTimezone: true }),
   /** Provider error on the last delivery attempt (Compartment H real sending). */

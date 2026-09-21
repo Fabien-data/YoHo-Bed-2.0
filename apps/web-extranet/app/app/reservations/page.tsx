@@ -207,6 +207,11 @@ function ReservationsScreen() {
     placeholderData: (prev) => prev,
   });
 
+  React.useEffect(() => {
+    const requested = params.get('bookingId');
+    if (requested && list.data?.rows.some((row) => row.id === requested)) setOpenId(requested);
+  }, [params, list.data?.rows]);
+
   const makeGroup = useMutation({
     mutationFn: () =>
       makeBookingGroup(propertyId!, {
@@ -780,6 +785,7 @@ function ReservationsScreen() {
         money={(v) => money(v, openRow?.currency)}
         onClose={() => setOpenId(null)}
         onCard={(id) => setCardFor(id)}
+        initialTab={params.get('section') === 'folio' ? 'folio' : 'details'}
       />
       <Sheet open={cardFor !== null} onOpenChange={(o) => !o && setCardFor(null)}>
         <SheetContent title="Registration card" wide>

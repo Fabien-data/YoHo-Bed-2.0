@@ -6,6 +6,8 @@ import {
   roomtypes,
   availabilityCalendar,
   ariHistory,
+  maintenanceBlocks,
+  roomUnits,
   enqueueOutbox,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
@@ -124,8 +126,31 @@ export class RoomsService {
         ]),
       );
 
+      const blockedRows = (await tx.execute(sql`
+        SELECT d::date AS date, COUNT(m.id)::int AS blocked
+          FROM generate_series(${dto.from}::date, ${dto.to}::date, '1 day') AS d
+          LEFT JOIN ${roomUnits} u ON u.room_id = ${roomId}
+          LEFT JOIN ${maintenanceBlocks} m
+            ON m.room_unit_id = u.id
+           AND m.released_at IS NULL
+           AND m.block_from <= d::date
+           AND m.block_to > d::date
+         GROUP BY d
+      `)) as unknown as Array<{ date: string | Date; blocked: number }>;
+      const blockedByDate = new Map(
+        blockedRows.map((row) => [
+          row.date instanceof Date
+            ? row.date.toISOString().slice(0, 10)
+            : String(row.date).slice(0, 10),
+          Number(row.blocked),
+        ]),
+      );
+
       for (const date of dates) {
-        const roomsToSell = Math.max(0, sellable - (bookedByDate.get(date) ?? 0));
+        const roomsToSell = Math.max(
+          0,
+          sellable - (bookedByDate.get(date) ?? 0) - (blockedByDate.get(date) ?? 0),
+        );
         await tx
           .insert(availabilityCalendar)
           .values({

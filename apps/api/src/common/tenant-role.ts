@@ -16,7 +16,8 @@ import type { TenantRequest } from '../tenancy/tenant.guard';
  * A hotel has two roles: OWNER runs the property; OWNER_STAFF works the desk. Configuration and
  * price authority belong to the owner, so those routes say `@TenantRoles('OWNER')`.
  */
-export type TenantRole = 'OWNER' | 'OWNER_STAFF';
+export type TenantRole =
+  'OWNER' | 'OWNER_STAFF' | 'HOUSEKEEPING_ATTENDANT' | 'HOUSEKEEPING_SUPERVISOR';
 
 export const TENANT_ROLES_KEY = 'tenantRoles';
 

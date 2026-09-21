@@ -20,6 +20,7 @@ export * from './profile';
 export * from './crm';
 export * from './vouchers';
 export * from './housekeeping';
+export * from './room-operations';
 export * from './folio';
 export * from './configuration';
 export * from './cashiering';

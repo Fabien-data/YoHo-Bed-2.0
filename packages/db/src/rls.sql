@@ -25,6 +25,30 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- 2. Tenant isolation policy on tenant-owned tables.
 --    `current_setting('app.tenant_id', true)` returns NULL when unset (missing_ok=true),
 --    and nullif(...,'') guards the empty-string case — so an unset context sees NOTHING.
+ALTER TABLE floor_layouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE room_moves ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON room_moves;
+CREATE POLICY tenant_isolation ON room_moves
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS tenant_isolation ON floor_layouts;
+CREATE POLICY tenant_isolation ON floor_layouts
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE room_stay_signals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON room_stay_signals;
+CREATE POLICY tenant_isolation ON room_stay_signals
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE housekeeping_tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON housekeeping_tasks;
+CREATE POLICY tenant_isolation ON housekeeping_tasks
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON properties;
 CREATE POLICY tenant_isolation ON properties
@@ -457,6 +481,27 @@ BEGIN
 EXCEPTION WHEN others THEN
   RETURN (at AT TIME ZONE 'UTC')::date;
 END
+$$;
+
+CREATE OR REPLACE FUNCTION yhb_local_hour(at timestamptz, tz text) RETURNS integer
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  RETURN extract(hour from at AT TIME ZONE tz)::integer;
+EXCEPTION WHEN others THEN
+  RETURN extract(hour from at AT TIME ZONE 'UTC')::integer;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION housekeeping_due_properties(at timestamptz)
+RETURNS TABLE("tenantId" uuid, "propertyId" uuid, "localDate" date)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT p.tenant_id, p.id, yhb_local_date(at, p.timezone)
+    FROM properties p
+   WHERE yhb_local_hour(at, p.timezone) >= 2
 $$;
 
 -- The reminder window in hours, as resolvePropertySettings reads it: default 6, 0 = off.

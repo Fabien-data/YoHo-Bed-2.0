@@ -51,6 +51,12 @@ erDiagram
 | `password_resets` | ➖ registry | sha256 token hashes + 60-min expiry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `properties`      | ✅          | A property. `commission_type` `percentage`\|`slab` + `commission_percentage` (default 10) — how the Yoho commission is derived. Plus its identity & operating parameters: `code` (the number shown beside the name), address block (`address/city/state/country/zip`), `phone`, `email`, `timezone` (what night audit rolls the business date against), `checkin_time`/`checkout_time`, `star_rating`, `logo_media_id`. Regional identity (Phase 02): `country_code` (ISO alpha-2, default `LK`, CHECK shape, **locked once the property has bookings**), `state_code` (ISO for LK/MY, GST state code for IN), `legal_name`, `tax_ids` jsonb (`tin`, `ssclRegNo`, `sltdaRegNo`, `gstin`, `sstNo`, `ttxNo`, `brn`), `branch_code`, `fy_start_month` (1–12), `invoice_prefix`, and `settings` jsonb (reservation-desk settings, resolved by `resolvePropertySettings`). |
 
+The Property Setup profile also stores `property_type`, `address_line_2`,
+`reservation_phone`, `website`, `fax`, `registration_number`, four additional
+registration numbers in `additional_registration_numbers`, and nullable
+`latitude`/`longitude`. Coordinates must be present together and in range.
+`logo_media_id` points to an existing photo owned by that property.
+
 Identity tables are the tenancy _registry_ — they're what the guards consult to build the tenant
 context, so they can't themselves sit behind it. Access is confined to auth/staff code paths.
 

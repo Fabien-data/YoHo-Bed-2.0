@@ -187,6 +187,12 @@ export const NAV: NavGroup[] = [
         docsUrl: 'PLACEHOLDER',
       },
       {
+        href: '/app/team',
+        label: 'Team',
+        icon: Users,
+        docsUrl: 'PLACEHOLDER',
+      },
+      {
         href: '/app/profile',
         label: 'Profile',
         icon: UserCircle,

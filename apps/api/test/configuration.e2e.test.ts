@@ -358,6 +358,50 @@ describe('country presets', () => {
 });
 
 describe('property profile', () => {
+  it('stores the property setup details and map coordinates', async () => {
+    const fx = await makeTenant();
+    const path = `/properties/${fx.propertyId}/profile`;
+    const saved = await request('PATCH', path, {
+      token: fx.token,
+      body: {
+        propertyType: 'Hotel',
+        starRating: 4,
+        address: 'Cemetery Road',
+        addressLine2: 'Near the beach',
+        city: 'Negombo',
+        reservationPhone: '+94771234567',
+        website: 'https://example.com',
+        fax: '+94112345678',
+        registrationNumber: 'REG-001',
+        additionalRegistrationNumbers: ['A1', '', 'A3', ''],
+        latitude: 7.2083,
+        longitude: 79.8358,
+      },
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body).toMatchObject({
+      propertyType: 'Hotel',
+      starRating: 4,
+      addressLine2: 'Near the beach',
+      reservationPhone: '+94771234567',
+      website: 'https://example.com',
+      fax: '+94112345678',
+      registrationNumber: 'REG-001',
+      additionalRegistrationNumbers: ['A1', '', 'A3', ''],
+      latitude: 7.2083,
+      longitude: 79.8358,
+    });
+
+    const patch = async (body: object) =>
+      (await request('PATCH', path, { token: fx.token, body })).status;
+    expect(await patch({ latitude: null })).toBe(400);
+    expect(await patch({ longitude: 181 })).toBe(400);
+    expect(await patch({ website: 'javascript:alert(1)' })).toBe(400);
+    expect(await patch({ logoMediaId: '00000000-0000-4000-8000-000000000000' })).toBe(400);
+    expect(await patch({ propertyType: 'Castle' })).toBe(400);
+    expect(await patch({ latitude: null, longitude: null })).toBe(200);
+  });
+
   it('stores the regional identity and registration numbers', async () => {
     const fx = await makeTenant();
     const res = await request('PATCH', `/properties/${fx.propertyId}/profile`, {

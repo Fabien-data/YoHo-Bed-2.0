@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { getProfile, getToken, getUser, isStaff, type SessionUser } from '@/lib/api';
 import { CurrencyProvider } from '@/components/currency';
 import { Providers } from '@/components/providers';
@@ -13,6 +13,7 @@ import { FeatureDocsLink } from '@/components/feature-docs-link';
 /** The owner PMS shell: auth guard + product navigation. Staff are routed to their own console. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(false);
@@ -33,6 +34,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .then((p) => setPending(p.tenant.status === 'pending'))
       .catch(() => {});
   }, [router]);
+
+  useEffect(() => {
+    const role = user?.memberships.find((membership) => membership.tenantId !== null)?.role;
+    if (
+      (role === 'HOUSEKEEPING_ATTENDANT' || role === 'HOUSEKEEPING_SUPERVISOR') &&
+      pathname !== '/app/roomview' &&
+      pathname !== '/app/profile'
+    ) {
+      router.replace('/app/roomview');
+    }
+  }, [pathname, router, user]);
 
   if (!ready) return null;
 
