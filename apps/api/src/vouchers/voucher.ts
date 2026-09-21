@@ -295,7 +295,9 @@ export async function queueVoucher(
       language: 'en',
       subject,
       body,
-      attachments: pdf ? [{ filename: `reservation-${v.reference}.pdf`, content: pdf.toString('base64') }] : null,
+      attachments: pdf
+        ? [{ filename: `reservation-${v.reference}.pdf`, content: pdf.toString('base64') }]
+        : null,
       status: 'queued' as const,
     })),
   );

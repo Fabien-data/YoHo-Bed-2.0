@@ -36,9 +36,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   useEffect(() => {
-    const role = user?.memberships.find(membership => membership.tenantId !== null)?.role;
-    if ((role === 'HOUSEKEEPING_ATTENDANT' || role === 'HOUSEKEEPING_SUPERVISOR') &&
-      pathname !== '/app/roomview' && pathname !== '/app/profile') {
+    const role = user?.memberships.find((membership) => membership.tenantId !== null)?.role;
+    if (
+      (role === 'HOUSEKEEPING_ATTENDANT' || role === 'HOUSEKEEPING_SUPERVISOR') &&
+      pathname !== '/app/roomview' &&
+      pathname !== '/app/profile'
+    ) {
       router.replace('/app/roomview');
     }
   }, [pathname, router, user]);

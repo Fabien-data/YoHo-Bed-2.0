@@ -137,13 +137,20 @@ export class RoomsService {
            AND m.block_to > d::date
          GROUP BY d
       `)) as unknown as Array<{ date: string | Date; blocked: number }>;
-      const blockedByDate = new Map(blockedRows.map(row => [
-        row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10),
-        Number(row.blocked),
-      ]));
+      const blockedByDate = new Map(
+        blockedRows.map((row) => [
+          row.date instanceof Date
+            ? row.date.toISOString().slice(0, 10)
+            : String(row.date).slice(0, 10),
+          Number(row.blocked),
+        ]),
+      );
 
       for (const date of dates) {
-        const roomsToSell = Math.max(0, sellable - (bookedByDate.get(date) ?? 0) - (blockedByDate.get(date) ?? 0));
+        const roomsToSell = Math.max(
+          0,
+          sellable - (bookedByDate.get(date) ?? 0) - (blockedByDate.get(date) ?? 0),
+        );
         await tx
           .insert(availabilityCalendar)
           .values({

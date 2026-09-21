@@ -191,10 +191,17 @@ export interface TeamMember {
 export function listTeamMembers(): Promise<TeamMember[]> {
   return apiFetch('/auth/staff');
 }
-export function inviteTeamMember(body: { name: string; email: string; role: OperationalRole }): Promise<TeamMember> {
+export function inviteTeamMember(body: {
+  name: string;
+  email: string;
+  role: OperationalRole;
+}): Promise<TeamMember> {
   return apiFetch('/auth/staff', { method: 'POST', body: JSON.stringify(body) });
 }
-export function updateTeamMember(id: string, body: { role?: OperationalRole; status?: 'active' | 'disabled' }): Promise<TeamMember> {
+export function updateTeamMember(
+  id: string,
+  body: { role?: OperationalRole; status?: 'active' | 'disabled' },
+): Promise<TeamMember> {
   return apiFetch(`/auth/staff/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
@@ -822,11 +829,17 @@ export function moveRoom(
   bookingId: string,
   body: { legId: string; toRoomUnitId: string; effectiveDate?: string },
 ): Promise<RoomMove> {
-  return apiFetch(`/bookings/${bookingId}/room-move`, { method: 'POST', body: JSON.stringify(body) });
+  return apiFetch(`/bookings/${bookingId}/room-move`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export function exchangeRooms(legId: string, otherLegId: string): Promise<RoomMove[]> {
-  return apiFetch('/room-moves/exchange', { method: 'POST', body: JSON.stringify({ legId, otherLegId }) });
+  return apiFetch('/room-moves/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ legId, otherLegId }),
+  });
 }
 
 export function stopRoomMove(id: string): Promise<RoomMove> {
@@ -854,15 +867,38 @@ export function listRoomUnits(propertyId: string): Promise<RoomUnit[]> {
   return apiFetch<RoomUnit[]>(`/properties/${propertyId}/room-units`);
 }
 
-export function createRoomUnit(propertyId: string, body: {
-  roomId: string; code: string; floor?: string; smokingPolicy?: RoomUnit['smokingPolicy'];
-  wheelchairAccessible?: boolean; connectedRoomUnitId?: string | null;
-}): Promise<RoomUnit> {
-  return apiFetch(`/properties/${propertyId}/room-units`, { method: 'POST', body: JSON.stringify(body) });
+export function createRoomUnit(
+  propertyId: string,
+  body: {
+    roomId: string;
+    code: string;
+    floor?: string;
+    smokingPolicy?: RoomUnit['smokingPolicy'];
+    wheelchairAccessible?: boolean;
+    connectedRoomUnitId?: string | null;
+  },
+): Promise<RoomUnit> {
+  return apiFetch(`/properties/${propertyId}/room-units`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
-export function updateRoomUnit(id: string, body: Partial<Pick<RoomUnit,
-  'code' | 'floor' | 'notes' | 'smokingPolicy' | 'wheelchairAccessible' | 'connectedRoomUnitId' | 'status'>>): Promise<RoomUnit> {
+export function updateRoomUnit(
+  id: string,
+  body: Partial<
+    Pick<
+      RoomUnit,
+      | 'code'
+      | 'floor'
+      | 'notes'
+      | 'smokingPolicy'
+      | 'wheelchairAccessible'
+      | 'connectedRoomUnitId'
+      | 'status'
+    >
+  >,
+): Promise<RoomUnit> {
   return apiFetch(`/room-units/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
@@ -935,30 +971,64 @@ export interface FloorLayout {
   id: string;
   floor: string;
   version: number;
-  landmarks: Array<{ id: string; kind: 'corridor' | 'lift' | 'stairs' | 'service'; x: number; y: number; label?: string }>;
+  landmarks: Array<{
+    id: string;
+    kind: 'corridor' | 'lift' | 'stairs' | 'service';
+    x: number;
+    y: number;
+    label?: string;
+  }>;
 }
 export function listFloorLayouts(propertyId: string): Promise<FloorLayout[]> {
   return apiFetch(`/properties/${propertyId}/floor-layouts`);
 }
-export function saveFloorLayout(propertyId: string, body: {
-  floor: string; expectedVersion: number | null;
-  rooms: Array<{ unitId: string; x: number; y: number }>;
-  landmarks: FloorLayout['landmarks'];
-}): Promise<FloorLayout> {
-  return apiFetch(`/properties/${propertyId}/floor-layouts`, { method: 'PUT', body: JSON.stringify(body) });
+export function saveFloorLayout(
+  propertyId: string,
+  body: {
+    floor: string;
+    expectedVersion: number | null;
+    rooms: Array<{ unitId: string; x: number; y: number }>;
+    landmarks: FloorLayout['landmarks'];
+  },
+): Promise<FloorLayout> {
+  return apiFetch(`/properties/${propertyId}/floor-layouts`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
 }
 export interface CleaningTask {
-  id: string; roomUnitId: string; code: string; kind: string; status: string;
-  rush: boolean; assignedToUserId: string | null; notes: string | null; guestName: string | null;
+  id: string;
+  roomUnitId: string;
+  code: string;
+  kind: string;
+  status: string;
+  rush: boolean;
+  assignedToUserId: string | null;
+  notes: string | null;
+  guestName: string | null;
 }
 export function listCleaningTasks(propertyId: string, date: string): Promise<CleaningTask[]> {
   return apiFetch(`/properties/${propertyId}/housekeeping/tasks?date=${date}`);
 }
-export function updateCleaningTask(id: string, body: { status?: string; rush?: boolean; assignedToUserId?: string | null; notes?: string | null }): Promise<CleaningTask> {
+export function updateCleaningTask(
+  id: string,
+  body: {
+    status?: string;
+    rush?: boolean;
+    assignedToUserId?: string | null;
+    notes?: string | null;
+  },
+): Promise<CleaningTask> {
   return apiFetch(`/housekeeping/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
-export function setRoomSignals(bookingId: string, body: { doNotDisturb?: boolean; requestedSafetyFlag?: boolean }): Promise<unknown> {
-  return apiFetch(`/bookings/${bookingId}/room-signals`, { method: 'PATCH', body: JSON.stringify(body) });
+export function setRoomSignals(
+  bookingId: string,
+  body: { doNotDisturb?: boolean; requestedSafetyFlag?: boolean },
+): Promise<unknown> {
+  return apiFetch(`/bookings/${bookingId}/room-signals`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }
 
 export interface HouseSummary {
@@ -991,10 +1061,13 @@ export function subscribeRoomUpdates(
     while (!controller.signal.aborted) {
       try {
         const token = getToken();
-        const res = await fetch(`${API_BASE}/room-updates?propertyId=${encodeURIComponent(propertyId)}&date=${encodeURIComponent(date)}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          signal: controller.signal,
-        });
+        const res = await fetch(
+          `${API_BASE}/room-updates?propertyId=${encodeURIComponent(propertyId)}&date=${encodeURIComponent(date)}`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: controller.signal,
+          },
+        );
         if (!res.ok || !res.body) throw new Error(`Room update stream returned ${res.status}`);
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -1005,12 +1078,13 @@ export function subscribeRoomUpdates(
           buffer += decoder.decode(value, { stream: true });
           const events = buffer.split('\n\n');
           buffer = events.pop() ?? '';
-          if (events.some(event => event.split('\n').some(line => line.startsWith('data:')))) onUpdate();
+          if (events.some((event) => event.split('\n').some((line) => line.startsWith('data:'))))
+            onUpdate();
         }
       } catch {
         if (controller.signal.aborted) break;
       }
-      await new Promise(resolve => setTimeout(resolve, 1_500));
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
     }
   };
   void connect();
@@ -3446,7 +3520,9 @@ export function sendVoucher(
 export async function fetchDocumentPdf(kind: 'voucher' | 'invoice', id: string): Promise<Blob> {
   const path = kind === 'voucher' ? `/reservations/${id}/voucher/pdf` : `/invoices/${id}/pdf`;
   const token = getToken();
-  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!res.ok) {
     endSessionIfTokenRejected(res.status, token);
     throw new ApiError(res.status, 'Could not open the document');
@@ -3454,7 +3530,10 @@ export async function fetchDocumentPdf(kind: 'voucher' | 'invoice', id: string):
   return res.blob();
 }
 
-export function sendInvoice(id: string, emails: string[]): Promise<{ queued: number; recipients: string[] }> {
+export function sendInvoice(
+  id: string,
+  emails: string[],
+): Promise<{ queued: number; recipients: string[] }> {
   return apiFetch(`/invoices/${id}/send`, { method: 'POST', body: JSON.stringify({ emails }) });
 }
 

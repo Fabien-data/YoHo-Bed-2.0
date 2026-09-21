@@ -127,8 +127,10 @@ export const moveRoomSchema = z.object({
 });
 export type MoveRoomDto = z.infer<typeof moveRoomSchema>;
 
-export const exchangeRoomsSchema = z.object({
-  legId: z.string().uuid(),
-  otherLegId: z.string().uuid(),
-}).refine(v => v.legId !== v.otherLegId, { message: 'choose two different room assignments' });
+export const exchangeRoomsSchema = z
+  .object({
+    legId: z.string().uuid(),
+    otherLegId: z.string().uuid(),
+  })
+  .refine((v) => v.legId !== v.otherLegId, { message: 'choose two different room assignments' });
 export type ExchangeRoomsDto = z.infer<typeof exchangeRoomsSchema>;

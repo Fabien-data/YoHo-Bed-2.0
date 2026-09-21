@@ -129,7 +129,10 @@ export function ReservationDetailSheet({
         }
       >
         {row && (
-          <Tabs key={`${row.id}:${initialTab}`} defaultValue={initialTab === 'folio' && hasFolio ? 'folio' : 'details'}>
+          <Tabs
+            key={`${row.id}:${initialTab}`}
+            defaultValue={initialTab === 'folio' && hasFolio ? 'folio' : 'details'}
+          >
             <TabsList className="mb-4">
               <TabsTrigger value="details">Details</TabsTrigger>
               {hasFolio && <TabsTrigger value="folio">Folio</TabsTrigger>}

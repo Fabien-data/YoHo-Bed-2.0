@@ -407,7 +407,9 @@ export class BookingService {
         .from(payments)
         .where(eq(payments.bookingId, id));
       if ((money?.count ?? 0) > 0) {
-        throw new ConflictException('This reservation has a payment; cancel it and use the financial correction flow');
+        throw new ConflictException(
+          'This reservation has a payment; cancel it and use the financial correction flow',
+        );
       }
 
       const [document] = await tx
@@ -415,7 +417,9 @@ export class BookingService {
         .from(invoices)
         .where(and(eq(invoices.bookingId, id), sql`${invoices.status} in ('issued', 'paid')`));
       if ((document?.count ?? 0) > 0) {
-        throw new ConflictException('This reservation has an issued invoice; cancel it and use a credit note');
+        throw new ConflictException(
+          'This reservation has an issued invoice; cancel it and use a credit note',
+        );
       }
 
       await this.giveRoomsBack(tx, b);
@@ -518,8 +522,17 @@ export class BookingService {
     // Check-out settles with the city ledger: a company's or travel agent's window moves to its
     // account and a travel agent's commission is accrued (Pro, Development Phase 02).
     if (kind === 'check_out') {
-      const [property] = await tx.select({ timezone: properties.timezone }).from(properties).where(eq(properties.id, b.propertyId));
-      await enqueueDepartureCleaning(tx, tenantId, b.propertyId, b.id, localToday(property?.timezone));
+      const [property] = await tx
+        .select({ timezone: properties.timezone })
+        .from(properties)
+        .where(eq(properties.id, b.propertyId));
+      await enqueueDepartureCleaning(
+        tx,
+        tenantId,
+        b.propertyId,
+        b.id,
+        localToday(property?.timezone),
+      );
       const { features } = await this.billing.entitlements(tenantId, tx);
       if (features.cashiering) await settleAtCheckout(tx, tenantId, updated!, null);
     }

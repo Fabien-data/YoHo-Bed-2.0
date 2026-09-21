@@ -64,7 +64,12 @@ export class HousekeepingController {
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ) {
     const date = q.date ?? (await this.hk.todayFor(tenantId, q.propertyId));
-    return this.hk.roomCards(tenantId, q.propertyId, date, role === 'OWNER' || role === 'OWNER_STAFF');
+    return this.hk.roomCards(
+      tenantId,
+      q.propertyId,
+      date,
+      role === 'OWNER' || role === 'OWNER_STAFF',
+    );
   }
 
   /** Authenticated refresh stream. Clients reconnect automatically and retain polling as backup. */
@@ -74,10 +79,18 @@ export class HousekeepingController {
     @TenantId() tenantId: string,
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ): Observable<MessageEvent> {
-    return timer(0, 3_000).pipe(map(sequence => ({
-      type: 'room-update',
-      data: { tenantId, propertyId: q.propertyId, date: q.date ?? null, sequence, at: new Date().toISOString() },
-    })));
+    return timer(0, 3_000).pipe(
+      map((sequence) => ({
+        type: 'room-update',
+        data: {
+          tenantId,
+          propertyId: q.propertyId,
+          date: q.date ?? null,
+          sequence,
+          at: new Date().toISOString(),
+        },
+      })),
+    );
   }
 
   @Get('house-status/summary')
@@ -116,30 +129,45 @@ export class HousekeepingController {
   @Put('properties/:propertyId/floor-layouts')
   @Feature('room_view')
   @TenantRoles('OWNER', 'HOUSEKEEPING_SUPERVISOR')
-  saveFloorLayout(@TenantId() tenantId: string, @Param('propertyId') propertyId: string,
-    @Body(new ZodValidationPipe(floorLayoutSchema)) dto: FloorLayoutDto) {
+  saveFloorLayout(
+    @TenantId() tenantId: string,
+    @Param('propertyId') propertyId: string,
+    @Body(new ZodValidationPipe(floorLayoutSchema)) dto: FloorLayoutDto,
+  ) {
     return this.hk.saveFloorLayout(tenantId, propertyId, dto);
   }
 
   @Get('properties/:propertyId/housekeeping/tasks')
-  listTasks(@TenantId() tenantId: string, @Param('propertyId') propertyId: string,
-    @CurrentTenantRole() role: string | undefined, @CurrentUser() user: AuthPrincipal,
-    @Query(new ZodValidationPipe(taskQuerySchema)) q: { date: string }) {
+  listTasks(
+    @TenantId() tenantId: string,
+    @Param('propertyId') propertyId: string,
+    @CurrentTenantRole() role: string | undefined,
+    @CurrentUser() user: AuthPrincipal,
+    @Query(new ZodValidationPipe(taskQuerySchema)) q: { date: string },
+  ) {
     return this.hk.listTasks(tenantId, propertyId, q.date, role ?? '', user.sub);
   }
 
   @Patch('housekeeping/tasks/:id')
   @TenantRoles('OWNER', 'HOUSEKEEPING_SUPERVISOR', 'HOUSEKEEPING_ATTENDANT')
-  updateTask(@TenantId() tenantId: string, @Param('id') id: string,
-    @CurrentTenantRole() role: string | undefined, @CurrentUser() user: AuthPrincipal,
-    @Body(new ZodValidationPipe(updateTaskSchema)) dto: UpdateTaskDto) {
+  updateTask(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentTenantRole() role: string | undefined,
+    @CurrentUser() user: AuthPrincipal,
+    @Body(new ZodValidationPipe(updateTaskSchema)) dto: UpdateTaskDto,
+  ) {
     return this.hk.updateTask(tenantId, id, dto, role ?? '', user.sub);
   }
 
   @Patch('bookings/:id/room-signals')
   @TenantRoles('OWNER', 'OWNER_STAFF')
-  updateSignals(@TenantId() tenantId: string, @Param('id') id: string,
-    @CurrentUser() user: AuthPrincipal, @Body(new ZodValidationPipe(roomSignalsSchema)) dto: RoomSignalsDto) {
+  updateSignals(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Body(new ZodValidationPipe(roomSignalsSchema)) dto: RoomSignalsDto,
+  ) {
     return this.hk.updateSignals(tenantId, id, dto, user.sub);
   }
 

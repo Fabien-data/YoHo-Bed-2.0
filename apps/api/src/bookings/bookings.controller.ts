@@ -83,11 +83,7 @@ export class BookingsController {
   @Post(':id/void')
   @HttpCode(200)
   @TenantRoles('OWNER')
-  void(
-    @TenantId() tenantId: string,
-    @CurrentUser() user: AuthPrincipal,
-    @Param('id') id: string,
-  ) {
+  void(@TenantId() tenantId: string, @CurrentUser() user: AuthPrincipal, @Param('id') id: string) {
     return this.bookings.void(tenantId, id, user.sub);
   }
 

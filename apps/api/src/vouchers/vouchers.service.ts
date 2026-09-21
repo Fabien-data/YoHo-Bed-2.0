@@ -59,7 +59,7 @@ export class VouchersService {
 
   /** Queue the voucher, one email per address. Delivered after the transaction commits. */
   printable(tenantId: string, bookingId: string) {
-    return this.dbs.withTenant(tenantId, tx => this.voucher(tx, bookingId));
+    return this.dbs.withTenant(tenantId, (tx) => this.voucher(tx, bookingId));
   }
 
   send(tenantId: string, bookingId: string, emails: string[]) {

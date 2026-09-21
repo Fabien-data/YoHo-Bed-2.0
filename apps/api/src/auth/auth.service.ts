@@ -218,14 +218,17 @@ export class AuthService {
   }
 
   listStaff(tenantId: string) {
-    return this.dbs.db.select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      status: users.status,
-      role: memberships.role,
-      createdAt: users.createdAt,
-    }).from(memberships).innerJoin(users, eq(users.id, memberships.userId))
+    return this.dbs.db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        status: users.status,
+        role: memberships.role,
+        createdAt: users.createdAt,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
       .where(eq(memberships.tenantId, tenantId));
   }
 
@@ -234,10 +237,17 @@ export class AuthService {
     const [existing] = await this.dbs.db.select().from(users).where(eq(users.email, email));
     if (existing) throw new ConflictException('A user with this email already exists');
     const token = randomBytes(32).toString('hex');
-    const staff = await this.dbs.db.transaction(async tx => {
-      const [user] = await tx.insert(users).values({ tenantId, name: dto.name.trim(), email, status: 'invited' }).returning();
+    const staff = await this.dbs.db.transaction(async (tx) => {
+      const [user] = await tx
+        .insert(users)
+        .values({ tenantId, name: dto.name.trim(), email, status: 'invited' })
+        .returning();
       await tx.insert(memberships).values({ tenantId, userId: user!.id, role: dto.role });
-      await tx.insert(passwordResets).values({ email, tokenHash: sha256(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) });
+      await tx.insert(passwordResets).values({
+        email,
+        tokenHash: sha256(token),
+        expiresAt: new Date(Date.now() + RESET_TTL_MS),
+      });
       return user!;
     });
     const link = `${this.email.webUrl}/reset?token=${token}`;
@@ -246,17 +256,34 @@ export class AuthService {
       subject: 'You are invited to YoHoBed',
       text: `Hi ${dto.name.trim()},\n\nYou have been invited to the hotel team as ${dto.role.replaceAll('_', ' ').toLowerCase()}.\n\nCreate your password within 60 minutes:\n${link}`,
     });
-    return { id: staff.id, name: staff.name, email: staff.email, status: staff.status, role: dto.role };
+    return {
+      id: staff.id,
+      name: staff.name,
+      email: staff.email,
+      status: staff.status,
+      role: dto.role,
+    };
   }
 
   async updateStaff(tenantId: string, userId: string, dto: UpdateStaffDto) {
-    const [membership] = await this.dbs.db.select().from(memberships)
+    const [membership] = await this.dbs.db
+      .select()
+      .from(memberships)
       .where(and(eq(memberships.tenantId, tenantId), eq(memberships.userId, userId)));
-    if (!membership || membership.role === 'OWNER') throw new ForbiddenException('The owner account cannot be changed here');
-    await this.dbs.db.transaction(async tx => {
-      if (dto.role) await tx.update(memberships).set({ role: dto.role }).where(eq(memberships.id, membership.id));
-      if (dto.status) await tx.update(users).set({ status: dto.status, updatedAt: new Date() }).where(eq(users.id, userId));
+    if (!membership || membership.role === 'OWNER')
+      throw new ForbiddenException('The owner account cannot be changed here');
+    await this.dbs.db.transaction(async (tx) => {
+      if (dto.role)
+        await tx
+          .update(memberships)
+          .set({ role: dto.role })
+          .where(eq(memberships.id, membership.id));
+      if (dto.status)
+        await tx
+          .update(users)
+          .set({ status: dto.status, updatedAt: new Date() })
+          .where(eq(users.id, userId));
     });
-    return (await this.listStaff(tenantId)).find(row => row.id === userId);
+    return (await this.listStaff(tenantId)).find((row) => row.id === userId);
   }
 }

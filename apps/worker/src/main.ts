@@ -198,11 +198,15 @@ let housekeepingSweeping = false;
 const housekeepingTimer = setInterval(() => {
   if (housekeepingSweeping) return;
   housekeepingSweeping = true;
-  void sweepHousekeeping(db).catch((error) =>
-    console.error('[housekeeping] sweep failed', error),
-  ).finally(() => { housekeepingSweeping = false; });
+  void sweepHousekeeping(db)
+    .catch((error) => console.error('[housekeeping] sweep failed', error))
+    .finally(() => {
+      housekeepingSweeping = false;
+    });
 }, 60_000);
-void sweepHousekeeping(db).catch((error) => console.error('[housekeeping] initial sweep failed', error));
+void sweepHousekeeping(db).catch((error) =>
+  console.error('[housekeeping] initial sweep failed', error),
+);
 
 // FX rate refresh: fetch once at startup, then on an interval. Errors are logged, never fatal.
 let fxTimer: NodeJS.Timeout | undefined;

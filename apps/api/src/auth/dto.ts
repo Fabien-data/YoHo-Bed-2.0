@@ -17,7 +17,11 @@ export const resetPasswordSchema = z.object({
 });
 export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;
 
-export const OPERATIONAL_ROLES = ['OWNER_STAFF', 'HOUSEKEEPING_ATTENDANT', 'HOUSEKEEPING_SUPERVISOR'] as const;
+export const OPERATIONAL_ROLES = [
+  'OWNER_STAFF',
+  'HOUSEKEEPING_ATTENDANT',
+  'HOUSEKEEPING_SUPERVISOR',
+] as const;
 export const inviteStaffSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().email(),
@@ -25,10 +29,12 @@ export const inviteStaffSchema = z.object({
 });
 export type InviteStaffDto = z.infer<typeof inviteStaffSchema>;
 
-export const updateStaffSchema = z.object({
-  role: z.enum(OPERATIONAL_ROLES).optional(),
-  status: z.enum(['active', 'disabled']).optional(),
-}).refine(value => Object.keys(value).length > 0, { message: 'nothing to update' });
+export const updateStaffSchema = z
+  .object({
+    role: z.enum(OPERATIONAL_ROLES).optional(),
+    status: z.enum(['active', 'disabled']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: 'nothing to update' });
 export type UpdateStaffDto = z.infer<typeof updateStaffSchema>;
 
 /** Self-serve owner signup (Compartment H). Creates a PENDING tenant awaiting staff approval. */

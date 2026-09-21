@@ -28,12 +28,16 @@ function heading(pdf: PDFKit.PDFDocument, property: string, title: string, numbe
 
 function pair(pdf: PDFKit.PDFDocument, label: string, value: string | number | null | undefined) {
   pdf.fillColor(muted).font('Helvetica').fontSize(9).text(label.toUpperCase());
-  pdf.fillColor(ink).font('Helvetica-Bold').fontSize(11).text(String(value ?? '—'));
+  pdf
+    .fillColor(ink)
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(String(value ?? '—'));
   pdf.moveDown(0.55);
 }
 
 export function renderVoucherPdf(v: Voucher): Promise<Buffer> {
-  return createPdf(pdf => {
+  return createPdf((pdf) => {
     heading(pdf, v.property.name, 'Reservation voucher', v.reference);
     pair(pdf, 'Guest', v.guest.name);
     pair(pdf, 'Stay', `${v.checkin} to ${v.checkout} · ${v.nights} nights`);
@@ -41,36 +45,83 @@ export function renderVoucherPdf(v: Voucher): Promise<Buffer> {
     pdf.moveDown().fillColor(ink).font('Helvetica-Bold').fontSize(12).text('Rooms');
     pdf.moveDown(0.5);
     for (const r of v.rooms) {
-      pdf.fillColor(ink).font('Helvetica-Bold').fontSize(10).text(`${r.roomCode ?? 'Unassigned'} · ${r.roomType}`);
-      pdf.fillColor(muted).font('Helvetica').fontSize(9).text(`${r.adults} adult(s), ${r.children} child(ren)${r.mealPlan ? ` · ${r.mealPlan}` : ''}`);
+      pdf
+        .fillColor(ink)
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text(`${r.roomCode ?? 'Unassigned'} · ${r.roomType}`);
+      pdf
+        .fillColor(muted)
+        .font('Helvetica')
+        .fontSize(9)
+        .text(
+          `${r.adults} adult(s), ${r.children} child(ren)${r.mealPlan ? ` · ${r.mealPlan}` : ''}`,
+        );
       pdf.moveDown(0.6);
     }
-    pdf.moveDown().fillColor(ink).font('Helvetica-Bold').fontSize(11).text(`Total: ${v.currency} ${v.total.toFixed(2)}`);
+    pdf
+      .moveDown()
+      .fillColor(ink)
+      .font('Helvetica-Bold')
+      .fontSize(11)
+      .text(`Total: ${v.currency} ${v.total.toFixed(2)}`);
     pdf.text(`Paid: ${v.currency} ${v.paid.toFixed(2)}`);
     pdf.text(`Balance: ${v.currency} ${v.balance.toFixed(2)}`);
-    pdf.moveDown(1.5).fillColor(muted).font('Helvetica').fontSize(9)
-      .text([v.property.address, v.property.city, v.property.phone, v.property.email].filter(Boolean).join(' · '));
+    pdf
+      .moveDown(1.5)
+      .fillColor(muted)
+      .font('Helvetica')
+      .fontSize(9)
+      .text(
+        [v.property.address, v.property.city, v.property.phone, v.property.email]
+          .filter(Boolean)
+          .join(' · '),
+      );
   });
 }
 
-export function renderInvoicePdf(inv: Awaited<ReturnType<InvoicesService['detail']>>): Promise<Buffer> {
-  return createPdf(pdf => {
+export function renderInvoicePdf(
+  inv: Awaited<ReturnType<InvoicesService['detail']>>,
+): Promise<Buffer> {
+  return createPdf((pdf) => {
     heading(pdf, inv.supplier?.name ?? 'YoHoBed property', inv.title, inv.number);
     pair(pdf, 'Issued', inv.invoiceDate ?? inv.issuedAt.toISOString().slice(0, 10));
     pair(pdf, 'Bill to', inv.payer?.name ?? inv.booking?.guestName ?? 'Guest');
-    if (inv.booking) pair(pdf, 'Reservation', `${inv.booking.reference} · ${inv.booking.checkin} to ${inv.booking.checkout}`);
+    if (inv.booking)
+      pair(
+        pdf,
+        'Reservation',
+        `${inv.booking.reference} · ${inv.booking.checkin} to ${inv.booking.checkout}`,
+      );
     if (inv.supplier?.address) pair(pdf, 'Supplier', inv.supplier.address);
     pdf.moveDown().fillColor(ink).font('Helvetica-Bold').fontSize(12).text('Charges');
     pdf.moveDown(0.5);
     for (const line of inv.lines) {
       if (pdf.y > 730) pdf.addPage();
-      pdf.fillColor(ink).font('Helvetica').fontSize(9).text(`${line.description}  × ${line.quantity}`, 48, pdf.y, { width: 390, continued: true });
+      pdf
+        .fillColor(ink)
+        .font('Helvetica')
+        .fontSize(9)
+        .text(`${line.description}  × ${line.quantity}`, 48, pdf.y, {
+          width: 390,
+          continued: true,
+        });
       pdf.font('Helvetica-Bold').text(`${inv.currency} ${line.amount}`, { align: 'right' });
       pdf.moveDown(0.35);
     }
     pdf.moveDown().strokeColor('#d8e3e7').moveTo(48, pdf.y).lineTo(547, pdf.y).stroke();
-    pdf.moveDown().font('Helvetica-Bold').fontSize(11).text(`Total: ${inv.currency} ${inv.amount}`, { align: 'right' });
-    if (inv.taxSummary) for (const tax of inv.taxSummary) pdf.fillColor(muted).font('Helvetica').fontSize(9).text(`${tax.name}: ${inv.currency} ${tax.amount}`, { align: 'right' });
+    pdf
+      .moveDown()
+      .font('Helvetica-Bold')
+      .fontSize(11)
+      .text(`Total: ${inv.currency} ${inv.amount}`, { align: 'right' });
+    if (inv.taxSummary)
+      for (const tax of inv.taxSummary)
+        pdf
+          .fillColor(muted)
+          .font('Helvetica')
+          .fontSize(9)
+          .text(`${tax.name}: ${inv.currency} ${tax.amount}`, { align: 'right' });
     if (inv.notes) pdf.moveDown().fillColor(muted).fontSize(9).text(inv.notes);
   });
 }

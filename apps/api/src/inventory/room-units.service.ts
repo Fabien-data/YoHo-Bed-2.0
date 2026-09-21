@@ -5,9 +5,24 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { bookingRooms, bookings, maintenanceBlocks, properties, roomMoves, roomUnits, rooms, type Tx } from '@yohobed/db';
+import {
+  bookingRooms,
+  bookings,
+  maintenanceBlocks,
+  properties,
+  roomMoves,
+  roomUnits,
+  rooms,
+  type Tx,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
-import type { AssignRoomsDto, CreateRoomUnitDto, UpdateRoomUnitDto, MoveRoomDto, ExchangeRoomsDto } from './dto';
+import type {
+  AssignRoomsDto,
+  CreateRoomUnitDto,
+  UpdateRoomUnitDto,
+  MoveRoomDto,
+  ExchangeRoomsDto,
+} from './dto';
 import { localToday } from '../common/local-date';
 
 /** Postgres raises this when the anti-double-booking exclusion constraint refuses a row. */
@@ -111,7 +126,10 @@ export class RoomUnitsService {
       }
 
       if (dto.connectedRoomUnitId) {
-        const [connected] = await tx.select().from(roomUnits).where(eq(roomUnits.id, dto.connectedRoomUnitId));
+        const [connected] = await tx
+          .select()
+          .from(roomUnits)
+          .where(eq(roomUnits.id, dto.connectedRoomUnitId));
         if (!connected || connected.propertyId !== unit.propertyId || connected.id === id) {
           throw new BadRequestException('Connected room must be another room in this property');
         }
@@ -177,7 +195,19 @@ export class RoomUnitsService {
         if (!leg) throw new NotFoundException(`Leg ${a.legId} is not part of this booking`);
 
         if (a.roomUnitId === null) {
-          if (booking.status === 'CheckedIn' || booking.status === 'CheckedOut' || leg.checkin <= localToday((await tx.select({ timezone: properties.timezone }).from(properties).where(eq(properties.id, booking.propertyId)))[0]?.timezone)) {
+          if (
+            booking.status === 'CheckedIn' ||
+            booking.status === 'CheckedOut' ||
+            leg.checkin <=
+              localToday(
+                (
+                  await tx
+                    .select({ timezone: properties.timezone })
+                    .from(properties)
+                    .where(eq(properties.id, booking.propertyId))
+                )[0]?.timezone,
+              )
+          ) {
             throw new ConflictException('A room can only be unassigned before check-in');
           }
           await tx
@@ -225,102 +255,271 @@ export class RoomUnitsService {
   }
 
   listMoves(tenantId: string, bookingId: string) {
-    return this.dbs.withTenant(tenantId, tx => tx.select({
-      id: roomMoves.id, bookingId: roomMoves.bookingId, legId: roomMoves.legId,
-      fromRoomUnitId: roomMoves.fromRoomUnitId, toRoomUnitId: roomMoves.toRoomUnitId,
-      effectiveDate: roomMoves.effectiveDate, status: roomMoves.status, createdAt: roomMoves.createdAt,
-    }).from(roomMoves).where(eq(roomMoves.bookingId, bookingId)).orderBy(desc(roomMoves.createdAt)));
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select({
+          id: roomMoves.id,
+          bookingId: roomMoves.bookingId,
+          legId: roomMoves.legId,
+          fromRoomUnitId: roomMoves.fromRoomUnitId,
+          toRoomUnitId: roomMoves.toRoomUnitId,
+          effectiveDate: roomMoves.effectiveDate,
+          status: roomMoves.status,
+          createdAt: roomMoves.createdAt,
+        })
+        .from(roomMoves)
+        .where(eq(roomMoves.bookingId, bookingId))
+        .orderBy(desc(roomMoves.createdAt)),
+    );
   }
 
   move(tenantId: string, bookingId: string, userId: string | null, dto: MoveRoomDto) {
-    return this.dbs.withTenant(tenantId, async tx => {
+    return this.dbs.withTenant(tenantId, async (tx) => {
       const booking = await this.loadAssignable(tx, bookingId);
-      const [leg] = await tx.select().from(bookingRooms).where(and(eq(bookingRooms.id, dto.legId), eq(bookingRooms.bookingId, bookingId))).for('update');
-      if (!leg?.roomUnitId) throw new ConflictException('This reservation has no assigned room to move');
+      const [leg] = await tx
+        .select()
+        .from(bookingRooms)
+        .where(and(eq(bookingRooms.id, dto.legId), eq(bookingRooms.bookingId, bookingId)))
+        .for('update');
+      if (!leg?.roomUnitId)
+        throw new ConflictException('This reservation has no assigned room to move');
       const [from] = await tx.select().from(roomUnits).where(eq(roomUnits.id, leg.roomUnitId));
       const [to] = await tx.select().from(roomUnits).where(eq(roomUnits.id, dto.toRoomUnitId));
-      if (!from || !to || to.propertyId !== booking.propertyId || to.roomId !== booking.roomId || to.status !== 'active') {
+      if (
+        !from ||
+        !to ||
+        to.propertyId !== booking.propertyId ||
+        to.roomId !== booking.roomId ||
+        to.status !== 'active'
+      ) {
         throw new ConflictException('Destination must be an active room of the booked room type');
       }
-      const [property] = await tx.select({ timezone: properties.timezone }).from(properties).where(eq(properties.id, booking.propertyId));
+      const [property] = await tx
+        .select({ timezone: properties.timezone })
+        .from(properties)
+        .where(eq(properties.id, booking.propertyId));
       const today = localToday(property?.timezone);
       const effectiveDate = dto.effectiveDate ?? (leg.checkin > today ? leg.checkin : today);
-      if (effectiveDate < today || effectiveDate < leg.checkin || effectiveDate >= leg.checkout) throw new ConflictException('Move date must be an affected stay date');
+      if (effectiveDate < today || effectiveDate < leg.checkin || effectiveDate >= leg.checkout)
+        throw new ConflictException('Move date must be an affected stay date');
       await this.assertNotBlocked(tx, to.id, effectiveDate, leg.checkout, to.code);
       await this.assertDestinationFree(tx, to.id, effectiveDate, leg.checkout, leg.id, to.code);
       if (dto.effectiveDate && effectiveDate > today) {
-        const [planned] = await tx.insert(roomMoves).values({ tenantId, propertyId: booking.propertyId, bookingId, legId: leg.id,
-          fromRoomUnitId: from.id, toRoomUnitId: to.id, effectiveDate, createdByUserId: userId }).returning();
+        const [planned] = await tx
+          .insert(roomMoves)
+          .values({
+            tenantId,
+            propertyId: booking.propertyId,
+            bookingId,
+            legId: leg.id,
+            fromRoomUnitId: from.id,
+            toRoomUnitId: to.id,
+            effectiveDate,
+            createdByUserId: userId,
+          })
+          .returning();
         return planned;
       }
       let destinationLegId: string | null = null;
       try {
         if (effectiveDate > leg.checkin) {
-          await tx.update(bookingRooms).set({ checkout: effectiveDate, updatedAt: new Date() }).where(eq(bookingRooms.id, leg.id));
-          const [destination] = await tx.insert(bookingRooms).values({
-            tenantId,
-            bookingId,
-            roomUnitId: to.id,
-            legIndex: leg.legIndex,
-            checkin: effectiveDate,
-            checkout: leg.checkout,
-            adults: leg.adults,
-            children: leg.children,
-            childAges: leg.childAges,
-            extraBeds: leg.extraBeds,
-          }).returning({ id: bookingRooms.id });
+          await tx
+            .update(bookingRooms)
+            .set({ checkout: effectiveDate, updatedAt: new Date() })
+            .where(eq(bookingRooms.id, leg.id));
+          const [destination] = await tx
+            .insert(bookingRooms)
+            .values({
+              tenantId,
+              bookingId,
+              roomUnitId: to.id,
+              legIndex: leg.legIndex,
+              checkin: effectiveDate,
+              checkout: leg.checkout,
+              adults: leg.adults,
+              children: leg.children,
+              childAges: leg.childAges,
+              extraBeds: leg.extraBeds,
+            })
+            .returning({ id: bookingRooms.id });
           destinationLegId = destination!.id;
         } else {
-          await tx.update(bookingRooms).set({ roomUnitId: to.id, updatedAt: new Date() }).where(eq(bookingRooms.id, leg.id));
+          await tx
+            .update(bookingRooms)
+            .set({ roomUnitId: to.id, updatedAt: new Date() })
+            .where(eq(bookingRooms.id, leg.id));
         }
       } catch (error) {
-        if (isExclusionViolation(error)) throw new ConflictException(`Room ${to.code} is occupied over the affected dates`);
+        if (isExclusionViolation(error))
+          throw new ConflictException(`Room ${to.code} is occupied over the affected dates`);
         throw error;
       }
-      const [completed] = await tx.insert(roomMoves).values({ tenantId, propertyId: booking.propertyId, bookingId, legId: leg.id,
-        destinationLegId, fromRoomUnitId: from.id, toRoomUnitId: to.id, effectiveDate, status: 'completed', appliedAt: new Date(), createdByUserId: userId }).returning();
+      const [completed] = await tx
+        .insert(roomMoves)
+        .values({
+          tenantId,
+          propertyId: booking.propertyId,
+          bookingId,
+          legId: leg.id,
+          destinationLegId,
+          fromRoomUnitId: from.id,
+          toRoomUnitId: to.id,
+          effectiveDate,
+          status: 'completed',
+          appliedAt: new Date(),
+          createdByUserId: userId,
+        })
+        .returning();
       return completed;
     });
   }
 
   exchange(tenantId: string, userId: string | null, dto: ExchangeRoomsDto) {
-    return this.dbs.withTenant(tenantId, async tx => {
+    return this.dbs.withTenant(tenantId, async (tx) => {
       const ids = [dto.legId, dto.otherLegId].sort();
-      const legs = await tx.select({ leg: bookingRooms, booking: bookings }).from(bookingRooms)
-        .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId)).where(inArray(bookingRooms.id, ids)).orderBy(asc(bookingRooms.id)).for('update');
-      if (legs.length !== 2 || legs.some(x => !x.leg.roomUnitId || x.leg.releasedAt)) throw new ConflictException('Both reservations need active room assignments');
+      const legs = await tx
+        .select({ leg: bookingRooms, booking: bookings })
+        .from(bookingRooms)
+        .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+        .where(inArray(bookingRooms.id, ids))
+        .orderBy(asc(bookingRooms.id))
+        .for('update');
+      if (legs.length !== 2 || legs.some((x) => !x.leg.roomUnitId || x.leg.releasedAt))
+        throw new ConflictException('Both reservations need active room assignments');
       const [a, b] = legs;
-      if (a!.booking.propertyId !== b!.booking.propertyId || a!.booking.roomId !== b!.booking.roomId) throw new ConflictException('Rooms can only be exchanged within the same property and room type');
-      if (a!.leg.checkin !== b!.leg.checkin || a!.leg.checkout !== b!.leg.checkout) throw new ConflictException('Room exchange requires matching stay dates; use Room Move for different dates');
-      const [roomA, roomB] = await tx.select().from(roomUnits).where(inArray(roomUnits.id, [a!.leg.roomUnitId!, b!.leg.roomUnitId!]));
-      const byId = new Map([roomA, roomB].filter(Boolean).map(r => [r!.id, r!]));
-      await this.assertNotBlocked(tx, b!.leg.roomUnitId!, a!.leg.checkin, a!.leg.checkout, byId.get(b!.leg.roomUnitId!)?.code ?? 'destination');
-      await this.assertNotBlocked(tx, a!.leg.roomUnitId!, b!.leg.checkin, b!.leg.checkout, byId.get(a!.leg.roomUnitId!)?.code ?? 'destination');
-      await tx.update(bookingRooms).set({ roomUnitId: null, updatedAt: new Date() }).where(inArray(bookingRooms.id, ids));
-      await tx.update(bookingRooms).set({ roomUnitId: b!.leg.roomUnitId, updatedAt: new Date() }).where(eq(bookingRooms.id, a!.leg.id));
-      await tx.update(bookingRooms).set({ roomUnitId: a!.leg.roomUnitId, updatedAt: new Date() }).where(eq(bookingRooms.id, b!.leg.id));
-      const date = localToday((await tx.select({ timezone: properties.timezone }).from(properties).where(eq(properties.id, a!.booking.propertyId)))[0]?.timezone);
-      return tx.insert(roomMoves).values([
-        { tenantId, propertyId: a!.booking.propertyId, bookingId: a!.booking.id, legId: a!.leg.id, destinationLegId: b!.leg.id, fromRoomUnitId: a!.leg.roomUnitId!, toRoomUnitId: b!.leg.roomUnitId!, effectiveDate: date, status: 'completed', appliedAt: new Date(), createdByUserId: userId },
-        { tenantId, propertyId: b!.booking.propertyId, bookingId: b!.booking.id, legId: b!.leg.id, destinationLegId: a!.leg.id, fromRoomUnitId: b!.leg.roomUnitId!, toRoomUnitId: a!.leg.roomUnitId!, effectiveDate: date, status: 'completed', appliedAt: new Date(), createdByUserId: userId },
-      ]).returning();
+      if (
+        a!.booking.propertyId !== b!.booking.propertyId ||
+        a!.booking.roomId !== b!.booking.roomId
+      )
+        throw new ConflictException(
+          'Rooms can only be exchanged within the same property and room type',
+        );
+      if (a!.leg.checkin !== b!.leg.checkin || a!.leg.checkout !== b!.leg.checkout)
+        throw new ConflictException(
+          'Room exchange requires matching stay dates; use Room Move for different dates',
+        );
+      const [roomA, roomB] = await tx
+        .select()
+        .from(roomUnits)
+        .where(inArray(roomUnits.id, [a!.leg.roomUnitId!, b!.leg.roomUnitId!]));
+      const byId = new Map([roomA, roomB].filter(Boolean).map((r) => [r!.id, r!]));
+      await this.assertNotBlocked(
+        tx,
+        b!.leg.roomUnitId!,
+        a!.leg.checkin,
+        a!.leg.checkout,
+        byId.get(b!.leg.roomUnitId!)?.code ?? 'destination',
+      );
+      await this.assertNotBlocked(
+        tx,
+        a!.leg.roomUnitId!,
+        b!.leg.checkin,
+        b!.leg.checkout,
+        byId.get(a!.leg.roomUnitId!)?.code ?? 'destination',
+      );
+      await tx
+        .update(bookingRooms)
+        .set({ roomUnitId: null, updatedAt: new Date() })
+        .where(inArray(bookingRooms.id, ids));
+      await tx
+        .update(bookingRooms)
+        .set({ roomUnitId: b!.leg.roomUnitId, updatedAt: new Date() })
+        .where(eq(bookingRooms.id, a!.leg.id));
+      await tx
+        .update(bookingRooms)
+        .set({ roomUnitId: a!.leg.roomUnitId, updatedAt: new Date() })
+        .where(eq(bookingRooms.id, b!.leg.id));
+      const date = localToday(
+        (
+          await tx
+            .select({ timezone: properties.timezone })
+            .from(properties)
+            .where(eq(properties.id, a!.booking.propertyId))
+        )[0]?.timezone,
+      );
+      return tx
+        .insert(roomMoves)
+        .values([
+          {
+            tenantId,
+            propertyId: a!.booking.propertyId,
+            bookingId: a!.booking.id,
+            legId: a!.leg.id,
+            destinationLegId: b!.leg.id,
+            fromRoomUnitId: a!.leg.roomUnitId!,
+            toRoomUnitId: b!.leg.roomUnitId!,
+            effectiveDate: date,
+            status: 'completed',
+            appliedAt: new Date(),
+            createdByUserId: userId,
+          },
+          {
+            tenantId,
+            propertyId: b!.booking.propertyId,
+            bookingId: b!.booking.id,
+            legId: b!.leg.id,
+            destinationLegId: a!.leg.id,
+            fromRoomUnitId: b!.leg.roomUnitId!,
+            toRoomUnitId: a!.leg.roomUnitId!,
+            effectiveDate: date,
+            status: 'completed',
+            appliedAt: new Date(),
+            createdByUserId: userId,
+          },
+        ])
+        .returning();
     });
   }
 
   stopMove(tenantId: string, id: string) {
-    return this.dbs.withTenant(tenantId, async tx => {
+    return this.dbs.withTenant(tenantId, async (tx) => {
       const [move] = await tx.select().from(roomMoves).where(eq(roomMoves.id, id)).for('update');
       if (!move) throw new NotFoundException('Room move not found');
-      if (move.status !== 'planned') throw new ConflictException('Only a planned move can be stopped');
-      const [stopped] = await tx.update(roomMoves).set({ status: 'stopped', stoppedAt: new Date() }).where(eq(roomMoves.id, id)).returning();
+      if (move.status !== 'planned')
+        throw new ConflictException('Only a planned move can be stopped');
+      const [stopped] = await tx
+        .update(roomMoves)
+        .set({ status: 'stopped', stoppedAt: new Date() })
+        .where(eq(roomMoves.id, id))
+        .returning();
       return stopped;
     });
   }
 
-  private async assertDestinationFree(tx: Tx, roomUnitId: string, from: string, to: string, exceptLegId: string, code: string) {
-    const [clash] = await tx.select({ id: bookingRooms.id }).from(bookingRooms).where(and(eq(bookingRooms.roomUnitId, roomUnitId), isNull(bookingRooms.releasedAt), sql`${bookingRooms.id} <> ${exceptLegId}`, sql`daterange(${bookingRooms.checkin}, ${bookingRooms.checkout}, '[)') && daterange(${from}::date, ${to}::date, '[)')`)).limit(1);
-    const [planned] = await tx.select({ id: roomMoves.id }).from(roomMoves).innerJoin(bookingRooms, eq(bookingRooms.id, roomMoves.legId)).where(and(eq(roomMoves.toRoomUnitId, roomUnitId), eq(roomMoves.status, 'planned'), sql`daterange(${roomMoves.effectiveDate}, ${bookingRooms.checkout}, '[)') && daterange(${from}::date, ${to}::date, '[)')`)).limit(1);
-    if (clash || planned) throw new ConflictException(`Room ${code} is already occupied or reserved over those dates`);
+  private async assertDestinationFree(
+    tx: Tx,
+    roomUnitId: string,
+    from: string,
+    to: string,
+    exceptLegId: string,
+    code: string,
+  ) {
+    const [clash] = await tx
+      .select({ id: bookingRooms.id })
+      .from(bookingRooms)
+      .where(
+        and(
+          eq(bookingRooms.roomUnitId, roomUnitId),
+          isNull(bookingRooms.releasedAt),
+          sql`${bookingRooms.id} <> ${exceptLegId}`,
+          sql`daterange(${bookingRooms.checkin}, ${bookingRooms.checkout}, '[)') && daterange(${from}::date, ${to}::date, '[)')`,
+        ),
+      )
+      .limit(1);
+    const [planned] = await tx
+      .select({ id: roomMoves.id })
+      .from(roomMoves)
+      .innerJoin(bookingRooms, eq(bookingRooms.id, roomMoves.legId))
+      .where(
+        and(
+          eq(roomMoves.toRoomUnitId, roomUnitId),
+          eq(roomMoves.status, 'planned'),
+          sql`daterange(${roomMoves.effectiveDate}, ${bookingRooms.checkout}, '[)') && daterange(${from}::date, ${to}::date, '[)')`,
+        ),
+      )
+      .limit(1);
+    if (clash || planned)
+      throw new ConflictException(`Room ${code} is already occupied or reserved over those dates`);
   }
 
   /**

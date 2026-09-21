@@ -324,14 +324,23 @@ export class InvoicesService {
       throw new ConflictException('Only an active issued invoice or bill can be sent');
     }
     const pdf = await renderInvoicePdf(invoice);
-    const recipients = [...new Set(emails.map(e => e.trim().toLowerCase()))];
-    await this.dbs.withTenant(tenantId, tx => tx.insert(messages).values(recipients.map(to => ({
-      tenantId, bookingId: invoice.bookingId, channel: 'email' as const, toAddress: to,
-      templateKey: 'issued_invoice', language: 'en',
-      subject: `${invoice.title} ${invoice.number}`, body: `Please find ${invoice.title.toLowerCase()} ${invoice.number} attached.`,
-      attachments: [{ filename: `${invoice.number}.pdf`, content: pdf.toString('base64') }],
-      status: 'queued' as const,
-    }))));
+    const recipients = [...new Set(emails.map((e) => e.trim().toLowerCase()))];
+    await this.dbs.withTenant(tenantId, (tx) =>
+      tx.insert(messages).values(
+        recipients.map((to) => ({
+          tenantId,
+          bookingId: invoice.bookingId,
+          channel: 'email' as const,
+          toAddress: to,
+          templateKey: 'issued_invoice',
+          language: 'en',
+          subject: `${invoice.title} ${invoice.number}`,
+          body: `Please find ${invoice.title.toLowerCase()} ${invoice.number} attached.`,
+          attachments: [{ filename: `${invoice.number}.pdf`, content: pdf.toString('base64') }],
+          status: 'queued' as const,
+        })),
+      ),
+    );
     return { queued: recipients.length, recipients };
   }
 

@@ -209,7 +209,7 @@ function ReservationsScreen() {
 
   React.useEffect(() => {
     const requested = params.get('bookingId');
-    if (requested && list.data?.rows.some(row => row.id === requested)) setOpenId(requested);
+    if (requested && list.data?.rows.some((row) => row.id === requested)) setOpenId(requested);
   }, [params, list.data?.rows]);
 
   const makeGroup = useMutation({

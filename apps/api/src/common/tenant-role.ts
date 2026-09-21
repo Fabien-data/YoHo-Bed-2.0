@@ -17,10 +17,7 @@ import type { TenantRequest } from '../tenancy/tenant.guard';
  * price authority belong to the owner, so those routes say `@TenantRoles('OWNER')`.
  */
 export type TenantRole =
-  | 'OWNER'
-  | 'OWNER_STAFF'
-  | 'HOUSEKEEPING_ATTENDANT'
-  | 'HOUSEKEEPING_SUPERVISOR';
+  'OWNER' | 'OWNER_STAFF' | 'HOUSEKEEPING_ATTENDANT' | 'HOUSEKEEPING_SUPERVISOR';
 
 export const TENANT_ROLES_KEY = 'tenantRoles';
 

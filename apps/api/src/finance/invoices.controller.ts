@@ -46,7 +46,10 @@ const sendInvoiceSchema = z.object({ emails: z.array(z.string().trim().email()).
 @Controller()
 @UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
 export class InvoicesController {
-  constructor(private readonly invoices: InvoicesService, private readonly mailer: MailerService) {}
+  constructor(
+    private readonly invoices: InvoicesService,
+    private readonly mailer: MailerService,
+  ) {}
 
   @Post('folios/:id/invoice')
   @HttpCode(201)
@@ -118,8 +121,11 @@ export class InvoicesController {
 
   @Post('invoices/:id/send')
   @HttpCode(201)
-  async send(@TenantId() tenantId: string, @Param('id', uuid) id: string,
-    @Body(new ZodValidationPipe(sendInvoiceSchema)) dto: z.infer<typeof sendInvoiceSchema>) {
+  async send(
+    @TenantId() tenantId: string,
+    @Param('id', uuid) id: string,
+    @Body(new ZodValidationPipe(sendInvoiceSchema)) dto: z.infer<typeof sendInvoiceSchema>,
+  ) {
     const result = await this.invoices.queueEmail(tenantId, id, dto.emails);
     this.mailer.deliverQueuedSafe(tenantId);
     return result;
