@@ -9,7 +9,8 @@ import type { PayoutAccountDto } from './dto';
 export class ProfileService {
   constructor(private readonly dbs: DatabaseService) {}
 
-  async get(userId: string, tenantId: string) {
+  /** Bank details go to the owner only; everyone else sees their own details and the tenant. */
+  async get(userId: string, tenantId: string, isOwner: boolean) {
     const [user] = await this.dbs.db
       .select({ id: users.id, email: users.email, name: users.name })
       .from(users)
@@ -25,6 +26,7 @@ export class ProfileService {
       })
       .from(tenants)
       .where(eq(tenants.id, tenantId));
+    if (!isOwner) return { user, tenant, payoutAccount: null };
     const [payout] = await this.dbs.withTenant(tenantId, (tx) =>
       tx.select().from(payoutAccounts).where(eq(payoutAccounts.tenantId, tenantId)),
     );
