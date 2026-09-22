@@ -10,6 +10,7 @@ import {
   ApiError,
   type Profile,
 } from '@/lib/api';
+import { useTenantRole } from '@/lib/queries';
 
 function statusTone(s: string): 'avail' | 'low' | 'closed' | 'muted' {
   if (s === 'active') return 'avail';
@@ -18,6 +19,9 @@ function statusTone(s: string): 'avail' | 'low' | 'closed' | 'muted' {
 }
 
 export default function ProfilePage() {
+  const role = useTenantRole();
+  // Payouts and the platform agreement are the owner's alone; the API refuses anyone else.
+  const isOwner = role === 'OWNER';
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -123,6 +127,10 @@ export default function ProfilePage() {
               </span>
               .
             </p>
+          ) : !isOwner ? (
+            <p className="text-sm text-ink-2">
+              Not accepted yet. Only the property owner can accept it.
+            </p>
           ) : (
             <>
               <p className="mb-3 text-sm text-ink-2">
@@ -178,73 +186,75 @@ export default function ProfilePage() {
           </form>
         </Card>
 
-        <Card className="p-5">
-          <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-ink">
-            Payout account
-          </h2>
-          <p className="mb-4 text-sm text-ink-2">
-            Where your settlement (net payable) is sent. Payout statements use these details.
-          </p>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void run(
-                async () =>
-                  void (await setPayoutAccount({
-                    bankName: bank.bankName.trim(),
-                    branchName: bank.branchName.trim() || undefined,
-                    accountName: bank.accountName.trim(),
-                    accountNumber: bank.accountNumber.trim(),
-                    swiftCode: bank.swiftCode.trim() || undefined,
-                  })),
-                'Payout account saved.',
-              );
-            }}
-          >
-            <Field label="Bank" required>
-              <Input
-                value={bank.bankName}
-                onChange={(e) => setBank((v) => ({ ...v, bankName: e.target.value }))}
-                placeholder="e.g. Commercial Bank of Ceylon"
-                required
-              />
-            </Field>
-            <Field label="Branch (optional)">
-              <Input
-                value={bank.branchName}
-                onChange={(e) => setBank((v) => ({ ...v, branchName: e.target.value }))}
-                placeholder="e.g. Kollupitiya"
-              />
-            </Field>
-            <Field label="Account holder name" required>
-              <Input
-                value={bank.accountName}
-                onChange={(e) => setBank((v) => ({ ...v, accountName: e.target.value }))}
-                required
-              />
-            </Field>
-            <Field label="Account number" required>
-              <Input
-                value={bank.accountNumber}
-                onChange={(e) => setBank((v) => ({ ...v, accountNumber: e.target.value }))}
-                required
-              />
-            </Field>
-            <Field label="SWIFT code (optional)">
-              <Input
-                value={bank.swiftCode}
-                onChange={(e) =>
-                  setBank((v) => ({ ...v, swiftCode: e.target.value.toUpperCase() }))
-                }
-                placeholder="CCEYLKLX"
-              />
-            </Field>
-            <Button type="submit" loading={busy} className="self-start">
-              {profile.payoutAccount ? 'Update payout account' : 'Save payout account'}
-            </Button>
-          </form>
-        </Card>
+        {isOwner && (
+          <Card className="p-5">
+            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-ink">
+              Payout account
+            </h2>
+            <p className="mb-4 text-sm text-ink-2">
+              Where your settlement (net payable) is sent. Payout statements use these details.
+            </p>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void run(
+                  async () =>
+                    void (await setPayoutAccount({
+                      bankName: bank.bankName.trim(),
+                      branchName: bank.branchName.trim() || undefined,
+                      accountName: bank.accountName.trim(),
+                      accountNumber: bank.accountNumber.trim(),
+                      swiftCode: bank.swiftCode.trim() || undefined,
+                    })),
+                  'Payout account saved.',
+                );
+              }}
+            >
+              <Field label="Bank" required>
+                <Input
+                  value={bank.bankName}
+                  onChange={(e) => setBank((v) => ({ ...v, bankName: e.target.value }))}
+                  placeholder="e.g. Commercial Bank of Ceylon"
+                  required
+                />
+              </Field>
+              <Field label="Branch (optional)">
+                <Input
+                  value={bank.branchName}
+                  onChange={(e) => setBank((v) => ({ ...v, branchName: e.target.value }))}
+                  placeholder="e.g. Kollupitiya"
+                />
+              </Field>
+              <Field label="Account holder name" required>
+                <Input
+                  value={bank.accountName}
+                  onChange={(e) => setBank((v) => ({ ...v, accountName: e.target.value }))}
+                  required
+                />
+              </Field>
+              <Field label="Account number" required>
+                <Input
+                  value={bank.accountNumber}
+                  onChange={(e) => setBank((v) => ({ ...v, accountNumber: e.target.value }))}
+                  required
+                />
+              </Field>
+              <Field label="SWIFT code (optional)">
+                <Input
+                  value={bank.swiftCode}
+                  onChange={(e) =>
+                    setBank((v) => ({ ...v, swiftCode: e.target.value.toUpperCase() }))
+                  }
+                  placeholder="CCEYLKLX"
+                />
+              </Field>
+              <Button type="submit" loading={busy} className="self-start">
+                {profile.payoutAccount ? 'Update payout account' : 'Save payout account'}
+              </Button>
+            </form>
+          </Card>
+        )}
       </div>
     </div>
   );
