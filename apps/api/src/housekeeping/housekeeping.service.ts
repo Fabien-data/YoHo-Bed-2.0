@@ -22,6 +22,7 @@ import {
   users,
   memberships,
   workOrders,
+  housekeepingAsOf,
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
@@ -194,12 +195,15 @@ export class HousekeepingService {
                 gt(bookingRooms.checkout, date),
               ),
             ),
-          tx
-            .select()
-            .from(housekeepingStatus)
-            .where(
-              and(eq(housekeepingStatus.propertyId, propertyId), eq(housekeepingStatus.date, date)),
-            ),
+          // Status carries forward from the latest record; remarks and the day's assignee do not.
+          housekeepingAsOf(tx, propertyId, date).then((m) =>
+            [...m.values()].map((h) => ({
+              roomUnitId: h.roomUnitId,
+              status: h.status,
+              remarks: h.since === date ? h.remarks : null,
+              assignedToUserId: h.since === date ? h.assignedToUserId : null,
+            })),
+          ),
           tx
             .select()
             .from(maintenanceBlocks)
@@ -462,7 +466,12 @@ export class HousekeepingService {
           ),
         )
         .for('update');
-      if (dto.status === 'inspected' && (previous?.status ?? 'clean') !== 'clean') {
+      // No row for the day means the state carried in from the last one (UX-1a), not "clean".
+      const current =
+        previous?.status ??
+        (await housekeepingAsOf(tx, propertyId, dto.date)).get(dto.roomUnitId)?.status ??
+        'clean';
+      if (dto.status === 'inspected' && current !== 'clean') {
         throw new ConflictException('A room must be submitted as clean before inspection');
       }
       if (role === 'HOUSEKEEPING_ATTENDANT') {
@@ -821,18 +830,9 @@ export class HousekeepingService {
     };
   }
 
-  /** Dirty-room count for one date, used by Stay View's chip strip. */
+  /** Dirty-room count for one date, used by Stay View's chip strip — carried forward (UX-1a). */
   async dirtyCount(tx: Tx, propertyId: string, date: string): Promise<number> {
-    const [row] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(housekeepingStatus)
-      .where(
-        and(
-          eq(housekeepingStatus.propertyId, propertyId),
-          eq(housekeepingStatus.date, date),
-          eq(housekeepingStatus.status, 'dirty'),
-        ),
-      );
-    return row?.n ?? 0;
+    const asOf = await housekeepingAsOf(tx, propertyId, date);
+    return [...asOf.values()].filter((h) => h.status === 'dirty').length;
   }
 }

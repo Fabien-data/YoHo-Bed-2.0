@@ -584,18 +584,27 @@ function CashierReport({ sessionId, onClosed }: { sessionId: string; onClosed: (
       ) : (
         <div className="rounded-lg border border-line p-3 text-sm">
           <p className="mb-1 font-semibold text-ink">Shift closed</p>
-          <p className="text-ink-2">
-            Counted {r.totals.declared} against {r.totals.expected} expected — variance{' '}
-            <span
-              className={cn(
-                'font-mono font-semibold',
-                Number(r.totals.variance) === 0 ? 'text-avail-ink' : 'text-closed-ink',
-              )}
-            >
-              {r.totals.variance}
-            </span>
-            .
-          </p>
+          {r.totals.declared === null || r.totals.declared === undefined ? (
+            // Closed by night audit without a count (UX-1a): say so, rather than print a "0.00"
+            // variance that reads exactly like a till that balanced.
+            <p className="text-closed-ink">
+              Nobody counted this till. It should have held{' '}
+              <span className="font-mono font-semibold">{r.totals.expected}</span>.
+            </p>
+          ) : (
+            <p className="text-ink-2">
+              Counted {r.totals.declared} against {r.totals.expected} expected — variance{' '}
+              <span
+                className={cn(
+                  'font-mono font-semibold',
+                  Number(r.totals.variance) === 0 ? 'text-avail-ink' : 'text-closed-ink',
+                )}
+              >
+                {r.totals.variance}
+              </span>
+              .
+            </p>
+          )}
           {r.session.notes && <p className="mt-1 text-xs text-ink-3">{r.session.notes}</p>}
         </div>
       )}

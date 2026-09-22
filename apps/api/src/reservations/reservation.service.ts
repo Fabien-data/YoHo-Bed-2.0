@@ -23,7 +23,7 @@ import {
   coupons,
   customers,
   enqueueOutbox,
-  housekeepingStatus,
+  housekeepingAsOf,
   InsufficientAvailabilityError,
   ledgerAccounts,
   maintenanceBlocks,
@@ -395,21 +395,14 @@ export class ReservationService {
       const taken = new Set(
         p.lines.map((l) => l.unit?.id).filter((id): id is string => Boolean(id)),
       );
+      // Dirty as of today, carried forward from the room's last record (UX-1a).
+      const asOf = await housekeepingAsOf(tx, p.property.id, dto.checkin);
       for (const l of p.lines) {
         const unit = l.unit ?? (await this.pickFreeUnit(tx, l, dto.checkin, dto.checkout, taken));
         taken.add(unit.id);
         walkInUnits.set(l.index, unit);
-        const [dirty] = await tx
-          .select({ status: housekeepingStatus.status })
-          .from(housekeepingStatus)
-          .where(
-            and(
-              eq(housekeepingStatus.roomUnitId, unit.id),
-              eq(housekeepingStatus.date, dto.checkin),
-              eq(housekeepingStatus.status, 'dirty'),
-            ),
-          );
-        if (dirty) warnings.push(`Room ${unit.code} is marked dirty.`);
+        if (asOf.get(unit.id)?.status === 'dirty')
+          warnings.push(`Room ${unit.code} is marked dirty.`);
       }
     }
 
@@ -767,12 +760,15 @@ export class ReservationService {
     // 4d. A walk-in is checked in now, in the same transaction: all rooms or none.
     if (dto.checkIn) {
       for (const c of created) {
+        // The walk-in desk has already been warned about a dirty room (the `warnings` above), and
+        // the guest is standing there: it proceeds, on the record, rather than refusing.
         await this.bookingService.transitionWithin(
           tx,
           tenantId,
           c.booking.id,
           'check_in',
           'walk-in',
+          { actorUserId: actor.userId, overrideDirty: true },
         );
       }
     }

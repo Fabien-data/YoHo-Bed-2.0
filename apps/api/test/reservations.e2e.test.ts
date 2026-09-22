@@ -1,5 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { makeTenant, request, openAndPrice, book, stopApp, type TenantFixture } from './harness';
+import {
+  makeTenant,
+  request,
+  openAndPrice,
+  book,
+  hotelToday,
+  stopApp,
+  type TenantFixture,
+} from './harness';
 
 afterAll(stopApp);
 
@@ -17,21 +25,23 @@ async function checkIn(fx: TenantFixture, bookingId: string) {
 describe('reservations list', () => {
   it('counts every tab on every request, not just the active one', async () => {
     const fx = await makeTenant({ roomQuantity: 6 });
-    await openAndPrice(fx, '2030-01-01', '2030-01-31', { roomsToSell: 6 });
+    await openAndPrice(fx, hotelToday(), hotelToday(20), { roomsToSell: 6 });
+    // Seen as of two days from now; the in-house guests arrive (and are checked in) today.
+    const day = hotelToday(2);
 
-    // Arriving on the 10th, not yet in.
-    await book(fx, { checkin: '2030-01-10', checkout: '2030-01-13' });
-    // In-house across the 10th.
-    const staying = await book(fx, { checkin: '2030-01-08', checkout: '2030-01-15' });
+    // Arriving on the day, not yet in.
+    await book(fx, { checkin: day, checkout: hotelToday(5) });
+    // In-house across the day.
+    const staying = await book(fx, { checkin: hotelToday(), checkout: hotelToday(7) });
     await checkIn(fx, staying.body.id);
-    // Departing on the 10th.
-    const leaving = await book(fx, { checkin: '2030-01-07', checkout: '2030-01-10' });
+    // Departing on the day.
+    const leaving = await book(fx, { checkin: hotelToday(), checkout: day });
     await checkIn(fx, leaving.body.id);
     // Cancelled.
-    const dead = await book(fx, { checkin: '2030-01-09', checkout: '2030-01-12' });
+    const dead = await book(fx, { checkin: hotelToday(1), checkout: hotelToday(4) });
     await request('POST', `/bookings/${dead.body.id}/cancel`, { token: fx.token });
 
-    const res = await reservations(fx, '2030-01-10');
+    const res = await reservations(fx, day);
     expect(res.status).toBe(200);
     expect(res.body.counts).toMatchObject({
       arrivals: 1,
@@ -44,25 +54,26 @@ describe('reservations list', () => {
 
   it('returns the rows of the tab that was asked for', async () => {
     const fx = await makeTenant({ roomQuantity: 4 });
-    await openAndPrice(fx, '2030-02-01', '2030-02-28', { roomsToSell: 4 });
+    await openAndPrice(fx, hotelToday(), hotelToday(20), { roomsToSell: 4 });
+    const day = hotelToday(2);
 
     await book(fx, {
       customerName: 'Arriving Guest',
-      checkin: '2030-02-10',
-      checkout: '2030-02-12',
+      checkin: day,
+      checkout: hotelToday(4),
     });
     const staying = await book(fx, {
       customerName: 'Staying Guest',
-      checkin: '2030-02-08',
-      checkout: '2030-02-14',
+      checkin: hotelToday(),
+      checkout: hotelToday(6),
     });
     await checkIn(fx, staying.body.id);
 
-    const arrivals = await reservations(fx, '2030-02-10', '&tab=arrivals');
+    const arrivals = await reservations(fx, day, '&tab=arrivals');
     expect(arrivals.body.rows).toHaveLength(1);
     expect(arrivals.body.rows[0].guestName).toBe('Arriving Guest');
 
-    const inhouse = await reservations(fx, '2030-02-10', '&tab=inhouse');
+    const inhouse = await reservations(fx, day, '&tab=inhouse');
     expect(inhouse.body.rows).toHaveLength(1);
     expect(inhouse.body.rows[0].guestName).toBe('Staying Guest');
   });

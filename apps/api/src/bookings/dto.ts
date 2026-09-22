@@ -24,6 +24,44 @@ export type CreateBookingDto = z.infer<typeof createBookingSchema>;
 export const rejectSchema = z.object({ reason: z.string().max(500).optional() });
 export type RejectDto = z.infer<typeof rejectSchema>;
 
+/** Front-desk lifecycle bodies (UX-1a). An override is deliberate, so it always carries a reason. */
+const reasonText = z.string().trim().max(500);
+
+export const cancelSchema = z.object({ reason: reasonText.optional() }).default({});
+export type CancelDto = z.infer<typeof cancelSchema>;
+
+export const checkInSchema = z
+  .object({
+    reason: reasonText.optional(),
+    /** Check in although the room is marked dirty — the reason says why. */
+    overrideDirty: z.boolean().optional(),
+  })
+  .refine((d) => !d.overrideDirty || (d.reason?.length ?? 0) >= 3, {
+    message: 'Say why the guest is going into a room that is not clean',
+    path: ['reason'],
+  })
+  .default({});
+export type CheckInDto = z.infer<typeof checkInSchema>;
+
+export const checkOutSchema = z
+  .object({
+    reason: reasonText.optional(),
+    /** Owner only: check out with the guest's balance unpaid — the reason says why. */
+    allowBalance: z.boolean().optional(),
+  })
+  .refine((d) => !d.allowBalance || (d.reason?.length ?? 0) >= 3, {
+    message: 'Say why the guest is leaving with a balance unpaid',
+    path: ['reason'],
+  })
+  .default({});
+export type CheckOutDto = z.infer<typeof checkOutSchema>;
+
+/** Undo and reinstate always say why — they rewrite what the desk told everyone had happened. */
+export const reasonRequiredSchema = z.object({
+  reason: reasonText.min(3, 'Say why, in a few words'),
+});
+export type ReasonRequiredDto = z.infer<typeof reasonRequiredSchema>;
+
 /** Amend (Compartment G): guest details and/or the stay. Empty string clears email/phone. */
 export const amendBookingSchema = z
   .object({

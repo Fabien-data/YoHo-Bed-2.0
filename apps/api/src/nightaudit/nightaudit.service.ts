@@ -5,6 +5,9 @@ import {
   bookingDays,
   bookings,
   businessDates,
+  cashDrawers,
+  customers,
+  drawerSessions,
   enqueueOutbox,
   noShowReleaseFrom,
   releaseBookingInventory,
@@ -107,8 +110,14 @@ export class NightAuditService {
     // was skipped, yesterday's unarrived booking is still Approved and would otherwise keep
     // accruing nightly room charges forever without ever being flagged.
     const noShows = await tx
-      .select({ id: bookings.id, reference: bookings.reference })
+      .select({
+        id: bookings.id,
+        reference: bookings.reference,
+        checkin: bookings.checkin,
+        guestName: customers.name,
+      })
       .from(bookings)
+      .innerJoin(customers, eq(customers.id, bookings.customerId))
       .where(
         and(
           eq(bookings.propertyId, propertyId),
@@ -116,6 +125,36 @@ export class NightAuditService {
           eq(bookings.status, 'Approved'),
         ),
       );
+
+    // Pre-checks (UX-1a): what the auditor should settle before the date moves. The run never
+    // checks anyone out, so an in-house guest past their departure stays in house — flagged here.
+    const overstays = await tx
+      .select({
+        id: bookings.id,
+        reference: bookings.reference,
+        checkout: bookings.checkout,
+        guestName: customers.name,
+      })
+      .from(bookings)
+      .innerJoin(customers, eq(customers.id, bookings.customerId))
+      .where(
+        and(
+          eq(bookings.propertyId, propertyId),
+          eq(bookings.status, 'CheckedIn'),
+          lte(bookings.checkout, date),
+        ),
+      );
+    const openTills = await tx
+      .select({
+        sessionId: drawerSessions.id,
+        drawer: cashDrawers.name,
+        openedBy: users.name,
+        openedAt: drawerSessions.openedAt,
+      })
+      .from(drawerSessions)
+      .innerJoin(cashDrawers, eq(cashDrawers.id, drawerSessions.drawerId))
+      .leftJoin(users, eq(users.id, drawerSessions.openedByUserId))
+      .where(and(eq(cashDrawers.propertyId, propertyId), eq(drawerSessions.status, 'open')));
 
     const charges = dueCharges.reduce((s, c) => s + Number(c.sellingPrice) * c.rooms, 0);
     const taxes = dueCharges.reduce((s, c) => s + Number(c.tax) * c.rooms, 0);
@@ -127,6 +166,11 @@ export class NightAuditService {
       chargesToPost: money(charges),
       taxesToPost: money(taxes),
       noShows: noShows.map((n) => n.reference),
+      /** Due in and not arrived: each becomes a no-show unless the run is told to `keep` it. */
+      unarrived: noShows,
+      overstays,
+      /** Tills still open: the run closes them as UNCOUNTED — count them first if you can. */
+      openTills,
       dueCharges,
       noShowIds: noShows.map((n) => n.id),
     };
@@ -140,7 +184,14 @@ export class NightAuditService {
    * posted but the date not moved — would double-post on the next attempt, so the all-or-nothing
    * matters more here than anywhere else in the system.
    */
-  async run(tenantId: string, propertyId: string, userId: string | null, ip: string | null) {
+  async run(
+    tenantId: string,
+    propertyId: string,
+    userId: string | null,
+    ip: string | null,
+    keep: string[] = [],
+  ) {
+    const kept = new Set(keep);
     return this.dbs.withTenant(tenantId, async (tx) => {
       const bd = await this.ensureBusinessDate(tx, tenantId, propertyId);
       const date = bd.currentDate;
@@ -218,7 +269,10 @@ export class NightAuditService {
 
       // 2. No-show anything that was due to arrive and did not. The night just charged stays
       //    held; the rest of the stay goes back on sale. An OTA booking also tells the channel.
-      for (const id of p.noShowIds) {
+      //    A booking the desk said to `keep` (a late arrival they still expect) is charged its
+      //    night above but stays a reservation.
+      const noShowIds = p.noShowIds.filter((id) => !kept.has(id));
+      for (const id of noShowIds) {
         const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
         if (!b || b.status !== 'Approved') continue;
         await tx
@@ -265,7 +319,7 @@ export class NightAuditService {
             roomsCharged: posted,
             chargesPosted: p.chargesToPost,
             taxesPosted: p.taxesToPost,
-            noShows: p.noShowIds.length,
+            noShows: noShowIds.length,
             drawersClosed,
             summary: {
               roomsDue: p.roomsToCharge,
@@ -273,7 +327,10 @@ export class NightAuditService {
               roomsSkipped: skipped,
               inclusionsPosted: inclusions.posted,
               inclusionsTotal: money(inclusions.total),
-              noShowReferences: p.noShows,
+              noShowReferences: p.unarrived.filter((u) => !kept.has(u.id)).map((u) => u.reference),
+              keptAsLateArrivals: p.unarrived.filter((u) => kept.has(u.id)).map((u) => u.reference),
+              overstays: p.overstays.map((o) => o.reference),
+              tillsClosedUncounted: drawersClosed,
               holdsReleased: swept.released.map((r) => r.reference),
               unconfirmedCancelled: swept.expired.map((r) => r.reference),
             },

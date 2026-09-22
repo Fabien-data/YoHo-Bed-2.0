@@ -10,6 +10,7 @@ import bcrypt from 'bcryptjs';
 import { and, eq } from 'drizzle-orm';
 import {
   admin,
+  hotelToday,
   login,
   makeTenant,
   request,
@@ -85,25 +86,29 @@ describe('room view', () => {
   it('derives Occupied, PendingCheckout and ArrivingToday from the reservations', async () => {
     const fx = await makeTenant({ roomQuantity: 4 });
     const units = await makeUnits(fx, 3);
-    await openAndPrice(fx, '2029-02-01', '2029-02-20', { roomsToSell: 4 });
+    await openAndPrice(fx, hotelToday(), hotelToday(10), { roomsToSell: 4 });
 
-    // In-house, staying on.
-    const staying = await book(fx, { checkin: '2029-02-08', checkout: '2029-02-14' });
+    // Checked in today (a guest can only be checked in on the arrival day), staying on.
+    const staying = await book(fx, { checkin: hotelToday(), checkout: hotelToday(6) });
     await assignFirstLeg(fx, staying.body.id, units[0]!);
     await request('POST', `/bookings/${staying.body.id}/approve`, { token: fx.token });
-    await request('POST', `/bookings/${staying.body.id}/check-in`, { token: fx.token });
+    const inStaying = await request('POST', `/bookings/${staying.body.id}/check-in`, {
+      token: fx.token,
+    });
+    expect(inStaying.status, JSON.stringify(inStaying.body)).toBe(200);
 
-    // In-house, leaving on the 10th.
-    const leaving = await book(fx, { checkin: '2029-02-08', checkout: '2029-02-10' });
+    // Checked in today, leaving in two days.
+    const leaving = await book(fx, { checkin: hotelToday(), checkout: hotelToday(2) });
     await assignFirstLeg(fx, leaving.body.id, units[1]!);
     await request('POST', `/bookings/${leaving.body.id}/approve`, { token: fx.token });
     await request('POST', `/bookings/${leaving.body.id}/check-in`, { token: fx.token });
 
-    // Arriving on the 10th, not yet checked in.
-    const arriving = await book(fx, { checkin: '2029-02-10', checkout: '2029-02-12' });
+    // Arriving in two days, not yet checked in.
+    const arriving = await book(fx, { checkin: hotelToday(2), checkout: hotelToday(4) });
     await assignFirstLeg(fx, arriving.body.id, units[2]!);
 
-    const res = await roomView(fx, '2029-02-10');
+    // Seen as of the day the second guest leaves and the third arrives.
+    const res = await roomView(fx, hotelToday(2));
     const by = Object.fromEntries(res.body.map((c: any) => [c.code, c]));
     expect(by['01'].state).toBe('Occupied');
     expect(by['01'].frontDeskLabel).toBe('Stayover');
@@ -271,21 +276,22 @@ describe('housekeeping status', () => {
     // describe. The guest is still in the room until they physically leave.
     const fx = await makeTenant({ roomQuantity: 2 });
     const [u1] = await makeUnits(fx, 1);
-    await openAndPrice(fx, '2029-11-01', '2029-11-20', { roomsToSell: 2 });
+    await openAndPrice(fx, hotelToday(), hotelToday(10), { roomsToSell: 2 });
 
-    const leaving = await book(fx, { checkin: '2029-11-05', checkout: '2029-11-08' });
+    // Checked in today (the arrival day), leaving in three days.
+    const leaving = await book(fx, { checkin: hotelToday(), checkout: hotelToday(3) });
     await assignFirstLeg(fx, leaving.body.id, u1!);
     await request('POST', `/bookings/${leaving.body.id}/approve`, { token: fx.token });
     await request('POST', `/bookings/${leaving.body.id}/check-in`, { token: fx.token });
 
     const chart = await request(
       'GET',
-      `/stayview?propertyId=${fx.propertyId}&from=2029-11-08&to=2029-11-12`,
+      `/stayview?propertyId=${fx.propertyId}&from=${hotelToday(3)}&to=${hotelToday(7)}`,
       { token: fx.token },
     );
     expect(chart.body.counts.dueOut).toBe(1);
 
-    const view = await roomView(fx, '2029-11-08');
+    const view = await roomView(fx, hotelToday(3));
     expect(view.body[0].state).toBe('PendingCheckout');
     expect(view.body[0].guestName).toBe('E2E Guest');
   });

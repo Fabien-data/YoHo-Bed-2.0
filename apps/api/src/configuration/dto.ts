@@ -155,6 +155,7 @@ export const updatePropertySettingsSchema = z
       .strict()
       .optional(),
     requireDocumentsAtCheckin: z.boolean().optional(),
+    checkoutBalancePolicy: z.enum(['block', 'allow']).optional(),
     kindOverrides: z
       .record(
         z.enum(RESERVATION_KINDS),

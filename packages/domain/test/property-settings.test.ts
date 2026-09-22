@@ -48,6 +48,16 @@ describe('property settings', () => {
     expect(s.kindOverrides).toEqual({ inquiry: { label: 'Tentative', color: 'violet' } });
   });
 
+  it('blocks check-out with an unpaid balance unless the hotel says otherwise (UX-1a)', () => {
+    expect(resolvePropertySettings({}).checkoutBalancePolicy).toBe('block');
+    expect(resolvePropertySettings({ checkoutBalancePolicy: 'allow' }).checkoutBalancePolicy).toBe(
+      'allow',
+    );
+    expect(resolvePropertySettings({ checkoutBalancePolicy: 'maybe' }).checkoutBalancePolicy).toBe(
+      'block',
+    );
+  });
+
   it('treats an empty title list as "use the country default"', () => {
     expect(resolvePropertySettings({ titles: [] }).titles).toBeNull();
     expect(resolvePropertySettings({ titles: ['Mr.', ' ', 'Dr.'] }).titles).toEqual(['Mr.', 'Dr.']);

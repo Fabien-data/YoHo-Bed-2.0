@@ -72,10 +72,11 @@ export class FolioController {
   @HttpCode(200)
   voidCharge(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(voidChargeSchema)) dto: VoidChargeDto,
   ) {
-    return this.folio.voidCharge(tenantId, id, dto);
+    return this.folio.voidCharge(tenantId, id, dto, user.sub);
   }
 
   /** Split the bill: move charges between windows of the same booking. */

@@ -11,6 +11,44 @@ import {
   roomMoves,
 } from './schema';
 
+export type HousekeepingState = 'dirty' | 'clean' | 'inspected' | 'out_of_order';
+
+export interface HousekeepingAsOf {
+  roomUnitId: string;
+  status: HousekeepingState;
+  remarks: string | null;
+  assignedToUserId: string | null;
+  /** The day the status was set — earlier than the asked date when carried forward. */
+  since: string;
+}
+
+/**
+ * Each room's housekeeping state AS OF a date: its latest record on or before that day.
+ *
+ * Rows are written only when something happens to a room, so a status has to carry forward until
+ * the next event. Reading just the day's own row (as every screen once did) meant a room left dirty
+ * at close of day read "clean" the next morning — the next arrival could be sold a dirty room
+ * (UX-1a). A room with no record at all has never been touched, and is clean.
+ */
+export async function housekeepingAsOf(
+  tx: Tx,
+  propertyId: string,
+  date: string,
+): Promise<Map<string, HousekeepingAsOf>> {
+  const rows = (await tx.execute(sql`
+    select distinct on (room_unit_id)
+      room_unit_id as "roomUnitId",
+      status,
+      remarks,
+      assigned_to_user_id as "assignedToUserId",
+      date::text as since
+    from housekeeping_status
+    where property_id = ${propertyId} and date <= ${date}::date
+    order by room_unit_id, date desc
+  `)) as unknown as HousekeepingAsOf[];
+  return new Map(rows.map((r) => [r.roomUnitId, r]));
+}
+
 /** Returns only properties whose local clock has passed 02:00. The SQL function is SECURITY DEFINER. */
 export async function housekeepingDueProperties(db: Database, at: Date = new Date()) {
   return (await db.execute(

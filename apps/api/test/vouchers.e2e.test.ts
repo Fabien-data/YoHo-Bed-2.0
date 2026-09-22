@@ -6,6 +6,7 @@ import {
   book,
   makeTenant,
   openAndPrice,
+  payInFull,
   request,
   reserve,
   startApp,
@@ -206,6 +207,8 @@ describe('check-out and the registration card', () => {
     expect((await request('POST', `/bookings/${id}/check-in`, { token: fx.token })).status).toBe(
       200,
     );
+    // Paid up first: a guest is never checked out owing money (UX-1a).
+    await payInFull(fx, id);
     expect((await request('POST', `/bookings/${id}/check-out`, { token: fx.token })).status).toBe(
       200,
     );

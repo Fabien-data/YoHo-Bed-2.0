@@ -242,6 +242,18 @@ export function ReservationSettingsForm({
               onCheckedChange={(v) => setDraft({ ...draft, requireDocumentsAtCheckin: v })}
             />
           </SettingRow>
+          <SettingRow
+            title="Settle the bill before check-out"
+            description="A guest cannot be checked out with money still owing. The owner can still check out with a reason."
+          >
+            <Switch
+              aria-label="Settle the bill before check-out"
+              checked={draft.checkoutBalancePolicy === 'block'}
+              onCheckedChange={(v) =>
+                setDraft({ ...draft, checkoutBalancePolicy: v ? 'block' : 'allow' })
+              }
+            />
+          </SettingRow>
         </Card>
 
         <Card className="p-5">
