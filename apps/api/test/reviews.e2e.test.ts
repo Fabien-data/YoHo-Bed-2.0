@@ -1,19 +1,36 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { makeTenant, openAndPrice, book, request, stopApp, type TenantFixture } from './harness';
+import {
+  makeTenant,
+  openAndPrice,
+  book,
+  hotelToday,
+  payInFull,
+  request,
+  stopApp,
+  type TenantFixture,
+} from './harness';
 
 afterAll(stopApp);
 
-/** Drive a guest all the way to checked-out, then pull the review token out of the queued email. */
-async function checkOutGuest(fx: TenantFixture, checkin: string, checkout: string, email: string) {
+/**
+ * Drive a guest all the way to checked-out, then pull the review token out of the queued email.
+ * The stay arrives today and is paid up — a guest is only checked in on the arrival day, and
+ * never checked out owing money (UX-1a).
+ */
+async function checkOutGuest(fx: TenantFixture, email: string) {
+  await openAndPrice(fx, hotelToday(), hotelToday(9));
   const b = await book(fx, {
-    checkin,
-    checkout,
+    checkin: hotelToday(),
+    checkout: hotelToday(2),
     customerName: 'Ruwan Jayasuriya',
     customerEmail: email,
   });
   await request('POST', `/bookings/${b.body.id}/approve`, { token: fx.token });
-  await request('POST', `/bookings/${b.body.id}/check-in`, { token: fx.token });
-  await request('POST', `/bookings/${b.body.id}/check-out`, { token: fx.token });
+  await payInFull(fx, b.body.id);
+  const inRes = await request('POST', `/bookings/${b.body.id}/check-in`, { token: fx.token });
+  expect(inRes.status, JSON.stringify(inRes.body)).toBe(200);
+  const outRes = await request('POST', `/bookings/${b.body.id}/check-out`, { token: fx.token });
+  expect(outRes.status, JSON.stringify(outRes.body)).toBe(200);
   return b.body;
 }
 
@@ -29,8 +46,7 @@ async function reviewTokenFor(fx: TenantFixture): Promise<string> {
 describe('guest reviews', () => {
   it('emails a single-use review link at check-out that a guest can submit without logging in', async () => {
     const fx = await makeTenant();
-    await openAndPrice(fx, '2029-06-01', '2029-06-10');
-    await checkOutGuest(fx, '2029-06-02', '2029-06-04', 'ruwan@example.com');
+    await checkOutGuest(fx, 'ruwan@example.com');
 
     const token = await reviewTokenFor(fx);
 
@@ -67,8 +83,7 @@ describe('guest reviews', () => {
   it('keeps reviews tenant-scoped', async () => {
     const a = await makeTenant();
     const b = await makeTenant();
-    await openAndPrice(a, '2029-07-01', '2029-07-10');
-    await checkOutGuest(a, '2029-07-02', '2029-07-03', 'guest-a@example.com');
+    await checkOutGuest(a, 'guest-a@example.com');
     const token = await reviewTokenFor(a);
     await request('POST', '/reviews', { body: { token, rating: 4 } });
 

@@ -44,6 +44,12 @@ export interface PropertySettings {
   rateControl: { staffMaxDiscountPct: number; staffCanComp: boolean };
   /** Refuse check-in until the guest's identity document is recorded. */
   requireDocumentsAtCheckin: boolean;
+  /**
+   * What check-out does with an unpaid guest balance (UX-STANDARD §4). `block` (the default)
+   * refuses until it is paid, moved to the city ledger, or an owner overrides with a reason;
+   * `allow` lets the desk check out and leaves the balance on the folio to chase.
+   */
+  checkoutBalancePolicy: 'block' | 'allow';
   /** Renamed or recoloured reservation kinds. Behaviour never changes. */
   kindOverrides: Partial<Record<ReservationKind, KindOverride>>;
   /** Replaces the country's default title list when set. */
@@ -57,6 +63,7 @@ export const DEFAULT_PROPERTY_SETTINGS: PropertySettings = {
   unconfirmedPolicy: 'never',
   rateControl: { staffMaxDiscountPct: 0, staffCanComp: false },
   requireDocumentsAtCheckin: false,
+  checkoutBalancePolicy: 'block',
   kindOverrides: {},
   titles: null,
 };
@@ -119,6 +126,7 @@ export function resolvePropertySettings(raw: unknown): PropertySettings {
       typeof r.requireDocumentsAtCheckin === 'boolean'
         ? r.requireDocumentsAtCheckin
         : d.requireDocumentsAtCheckin,
+    checkoutBalancePolicy: r.checkoutBalancePolicy === 'allow' ? 'allow' : d.checkoutBalancePolicy,
     kindOverrides,
     titles: titles && titles.length > 0 ? titles : null,
   };

@@ -538,13 +538,13 @@ card takings would make every shift look short by the day's card revenue.
 
 ## Night audit
 
-| Method & path                                     | Auth       | Purpose                                                                |
-| ------------------------------------------------- | ---------- | ---------------------------------------------------------------------- |
-| `GET /properties/:id/business-date`               | JWT+Tenant | The property's business date, created on demand at today.              |
-| `GET /properties/:id/night-audit/preview`         | JWT+Tenant | What the run would do, without doing it.                               |
-| `POST /properties/:id/night-audit/run`            | JWT+Tenant | Run it. **409** if that date was already audited.                      |
-| `GET /properties/:id/night-audit/log`             | JWT+Tenant | Every run, with the user and IP that triggered it.                     |
-| `GET /properties/:id/night-audit/revenue?from&to` | JWT+Tenant | Room revenue actually posted — what the payout must reconcile against. |
+| Method & path                                     | Auth                  | Purpose                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /properties/:id/business-date`               | JWT+Tenant            | The property's business date, created on demand at today.                                                                                                                                                                                                                    |
+| `GET /properties/:id/night-audit/preview`         | JWT+Tenant            | What the run would do, without doing it. Pre-checks (UX-1a): `unarrived` (each becomes a no-show unless kept), `overstays` (in house past departure), `openTills` (closed **uncounted**).                                                                                    |
+| `POST /properties/:id/night-audit/run`            | JWT+Tenant, **OWNER** | Run it. Body `{keep?: bookingId[]}`: a late arrival the desk still expects is charged its night but not marked a no-show. A till left open is closed as **uncounted** (`declaredTotal`/`variance` null), never as a zero variance. **409** if that date was already audited. |
+| `GET /properties/:id/night-audit/log`             | JWT+Tenant            | Every run, with the user and IP that triggered it.                                                                                                                                                                                                                           |
+| `GET /properties/:id/night-audit/revenue?from&to` | JWT+Tenant            | Room revenue actually posted — what the payout must reconcile against.                                                                                                                                                                                                       |
 
 All Pro and above. The run is **one transaction**: post the night's room charges, no-show what
 never arrived, force-close any open till, roll the date. A half-run audit would double-post next
@@ -570,18 +570,49 @@ transaction, so a "handled" duplicate would still break the rest of the run.
 
 ## Bookings (`/bookings`)
 
-| Method & path                  | Auth       | Purpose                                                                                                                                                                                                                   |
-| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /bookings`                | JWT+Tenant | All bookings with guest details.                                                                                                                                                                                          |
-| `GET /bookings/:id`            | JWT+Tenant | One booking + per-night price snapshot (`days`) + lifecycle audit `trail`.                                                                                                                                                |
-| `POST /bookings`               | JWT+Tenant | Create a walk-in. See rules below.                                                                                                                                                                                        |
-| `PATCH /bookings/:id`          | JWT+Tenant | Amend: guest details in any live status; dates/rooms only while Pending/Approved — re-prices on the same occupancy and swaps inventory atomically (`409` if the new dates don't fit). Keeps the original coupon discount. |
-| `POST /bookings/:id/approve`   | JWT+Tenant | Pending → Approved. An unconfirmed hold stays a hold (confirmed); an inquiry takes its rooms now (`409` if gone).                                                                                                         |
-| `POST /bookings/:id/reject`    | JWT+Tenant | Pending → Rejected. **Releases inventory** if the booking held any.                                                                                                                                                       |
-| `POST /bookings/:id/cancel`    | JWT+Tenant | Pending/Approved → Cancelled. **Releases inventory** if the booking held any.                                                                                                                                             |
-| `POST /bookings/:id/no-show`   | JWT+Tenant | Approved → NoShow. Keeps the missed night; the nights after it go back on sale. An OTA booking also queues `booking.no_show`.                                                                                             |
-| `POST /bookings/:id/check-in`  | JWT+Tenant | Approved → CheckedIn (stamps `checkedInAt`). Checking in a hold confirms it.                                                                                                                                              |
-| `POST /bookings/:id/check-out` | JWT+Tenant | CheckedIn → CheckedOut (stamps `checkedOutAt`); mints a single-use review invite and queues the review email.                                                                                                             |
+| Method & path                       | Auth       | Purpose                                                                                                                                                                                                                    |
+| ----------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /bookings`                     | JWT+Tenant | All bookings with guest details.                                                                                                                                                                                           |
+| `GET /bookings/:id`                 | JWT+Tenant | One booking + per-night price snapshot (`days`) + lifecycle audit `trail`.                                                                                                                                                 |
+| `POST /bookings`                    | JWT+Tenant | Create a walk-in. See rules below.                                                                                                                                                                                         |
+| `PATCH /bookings/:id`               | JWT+Tenant | Amend: guest details in any live status; dates/rooms only while Pending/Approved — re-prices on the same occupancy and swaps inventory atomically (`409` if the new dates don't fit). Keeps the original coupon discount.  |
+| `POST /bookings/:id/approve`        | JWT+Tenant | Pending → Approved. An unconfirmed hold stays a hold (confirmed); an inquiry takes its rooms now (`409` if gone).                                                                                                          |
+| `POST /bookings/:id/reject`         | JWT+Tenant | Pending → Rejected. **Releases inventory** if the booking held any.                                                                                                                                                        |
+| `POST /bookings/:id/cancel`         | JWT+Tenant | Pending/Approved → Cancelled. **Releases inventory** if the booking held any.                                                                                                                                              |
+| `POST /bookings/:id/no-show`        | JWT+Tenant | Approved → NoShow. Keeps the missed night; the nights after it go back on sale. An OTA booking also queues `booking.no_show`.                                                                                              |
+| `POST /bookings/:id/check-in`       | JWT+Tenant | Approved → CheckedIn (stamps `checkedInAt`). Checking in a hold confirms it. Body `{reason?, overrideDirty?}`; the guards (UX-1a) are listed below.                                                                        |
+| `POST /bookings/:id/check-out`      | JWT+Tenant | CheckedIn → CheckedOut (stamps `checkedOutAt`); mints a single-use review invite and queues the review email. Body `{reason?, allowBalance?}`; the guards are listed below.                                                |
+| `POST /bookings/:id/undo-check-in`  | JWT+Tenant | `{reason}` (required). CheckedIn → Approved, on the same day only. **409** `too_late_to_undo`, or `charges_posted` once a night has been charged.                                                                          |
+| `POST /bookings/:id/undo-check-out` | JWT+Tenant | `{reason}`. CheckedOut → CheckedIn, on the same day only; the nights an early check-out released are taken back. **409** `too_late_to_undo`, `settled_to_ledger`, or `insufficient_availability` if they have been resold. |
+| `POST /bookings/:id/reinstate`      | JWT+Tenant | `{reason}`. Cancelled or NoShow → Approved, taking the rooms again. **409** `insufficient_availability`, `stay_ended` or `voided`.                                                                                         |
+
+**The front-desk guards (UX-1a, docs/UX-STANDARD.md §4).** Each refusal is a **409** with a `reason`
+and a `message` telling the desk what to do.
+
+**Check-in** is refused:
+
+- before the arrival day, judged by the later of the business date and the calendar today:
+  `not_arrival_day`
+- when a room type with numbered rooms has no free room to assign: `room_not_assigned`. An
+  unassigned leg first gets the lowest-numbered free room, **clean first**. A room type with no
+  numbered rooms is not asked for one.
+- into a room that is blocked or out of order: `room_blocked` / `room_out_of_order`
+- into a dirty room (status carried forward from the room's last record): `room_dirty`, unless
+  `overrideDirty` is sent with a reason
+- without an ID document, when the property sets `requireDocumentsAtCheckin`:
+  `documents_required`
+- for a no-show: `no_show` (reinstate it first)
+
+**Check-out:**
+
+- **Early departure** gives the unstayed nights back for sale.
+- **An unpaid guest balance** is refused with `balance_open` (`balance`, `currency`), under the
+  default `checkoutBalancePolicy: 'block'`. The balance is the Reservations list's Total − Paid,
+  worked out after the city-ledger move. Company-billed room nights are the company's.
+- **An owner** may send `allowBalance` with a reason. Anyone else gets **403**.
+
+**Every lifecycle action** records `actor_user_id` and the client `ip` in `booking_approvals`.
+Cancel takes an optional `{reason}`.
 
 **Create rules (`POST /bookings`)** — the request carries `roomId` + `occupancyId` (the pricing
 key) + guest + dates + rooms + optional `couponCode`/`referralCode`:

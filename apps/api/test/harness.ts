@@ -58,6 +58,18 @@ export function admin(): Database {
 
 export const PASSWORD = 'password123';
 
+/**
+ * The fixture hotel's today (Asia/Colombo), plus `offset` days. A guest can only be checked in on
+ * or after their arrival day (UX-1a), so any test that checks in books from here — a stay dated
+ * years ahead cannot reach the front desk any more.
+ */
+export function hotelToday(offset = 0): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(new Date());
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
 export interface TenantFixture {
   tenantId: string;
   userId: string;
@@ -332,6 +344,20 @@ export async function makeStaff(role: 'YOHO_STAFF' | 'YOHO_ADMIN' = 'YOHO_STAFF'
     .returning();
   await db.insert(memberships).values({ userId: user!.id, tenantId: null, role });
   return { userId: user!.id, email, token: await login(email, PASSWORD) };
+}
+
+/**
+ * Pay a stay's room price in full, so check-out's balance guard (UX-1a) has nothing to refuse.
+ * Extras posted to the folio are the caller's to settle.
+ */
+export async function payInFull(fx: TenantFixture, bookingId: string): Promise<void> {
+  const b = await request('GET', `/bookings/${bookingId}`, { token: fx.token });
+  const amount = Number(b.body.amount) - Number(b.body.discount ?? 0);
+  const res = await request('POST', `/bookings/${bookingId}/payments`, {
+    token: fx.token,
+    body: { amount, direction: 'received', method: 'card' },
+  });
+  if (res.status !== 201) throw new Error(`payInFull failed: ${JSON.stringify(res.body)}`);
 }
 
 export async function login(email: string, password = PASSWORD): Promise<string> {

@@ -1995,6 +1995,8 @@ export interface PropertySettings {
   unconfirmedPolicy: 'never' | 'arrival_day_end';
   rateControl: { staffMaxDiscountPct: number; staffCanComp: boolean };
   requireDocumentsAtCheckin: boolean;
+  /** `block`: check-out refuses an unpaid guest balance (owner may override with a reason). */
+  checkoutBalancePolicy: 'block' | 'allow';
   kindOverrides: Partial<Record<ReservationKind, { label?: string; color?: string }>>;
   titles: string[] | null;
 }

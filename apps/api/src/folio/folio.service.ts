@@ -352,7 +352,12 @@ export class FolioService {
    * Stamped, never deleted: a bill that silently loses a line is worse than one showing that a
    * line was reversed, and the guest's copy may already be printed.
    */
-  async voidCharge(tenantId: string, chargeId: string, dto: VoidChargeDto) {
+  async voidCharge(
+    tenantId: string,
+    chargeId: string,
+    dto: VoidChargeDto,
+    userId: string | null = null,
+  ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [charge] = await tx.select().from(folioCharges).where(eq(folioCharges.id, chargeId));
       if (!charge) throw new NotFoundException('Charge not found');
@@ -361,7 +366,13 @@ export class FolioService {
 
       const [updated] = await tx
         .update(folioCharges)
-        .set({ voidedAt: new Date(), voidReason: dto.reason ?? null, updatedAt: new Date() })
+        .set({
+          voidedAt: new Date(),
+          voidReason: dto.reason?.trim() || null,
+          // A reversal of money is always on the record (UX-1a).
+          voidedByUserId: userId,
+          updatedAt: new Date(),
+        })
         .where(eq(folioCharges.id, chargeId))
         .returning();
       return updated;

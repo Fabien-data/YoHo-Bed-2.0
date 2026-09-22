@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { makeTenant, openAndPrice, book, request, stopApp } from './harness';
+import { makeTenant, openAndPrice, book, hotelToday, payInFull, request, stopApp } from './harness';
 
 afterAll(stopApp);
 
@@ -83,8 +83,11 @@ describe('booking core — legacy bug regressions', () => {
 describe('booking lifecycle', () => {
   it('runs approve → check-in → check-out and blocks illegal transitions', async () => {
     const fx = await makeTenant();
-    await openAndPrice(fx, '2027-07-01', '2027-07-10');
-    const b = await book(fx, { checkin: '2027-07-02', checkout: '2027-07-04' });
+    await openAndPrice(fx, hotelToday(), hotelToday(9));
+    // Arriving today: a guest can only be checked in on the arrival day. The stay is paid
+    // in full so check-out's balance guard has nothing to refuse.
+    const b = await book(fx, { checkin: hotelToday(), checkout: hotelToday(2) });
+    await payInFull(fx, b.body.id);
 
     // Cannot check in before approval.
     expect(

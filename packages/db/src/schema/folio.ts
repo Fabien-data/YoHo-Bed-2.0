@@ -165,6 +165,8 @@ export const folioCharges = pgTable(
     total: numeric('total', { precision: 12, scale: 2 }).notNull(),
     voidedAt: timestamp('voided_at', { withTimezone: true }),
     voidReason: text('void_reason'),
+    /** Who reversed the line (UX-1a): a void is a money reversal and is always on the record. */
+    voidedByUserId: uuid('voided_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     postedByUserId: uuid('posted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     /** The tax split of `tax`, per tax, adding up to it exactly (Development Phase 02). */
     taxLines: jsonb('tax_lines').$type<TaxLine[]>(),

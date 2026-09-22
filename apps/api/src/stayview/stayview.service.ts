@@ -6,7 +6,7 @@ import {
   bookings,
   businessSources,
   customers,
-  housekeepingStatus,
+  housekeepingAsOf,
   maintenanceBlocks,
   occupancies,
   otaReservations,
@@ -112,19 +112,11 @@ export class StayViewService {
         this.ratesInWindow(tx, roomIds, from, to, ratePlanId),
       ]);
 
-      // Housekeeping arrived in Sprint 4, so the chip strip can finally carry a real Dirty count
-      // for the picked date rather than omitting it.
-      const [dirtyRow] = await tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(housekeepingStatus)
-        .where(
-          and(
-            eq(housekeepingStatus.propertyId, propertyId),
-            eq(housekeepingStatus.date, from),
-            eq(housekeepingStatus.status, 'dirty'),
-          ),
-        );
-      const dirty = dirtyRow?.n ?? 0;
+      // The Dirty chip counts rooms dirty AS OF the picked date: a room left dirty yesterday is
+      // still dirty today until someone cleans it (UX-1a).
+      const dirty = [...(await housekeepingAsOf(tx, propertyId, from)).values()].filter(
+        (h) => h.status === 'dirty',
+      ).length;
 
       // Due-out cannot come from the drawn legs: a stay ending exactly on `from` is excluded by
       // the window overlap (checkout is exclusive), so counting it there always returned 0 for

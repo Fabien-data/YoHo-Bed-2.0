@@ -143,6 +143,7 @@ export class ReservationLifecycleService {
           m.id,
           'cancel',
           dto.reason,
+          { actorUserId: actor.userId },
         );
         cancelled.push(b!.reference);
       }

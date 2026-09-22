@@ -54,6 +54,10 @@ export const bookingAction = pgEnum('booking_action', [
   'released',
   'confirmed',
   'voided',
+  // UX-1a: mistakes at the desk are recoverable, and the recovery is on the record.
+  'check_in_undone',
+  'check_out_undone',
+  'reinstated',
 ]);
 
 export const customers = pgTable(
@@ -430,6 +434,8 @@ export const bookingApprovals = pgTable('booking_approvals', {
   action: bookingAction('action').notNull(),
   reason: text('reason'),
   actorUserId: uuid('actor_user_id'),
+  /** Where the action came from (UX-1a) — the client IP through nginx (`trust proxy`). */
+  ip: text('ip'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

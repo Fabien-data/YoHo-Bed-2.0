@@ -554,8 +554,9 @@ export class CashieringService {
       .where(and(eq(cashDrawers.propertyId, propertyId), eq(drawerSessions.status, 'open')));
 
     for (const s of open) {
-      // No cashier declared a count, so expected stands as declared and the variance is zero —
-      // the audit records that it force-closed rather than inventing a discrepancy.
+      // Nobody counted this till, so it is closed UNCOUNTED: the declared total and the variance
+      // stay empty (UX-1a). It used to record declared = expected, variance 0 — which reads, in
+      // every report, exactly like a till that was counted and balanced, hiding any shortfall.
       const [row] = await tx
         .select({
           cash: sql<string>`coalesce((
@@ -575,11 +576,11 @@ export class CashieringService {
         .set({
           status: 'closed',
           expectedTotal: money(expected),
-          declaredTotal: money(expected),
-          variance: '0.00',
+          declaredTotal: null,
+          variance: null,
           closedByUserId: userId,
           closedAt: new Date(),
-          notes: 'Force-closed by night audit',
+          notes: 'Closed uncounted by night audit',
           updatedAt: new Date(),
         })
         .where(eq(drawerSessions.id, s.id));

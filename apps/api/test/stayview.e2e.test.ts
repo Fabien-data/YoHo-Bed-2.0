@@ -1,5 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { makeTenant, request, openAndPrice, book, stopApp, type TenantFixture } from './harness';
+import {
+  makeTenant,
+  request,
+  openAndPrice,
+  book,
+  hotelToday,
+  stopApp,
+  type TenantFixture,
+} from './harness';
 
 afterAll(stopApp);
 
@@ -120,12 +128,13 @@ describe('stay view', () => {
   it('counts the filter chips for the first day of the window', async () => {
     const fx = await makeTenant({ roomQuantity: 4 });
     const units = await makeUnits(fx, 4);
-    await openAndPrice(fx, '2028-06-01', '2028-06-20', { roomsToSell: 4 });
+    await openAndPrice(fx, hotelToday(), hotelToday(20), { roomsToSell: 4 });
 
-    const reserved = await book(fx, { checkin: '2028-06-02', checkout: '2028-06-05' });
+    // Both arrive today, so one of them can actually be checked in.
+    const reserved = await book(fx, { checkin: hotelToday(), checkout: hotelToday(3) });
     await assignFirstLeg(fx, reserved.body.id, units[0]!);
 
-    const inHouse = await book(fx, { checkin: '2028-06-02', checkout: '2028-06-05' });
+    const inHouse = await book(fx, { checkin: hotelToday(), checkout: hotelToday(3) });
     await assignFirstLeg(fx, inHouse.body.id, units[1]!);
     await request('POST', `/bookings/${inHouse.body.id}/approve`, { token: fx.token });
     await request('POST', `/bookings/${inHouse.body.id}/check-in`, { token: fx.token });
@@ -134,13 +143,13 @@ describe('stay view', () => {
       token: fx.token,
       body: {
         roomUnitId: units[3],
-        blockFrom: '2028-06-01',
-        blockTo: '2028-06-10',
+        blockFrom: hotelToday(),
+        blockTo: hotelToday(8),
         reason: 'Repaint',
       },
     });
 
-    const res = await stayview(fx, '2028-06-02', '2028-06-06');
+    const res = await stayview(fx, hotelToday(), hotelToday(4));
     expect(res.body.counts).toMatchObject({
       all: 4,
       occupied: 1,

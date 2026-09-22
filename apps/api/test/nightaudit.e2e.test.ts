@@ -142,9 +142,12 @@ describe('night audit', () => {
       token: fx.token,
     });
     expect(report.body.session.status).toBe('closed');
-    expect(report.body.session.notes).toMatch(/night audit/i);
-    // Nobody counted it, so the audit records no discrepancy rather than inventing one.
-    expect(Number(report.body.session.variance)).toBe(0);
+    expect(report.body.session.notes).toMatch(/uncounted by night audit/i);
+    // Nobody counted it, so it is recorded as UNCOUNTED — never as a count that balanced
+    // (UX-1a). What the till should hold is still on record.
+    expect(report.body.session.declaredTotal).toBeNull();
+    expect(report.body.session.variance).toBeNull();
+    expect(Number(report.body.session.expectedTotal)).toBe(2500);
   });
 
   it('does not double-post a night that was already billed by hand', async () => {
@@ -195,11 +198,18 @@ describe('seven consecutive audits', () => {
     ];
     for (const s of stays) {
       await request('POST', `/bookings/${s.body.id}/approve`, { token: fx.token });
-      await request('POST', `/bookings/${s.body.id}/check-in`, { token: fx.token });
     }
 
-    // Seven day-ends, one after another.
+    // Seven day-ends, one after another — each guest checked in on their own arrival day, as a
+    // real week runs (a guest cannot be checked in before the day they arrive).
     for (let i = 0; i < 7; i++) {
+      for (const s of stays) {
+        if (s.body.checkin !== day(start, i)) continue;
+        const checkedIn = await request('POST', `/bookings/${s.body.id}/check-in`, {
+          token: fx.token,
+        });
+        expect(checkedIn.status, JSON.stringify(checkedIn.body)).toBe(200);
+      }
       const res = await run(fx);
       expect(res.status, `audit ${i + 1}`).toBe(201);
     }

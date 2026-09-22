@@ -8,6 +8,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   bookingRooms,
   bookings,
+  housekeepingAsOf,
   maintenanceBlocks,
   properties,
   roomMoves,
@@ -600,40 +601,7 @@ export class RoomUnitsService {
     checkin: string,
     checkout: string,
   ): Promise<string | null> {
-    const [row] = await tx
-      .select({ id: roomUnits.id })
-      .from(roomUnits)
-      .where(
-        and(
-          eq(roomUnits.roomId, roomId),
-          eq(roomUnits.status, 'active'),
-          sql`not exists (
-            select 1 from ${bookingRooms} x
-            where x.room_unit_id = ${roomUnits.id}
-              and x.released_at is null
-              and daterange(x.checkin, x.checkout, '[)')
-                  && daterange(${checkin}::date, ${checkout}::date, '[)')
-          )`,
-          sql`not exists (
-            select 1 from ${maintenanceBlocks} m
-            where m.room_unit_id = ${roomUnits.id}
-              and m.released_at is null
-              and daterange(m.block_from, m.block_to, '[)')
-                  && daterange(${checkin}::date, ${checkout}::date, '[)')
-          )`,
-          sql`not exists (
-            select 1 from ${roomMoves} rm
-            join ${bookingRooms} rb on rb.id = rm.leg_id
-            where rm.to_room_unit_id = ${roomUnits.id}
-              and rm.status = 'planned'
-              and daterange(rm.effective_date, rb.checkout, '[)')
-                  && daterange(${checkin}::date, ${checkout}::date, '[)')
-          )`,
-        ),
-      )
-      .orderBy(asc(roomUnits.displayOrder), asc(roomUnits.code))
-      .limit(1);
-    return row?.id ?? null;
+    return (await freeUnits(tx, roomId, checkin, checkout, 1))[0] ?? null;
   }
 
   private async assertNotBlocked(
@@ -693,6 +661,116 @@ export class RoomUnitsService {
  * would couple the two modules for no benefit.
  */
 
+/**
+ * Active units of a bucket that are free, unblocked and not promised to a planned move for the
+ * whole range, lowest-numbered first — the order a front-desk agent works in.
+ */
+export async function freeUnits(
+  tx: Tx,
+  roomId: string,
+  checkin: string,
+  checkout: string,
+  limit = 100,
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: roomUnits.id })
+    .from(roomUnits)
+    .where(
+      and(
+        eq(roomUnits.roomId, roomId),
+        eq(roomUnits.status, 'active'),
+        sql`not exists (
+          select 1 from ${bookingRooms} x
+          where x.room_unit_id = ${roomUnits.id}
+            and x.released_at is null
+            and daterange(x.checkin, x.checkout, '[)')
+                && daterange(${checkin}::date, ${checkout}::date, '[)')
+        )`,
+        sql`not exists (
+          select 1 from ${maintenanceBlocks} m
+          where m.room_unit_id = ${roomUnits.id}
+            and m.released_at is null
+            and daterange(m.block_from, m.block_to, '[)')
+                && daterange(${checkin}::date, ${checkout}::date, '[)')
+        )`,
+        sql`not exists (
+          select 1 from ${roomMoves} rm
+          join ${bookingRooms} rb on rb.id = rm.leg_id
+          where rm.to_room_unit_id = ${roomUnits.id}
+            and rm.status = 'planned'
+            and daterange(rm.effective_date, rb.checkout, '[)')
+                && daterange(${checkin}::date, ${checkout}::date, '[)')
+        )`,
+      ),
+    )
+    .orderBy(asc(roomUnits.displayOrder), asc(roomUnits.code))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Give every unassigned leg a room at check-in (UX-1a): the lowest-numbered free room of the
+ * booking's type, a CLEAN one first — nobody should be handed a dirty room because it happened to
+ * have the lower number. Returns how many legs are still without a room.
+ *
+ * A room type with no numbered rooms at all is a hotel that sells by type and does not track
+ * individual rooms (yet): nothing can be assigned there, and nothing is required — 0.
+ */
+export async function assignRoomsForCheckIn(
+  tx: Tx,
+  booking: { id: string; roomId: string; propertyId: string },
+  today: string,
+): Promise<number> {
+  const [numbered] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(roomUnits)
+    .where(and(eq(roomUnits.roomId, booking.roomId), eq(roomUnits.status, 'active')));
+  if ((numbered?.n ?? 0) === 0) return 0;
+
+  const legs = await tx
+    .select()
+    .from(bookingRooms)
+    .where(
+      and(
+        eq(bookingRooms.bookingId, booking.id),
+        isNull(bookingRooms.roomUnitId),
+        isNull(bookingRooms.releasedAt),
+      ),
+    )
+    .orderBy(asc(bookingRooms.legIndex));
+  if (legs.length === 0) return 0;
+
+  const asOf = await housekeepingAsOf(tx, booking.propertyId, today);
+  const usable = (id: string) => {
+    const s = asOf.get(id)?.status;
+    return s !== 'out_of_order';
+  };
+  let missing = 0;
+  for (const leg of legs) {
+    const candidates = (await freeUnits(tx, booking.roomId, leg.checkin, leg.checkout)).filter(
+      usable,
+    );
+    const clean = candidates.filter((id) => asOf.get(id)?.status !== 'dirty');
+    const pick = clean[0] ?? candidates[0];
+    if (!pick) {
+      missing += 1;
+      continue;
+    }
+    try {
+      await tx.transaction(async (sp) => {
+        await sp
+          .update(bookingRooms)
+          .set({ roomUnitId: pick, updatedAt: new Date() })
+          .where(eq(bookingRooms.id, leg.id));
+      });
+    } catch (e) {
+      if (!isExclusionViolation(e)) throw e;
+      missing += 1;
+    }
+  }
+  return missing;
+}
+
 /** Create the per-room legs for a new booking. Units are assigned separately. */
 export async function createLegs(
   tx: Tx,
@@ -730,6 +808,45 @@ export async function releaseLegs(tx: Tx, bookingId: string): Promise<void> {
     .update(bookingRooms)
     .set({ releasedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)));
+}
+
+/**
+ * Bring back the legs a booking's last release freed — reinstating a cancellation, or undoing a
+ * check-out on the arrival day (UX-1a). Each leg keeps its room if the room is still free for its
+ * dates; one that has since been given to someone else comes back unassigned. Returns how many
+ * came back without a room.
+ */
+export async function restoreReleasedLegs(tx: Tx, bookingId: string): Promise<number> {
+  const legs = await tx
+    .select({ id: bookingRooms.id })
+    .from(bookingRooms)
+    .where(
+      and(
+        eq(bookingRooms.bookingId, bookingId),
+        sql`${bookingRooms.releasedAt} = (
+          select max(x.released_at) from booking_rooms x where x.booking_id = ${bookingId}
+        )`,
+      ),
+    );
+  let unassigned = 0;
+  for (const leg of legs) {
+    try {
+      await tx.transaction(async (sp) => {
+        await sp
+          .update(bookingRooms)
+          .set({ releasedAt: null, updatedAt: new Date() })
+          .where(eq(bookingRooms.id, leg.id));
+      });
+    } catch (e) {
+      if (!isExclusionViolation(e)) throw e;
+      await tx
+        .update(bookingRooms)
+        .set({ releasedAt: null, roomUnitId: null, updatedAt: new Date() })
+        .where(eq(bookingRooms.id, leg.id));
+      unassigned += 1;
+    }
+  }
+  return unassigned;
 }
 
 /**

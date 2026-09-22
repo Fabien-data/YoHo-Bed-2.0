@@ -81,10 +81,12 @@ listed there as `fixme`, with the cost above, so the debt shows in every test ru
 These are **server** rules. The UI explains them, but it never _is_ them.
 
 - **Check-in** needs:
-  - the booking's check-in date to have arrived, unless the property allows early check-in
-  - a room: one is assigned, or the server picks a clean, free one
+  - the arrival day to have come, judged by the hotel's operating date (the later of the business
+    date and the calendar). An early guest's stay is moved to start today first.
+  - a room, when the room type has numbered rooms: one is assigned, or the server picks a clean,
+    free one. It must not be blocked or out of order.
   - a clean room, unless the check-in is explicitly overridden with a reason
-  - the guest fields the property marks as required
+  - an ID document, when the property requires one
 - **Check-out** with an open balance is refused (409 `balance_open`), unless the balance is:
   - paid
   - moved to the city ledger
@@ -99,6 +101,20 @@ These are **server** rules. The UI explains them, but it never _is_ them.
   "balanced".
 - **Double-booking stays impossible at the database** (the gist exclusion on `booking_rooms`), and
   every create that can be retried is idempotent.
+- **A room's housekeeping state carries forward.** A room stays dirty until someone cleans it. A
+  status is never read from a single day's row as if a missing row meant clean.
+
+**Where it stands (UX-1a, 2026-09-22).**
+
+- **Enforced by the server:** the check-in and check-out guards; undo check-in, undo check-out and
+  reinstate; actor and IP on every lifecycle action; who voided each folio line; the housekeeping
+  carry-forward; night-audit pre-checks, `keep`, the owner gate and uncounted tills.
+- **Coming with UX-1b's dialogs:**
+  - reasons made _mandatory_ on cancel and void (optional today, so the current screens keep
+    working)
+  - refunds
+  - the duplicate-payment guard
+  - approval for voiding a price-approved line
 
 ## 5. Feedback and errors
 

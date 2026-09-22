@@ -5,6 +5,7 @@ import {
   addDeskUser,
   addRoomType,
   admin,
+  hotelToday,
   makeTenant,
   openAndPrice,
   request,
@@ -294,10 +295,12 @@ describe('group cards', () => {
 
   it('merges groups into the one whose owner stays, but not once a guest has arrived', async () => {
     const fx = await ready();
+    // Arriving today: one guest here really arrives, and a guest is only checked in on the day.
+    await openAndPrice(fx, hotelToday(), hotelToday(10), { roomsToSell: 10, base: 18000 });
     const make = (name: string) =>
       reserve(fx, {
-        checkin: CHECKIN,
-        checkout: CHECKOUT,
+        checkin: hotelToday(),
+        checkout: hotelToday(2),
         guest: { name },
         lines: [line(fx), line(fx)],
       });
@@ -314,7 +317,8 @@ describe('group cards', () => {
 
     const third = await make('Arrived Abeywickrama');
     const id = third.body.bookings[0].id;
-    await request('POST', `/bookings/${id}/check-in`, { token: fx.token });
+    const arrived = await request('POST', `/bookings/${id}/check-in`, { token: fx.token });
+    expect(arrived.status, JSON.stringify(arrived.body)).toBe(200);
     const refused = await request('POST', '/reservation-groups/merge', {
       token: fx.token,
       body: { targetGroupId: keep.body.groupId, groupIds: [third.body.groupId] },
@@ -327,9 +331,11 @@ describe('group cards', () => {
 describe('the full reservation: room guests, remarks and tasks', () => {
   it('books each room for its own guest and files the remarks and tasks with it', async () => {
     const fx = await ready();
+    // Arriving today, so the check-in task can really be released by a check-in.
+    await openAndPrice(fx, hotelToday(), hotelToday(10), { roomsToSell: 10, base: 18000 });
     const created = await reserve(fx, {
-      checkin: CHECKIN,
-      checkout: CHECKOUT,
+      checkin: hotelToday(),
+      checkout: hotelToday(2),
       guest: { name: 'Owner Obeyesekere', email: 'owner.o@example.test' },
       remarks: [{ type: 'front_desk', text: 'Late arrival, around 11pm' }],
       lines: [
@@ -370,7 +376,8 @@ describe('the full reservation: room guests, remarks and tasks', () => {
       waiting: true,
       bookingReference: one.reference,
     });
-    await request('POST', `/bookings/${one.id}/check-in`, { token: fx.token });
+    const checkedIn = await request('POST', `/bookings/${one.id}/check-in`, { token: fx.token });
+    expect(checkedIn.status, JSON.stringify(checkedIn.body)).toBe(200);
     const later = await request('GET', `/properties/${fx.propertyId}/work-orders`, {
       token: fx.token,
     });

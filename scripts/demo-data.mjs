@@ -210,6 +210,17 @@ const b1 = await book(
 );
 await act(b1.id, 'approve');
 await act(b1.id, 'check-in');
+// Invoiced and paid in full before leaving: check-out refuses an unpaid balance (UX-1a).
+const inv1 = await api('POST', `/bookings/${b1.id}/invoice`, { token });
+await api('POST', `/bookings/${b1.id}/payments`, {
+  token,
+  body: {
+    direction: 'received',
+    amount: Number(b1.amount),
+    method: 'card',
+    reference: 'VISA-4212',
+  },
+});
 await act(b1.id, 'check-out');
 await api('POST', '/reviews', {
   body: {
@@ -230,6 +241,10 @@ const b2 = await book(
 );
 await act(b2.id, 'approve');
 await act(b2.id, 'check-in');
+await api('POST', `/bookings/${b2.id}/payments`, {
+  token,
+  body: { direction: 'received', amount: Number(b2.amount), method: 'cash' },
+});
 await act(b2.id, 'check-out');
 await api('POST', '/reviews', {
   body: {
@@ -371,17 +386,7 @@ const b13 = await book(
 await act(b13.id, 'approve');
 log(`B13 ${b13.reference} Nadeesha Silva · Approved on dropped+taxed rates: Rs ${b13.amount}`);
 
-// ---------- finance: paid invoice for B1, recent-period payout snapshot ----------
-const inv1 = await api('POST', `/bookings/${b1.id}/invoice`, { token });
-await api('POST', `/bookings/${b1.id}/payments`, {
-  token,
-  body: {
-    direction: 'received',
-    amount: Number(b1.amount),
-    method: 'card',
-    reference: 'VISA-4212',
-  },
-});
+// ---------- finance: B1's invoice was paid at check-out; recent-period payout snapshot ----------
 await api('POST', '/finance/payouts', {
   token,
   body: { propertyId: lakeside.id, from: d(-22), to: d(8) },

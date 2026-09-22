@@ -164,6 +164,81 @@ export async function releaseBookingInventory(
   return nights;
 }
 
+/**
+ * Take back the nights a partial release gave away, and stretch the legs back over them (UX-1a).
+ *
+ * For the two mistakes that must be recoverable at the desk: a no-show who turns up after the
+ * night audit, and an early check-out undone the same day. Throws InsufficientAvailabilityError
+ * (rolling the caller back) when a night has been resold in between: there is then nothing to
+ * give back, and the desk has to rebook.
+ *
+ * A leg whose room was given to someone else meanwhile comes back UNASSIGNED rather than failing
+ * the whole recovery — the desk picks another room, which is a smaller problem than a guest who
+ * cannot be reinstated at all.
+ */
+export async function reclaimReleasedNights(
+  tx: Tx,
+  b: InventoryBooking,
+  origin: string,
+): Promise<{ nights: string[]; unassigned: number }> {
+  const from = b.inventoryReleasedFrom;
+  if (!from || from >= b.checkout) return { nights: [], unassigned: 0 };
+  const nights = stayNights(from, b.checkout);
+
+  await reserveStay(tx, b.roomId, nights, b.rooms);
+  await enqueueOutbox(tx, {
+    tenantId: b.tenantId,
+    aggregate: 'availability',
+    aggregateId: b.roomId,
+    eventType: 'ari.availability',
+    payload: {
+      propertyId: b.propertyId,
+      roomId: b.roomId,
+      nights,
+      rooms: b.rooms,
+      action: 'reserve',
+      origin,
+    },
+  });
+
+  const now = new Date();
+  const shortened = await tx
+    .select({ id: bookingRooms.id })
+    .from(bookingRooms)
+    .where(
+      and(
+        eq(bookingRooms.bookingId, b.id),
+        isNull(bookingRooms.releasedAt),
+        eq(bookingRooms.checkout, from),
+      ),
+    );
+  let unassigned = 0;
+  for (const leg of shortened) {
+    try {
+      // A savepoint per leg: in Postgres an exclusion violation aborts the whole transaction,
+      // so it must be contained to be handled.
+      await tx.transaction(async (sp) => {
+        await sp
+          .update(bookingRooms)
+          .set({ checkout: b.checkout, updatedAt: now })
+          .where(eq(bookingRooms.id, leg.id));
+      });
+    } catch (e) {
+      if ((e as { code?: string })?.code !== '23P01') throw e;
+      await tx
+        .update(bookingRooms)
+        .set({ roomUnitId: null, checkout: b.checkout, updatedAt: now })
+        .where(eq(bookingRooms.id, leg.id));
+      unassigned += 1;
+    }
+  }
+  await tx
+    .update(bookings)
+    .set({ inventoryReleasedFrom: null, updatedAt: now })
+    .where(eq(bookings.id, b.id));
+  return { nights, unassigned };
+}
+
 /** A booking the sweep changed. */
 export interface SweptBooking {
   id: string;

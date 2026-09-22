@@ -274,6 +274,13 @@
       "when": 1790063464828,
       "tag": "0038_ux_measurement",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790074114300,
+      "tag": "0039_safe_front_desk",
+      "breakpoints": true
     }
   ]
 }
