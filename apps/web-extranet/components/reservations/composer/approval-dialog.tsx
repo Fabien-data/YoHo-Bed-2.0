@@ -2,31 +2,33 @@
 
 import * as React from 'react';
 import { Button, Dialog, DialogContent, Field, InlineAlert, Input } from '@yohobed/ui';
-import { ApiError, stepUpApproval, type PriceApproval } from '@/lib/api';
+import { ApiError, stepUpApproval, type ApprovalAction } from '@/lib/api';
 
-const WHAT: Record<PriceApproval, string> = {
-  rate_override: 'a rate below the desk’s discount limit',
-  complimentary: 'a complimentary room',
-  tax_exempt: 'a tax exemption',
+const WHAT: Record<ApprovalAction, string> = {
+  rate_override: 'This reservation has a rate below the desk’s discount limit',
+  complimentary: 'This reservation has a complimentary room',
+  tax_exempt: 'This reservation has a tax exemption',
+  refund: 'Money is being given back to the guest',
+  checkout_balance: 'The guest is leaving with money still owed',
 };
 
 /**
- * The owner approves one price decision on the desk's screen (POST /auth/step-up). The token it
+ * The owner approves one decision on the desk's screen (POST /auth/step-up). The token it
  * returns covers that one action for ten minutes; nothing else is unlocked, and the desk user
  * stays signed in as themselves.
  */
-export function ApprovalDialog({
+export function ApprovalDialog<A extends ApprovalAction>({
   actions,
   reason,
   open,
   onOpenChange,
   onApproved,
 }: {
-  actions: PriceApproval[];
+  actions: A[];
   reason: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onApproved: (tokens: Partial<Record<PriceApproval, string>>, approver: string) => void;
+  onApproved: (tokens: Partial<Record<A, string>>, approver: string) => void;
 }) {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -46,7 +48,7 @@ export function ApprovalDialog({
     setBusy(true);
     setError(null);
     try {
-      const tokens: Partial<Record<PriceApproval, string>> = {};
+      const tokens: Partial<Record<A, string>> = {};
       let approver = '';
       for (const action of actions) {
         const r = await stepUpApproval({
@@ -72,8 +74,8 @@ export function ApprovalDialog({
       <DialogContent title="Owner approval" className="max-w-md">
         <form onSubmit={approve} className="flex flex-col gap-4 px-5 py-4">
           <p className="text-sm text-ink-2">
-            This reservation has {actions.map((a) => WHAT[a]).join(' and ')}. An owner of the
-            property signs in here to approve it — just this once.
+            {actions.map((a) => WHAT[a]).join('; ')}. An owner of the property signs in here to
+            approve it — just this once.
           </p>
           <Field label="Owner email">
             <Input

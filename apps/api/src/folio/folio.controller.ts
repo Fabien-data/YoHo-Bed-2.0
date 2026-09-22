@@ -11,6 +11,7 @@ import {
   openFolioSchema,
   postChargeSchema,
   recordFolioPaymentSchema,
+  refundSchema,
   transferChargesSchema,
   unsettledQuerySchema,
   voidChargeSchema,
@@ -18,11 +19,13 @@ import {
   type OpenFolioDto,
   type PostChargeDto,
   type RecordFolioPaymentDto,
+  type RefundDto,
   type TransferChargesDto,
   type UnsettledQueryDto,
   type VoidChargeDto,
 } from './dto';
 import type { AuthPrincipal } from '../auth/dto';
+import { CurrentTenantRole, type TenantRole } from '../common/tenant-role';
 
 /** The guest bill. Pro and above — a Starter hotel gets the front desk, not the cashier. */
 @Controller()
@@ -99,6 +102,22 @@ export class FolioController {
     @Body(new ZodValidationPipe(recordFolioPaymentSchema)) dto: RecordFolioPaymentDto,
   ) {
     return this.folio.recordPayment(tenantId, id, dto, user.sub);
+  }
+
+  /**
+   * Give money back to the guest (UX-1b): never more than was paid on the window, always with a
+   * reason, and the owner's approval for anyone else (step-up action `refund`).
+   */
+  @Post('folios/:id/refunds')
+  @HttpCode(201)
+  refund(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(refundSchema)) dto: RefundDto,
+  ) {
+    return this.folio.refund(tenantId, id, dto, { userId: user.sub, role });
   }
 
   /** Close a window. Refuses on a non-zero balance unless `force` is asked for explicitly. */

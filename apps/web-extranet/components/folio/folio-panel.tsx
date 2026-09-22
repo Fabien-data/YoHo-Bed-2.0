@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowCounterClockwise,
   ArrowsLeftRight,
   Buildings,
   Paperclip,
@@ -42,21 +43,17 @@ import {
   openFolioWindow,
   postFolioCharge,
   postRoomCharges,
-  recordFolioPayment,
   transferFolioCharges,
   voidFolioCharge,
+  describeError,
   type FolioLine,
   type FolioPaymentRow,
   type FolioWindow,
 } from '@/lib/api';
 import Link from 'next/link';
-import { usePaymentMethods } from '@/lib/queries';
-import {
-  PaymentFields,
-  emptyPayment,
-  paymentProblems,
-  type PaymentDraft,
-} from '@/components/payments/payment-fields';
+import { TakePaymentForm } from '@/components/booking/take-payment-form';
+import { RefundDialog } from '@/components/booking/refund-dialog';
+import { ReasonDialog } from '@/components/booking/reason-dialog';
 
 const PAYER_LABEL = { guest: 'Guest', company: 'Company', travel_agent: 'Travel agent' } as const;
 const ROUTE_LABEL: Record<string, string> = {
@@ -210,9 +207,16 @@ function WindowView({
       toast.error(e instanceof ApiError ? e.message : 'The invoice could not be issued.'),
   });
 
+  // A void reverses money, so it asks why and records it (UX-STANDARD §4).
+  const [voiding, setVoiding] = React.useState<FolioLine | null>(null);
+  const [refunding, setRefunding] = React.useState(false);
   const voidLine = useMutation({
-    mutationFn: (id: string) => voidFolioCharge(id),
-    onSuccess: onChanged,
+    mutationFn: (v: { id: string; reason: string }) => voidFolioCharge(v.id, v.reason),
+    onSuccess: () => {
+      setVoiding(null);
+      toast.success('Charge voided');
+      onChanged();
+    },
   });
   const transfer = useMutation({
     mutationFn: (toFolioId: string) =>
@@ -285,7 +289,7 @@ function WindowView({
                   otherWindows={otherWindows}
                   selected={selected}
                   onToggle={() => toggle(l.id)}
-                  onVoid={() => voidLine.mutate(l.id)}
+                  onVoid={() => setVoiding(l)}
                 />
               ))
             )}
@@ -331,6 +335,12 @@ function WindowView({
             <Wallet size={14} />
             Take payment
           </Button>
+          {Number(w.totals.paid) > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setRefunding(true)}>
+              <ArrowCounterClockwise size={14} />
+              Give money back
+            </Button>
+          )}
           {live.length === 0 && (
             <Button
               size="sm"
@@ -364,7 +374,7 @@ function WindowView({
         />
       )}
       {paying && !closed && (
-        <TakePayment
+        <TakePaymentForm
           folioId={w.id}
           suggested={Number(w.totals.balance)}
           currency={currency}
@@ -374,6 +384,32 @@ function WindowView({
           }}
         />
       )}
+      <RefundDialog
+        folioId={w.id}
+        paid={Number(w.totals.paid)}
+        suggested={Number(w.totals.balance) < 0 ? -Number(w.totals.balance) : 0}
+        currency={currency}
+        open={refunding}
+        onOpenChange={setRefunding}
+        onDone={onChanged}
+      />
+      <ReasonDialog
+        open={voiding !== null}
+        onOpenChange={(o) => !o && setVoiding(null)}
+        title={`Void "${voiding?.description ?? ''}"?`}
+        consequence={
+          <>
+            The line stays on the bill, crossed out, and stops counting — {currency}{' '}
+            {Number(voiding?.total ?? 0).toFixed(2)} comes off. Who voided it and why are recorded.
+          </>
+        }
+        confirmLabel="Void the charge"
+        destructive
+        suggestions={['Posted to the wrong room', 'Posted twice', 'Guest did not take it']}
+        busy={voidLine.isPending}
+        error={voidLine.isError ? describeError(voidLine.error) : null}
+        onConfirm={(reason) => voiding && voidLine.mutate({ id: voiding.id, reason })}
+      />
       {(documents.data?.length ?? 0) > 0 && (
         <ul className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-ink-3">Documents:</span>
@@ -574,15 +610,26 @@ function Payments({ rows, currency }: { rows: FolioPaymentRow[]; currency: strin
                 {new Date(p.createdAt).toLocaleDateString()}
               </td>
               <td className="px-3 py-2 text-ink">
+                {p.direction === 'sent' && (
+                  <span className="mr-1.5 rounded bg-low-soft px-1 text-[11px] text-low-ink">
+                    Refund
+                  </span>
+                )}
                 {p.ledgerAccountId ? 'City ledger' : (p.methodName ?? p.method)}
                 {p.reference && (
                   <span className="ml-1.5 font-mono text-[11px] text-ink-3">{p.reference}</span>
+                )}
+                {p.direction === 'sent' && p.note && (
+                  <span className="block text-xs text-ink-3">
+                    {p.note.replace(/^Refund: /, '')}
+                  </span>
                 )}
               </td>
               <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-ink-2">
                 {p.receiptNo ?? '—'}
               </td>
               <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
+                {p.direction === 'sent' ? '−' : ''}
                 {currency} {Number(p.amount).toFixed(2)}
               </td>
               <td className="px-2 py-2">
@@ -606,88 +653,5 @@ function Payments({ rows, currency }: { rows: FolioPaymentRow[]; currency: strin
         </tbody>
       </table>
     </div>
-  );
-}
-
-/**
- * Take a payment on this window with one of the hotel's own methods: the reference its slip
- * carries, a photo of the slip, and — for cash — the open drawer, found by the server.
- */
-function TakePayment({
-  folioId,
-  suggested,
-  currency,
-  onDone,
-}: {
-  folioId: string;
-  suggested: number;
-  currency: string;
-  onDone: () => void;
-}) {
-  const methods = usePaymentMethods();
-  // Moving a balance to a company is "Charge to company", not a payment method here. A method in
-  // another currency is left out: the amount is recorded in the bill's currency.
-  const options = (methods.data ?? []).filter(
-    (m) => m.active && m.category !== 'city_ledger' && (!m.currency || m.currency === currency),
-  );
-  const [payment, setPayment] = React.useState<PaymentDraft>(() => ({
-    ...emptyPayment(),
-    amount: suggested > 0 ? suggested.toFixed(2) : '',
-  }));
-  const [tried, setTried] = React.useState(false);
-  const problems = paymentProblems(payment, options, null);
-
-  const pay = useMutation({
-    mutationFn: () =>
-      recordFolioPayment(folioId, {
-        amount: Number(Number(payment.amount).toFixed(2)),
-        paymentMethodId: payment.methodId!,
-        reference: payment.reference.trim() || undefined,
-        fileId: payment.file?.id,
-      }),
-    onSuccess: (row) => {
-      toast.success(
-        row.receiptNo ? `Payment recorded · receipt ${row.receiptNo}` : 'Payment recorded',
-      );
-      onDone();
-    },
-  });
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        setTried(true);
-        if (!payment.methodId || Object.keys(problems).length > 0) return;
-        pay.mutate();
-      }}
-      className="space-y-3 rounded-lg border border-line p-3"
-    >
-      {methods.isLoading ? (
-        <Skeleton className="h-10 w-full" />
-      ) : (
-        <PaymentFields
-          methods={options}
-          value={payment}
-          onChange={setPayment}
-          currency={currency}
-          max={null}
-          showErrors={tried}
-          idPrefix={`pay-${folioId}`}
-          className="max-w-md"
-        />
-      )}
-      {tried && !payment.methodId && (
-        <p className="text-xs font-medium text-closed-ink">Choose how the guest paid.</p>
-      )}
-      <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" loading={pay.isPending} disabled={pay.isPending}>
-          Record payment
-        </Button>
-        {pay.isError && (
-          <span className="text-sm text-closed-ink">{(pay.error as Error).message}</span>
-        )}
-      </div>
-    </form>
   );
 }

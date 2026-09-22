@@ -184,6 +184,36 @@ export async function insertPayment(tx: Tx, a: TakePaymentArgs) {
 }
 
 /**
+ * Give money back to a guest (UX-1b): a `sent` payment on the window it was taken on. It is the
+ * mirror of `insertPayment` — every sum of "paid" nets it out, and cash leaves the till it names.
+ * The reason is the note, because a refund is a reversal of money and always says why.
+ */
+export async function insertRefund(
+  tx: Tx,
+  a: Omit<TakePaymentArgs, 'receiptNo' | 'allocationGroupId' | 'fileId'> & { reason: string },
+) {
+  const [row] = await tx
+    .insert(payments)
+    .values({
+      tenantId: a.tenantId,
+      bookingId: a.bookingId,
+      folioId: a.folioId,
+      drawerSessionId: a.method.method === 'cash' ? (a.drawerSessionId ?? null) : null,
+      direction: 'sent',
+      amount: a.amount.toFixed(2),
+      currency: a.currency,
+      method: a.method.method,
+      paymentMethodId: a.method.id,
+      methodCode: a.method.code,
+      reference: a.reference?.trim() || null,
+      note: `Refund: ${a.reason.trim()}`,
+      takenByUserId: a.userId,
+    })
+    .returning();
+  return row!;
+}
+
+/**
  * Move a debt to a travel agent's or company's account: the folio-clearing payment and the matching
  * ledger debit, together. Recording only one of them would lose the debt or count it twice.
  */

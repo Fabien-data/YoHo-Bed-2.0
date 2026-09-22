@@ -243,7 +243,9 @@ describe('money taken with the reservation', () => {
       Array.from({ length: 5 }, () =>
         request('POST', `/folios/${folioId}/payments`, {
           token: fx.token,
-          body: { amount: 100, paymentMethodId: cc },
+          // Five genuine, identical payments: confirmed, or the double-entry guard would
+          // (rightly) stop the second one.
+          body: { amount: 100, paymentMethodId: cc, confirmDuplicate: true },
         }),
       ),
     );

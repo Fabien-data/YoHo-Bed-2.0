@@ -58,7 +58,14 @@ export type ChangePasswordDto = z.infer<typeof changePasswordSchema>;
  * - complimentary: a free room when staff may not comp
  * - tax_exempt: removing taxes from a reservation
  */
-export const STEP_UP_ACTIONS = ['rate_override', 'complimentary', 'tax_exempt'] as const;
+export const STEP_UP_ACTIONS = [
+  'rate_override',
+  'complimentary',
+  'tax_exempt',
+  // UX-1b: money out, and a guest leaving with money owed, are the owner's to allow.
+  'refund',
+  'checkout_balance',
+] as const;
 export type StepUpAction = (typeof STEP_UP_ACTIONS)[number];
 
 export const stepUpSchema = z.object({

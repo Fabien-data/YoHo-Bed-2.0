@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import {
+  ArrowCounterClockwise,
+  CalendarPlus,
   CheckCircle,
   DoorOpen,
   DotsThreeVertical,
@@ -12,6 +14,7 @@ import {
   SignIn,
   SignOut,
   UserMinus,
+  Wallet,
   XCircle,
 } from '@phosphor-icons/react';
 import {
@@ -24,23 +27,42 @@ import {
   toast,
 } from '@yohobed/ui';
 import {
-  ApiError,
   autoAssignRooms,
   bookingTransition,
   confirmBooking,
+  describeError,
   releaseHold,
   type ReservationRow,
 } from '@/lib/api';
+import { useDesk } from '@/components/booking/desk-dialogs';
+import { useRefreshDesk } from '@/components/booking/refresh';
 
 type Row = Pick<
   ReservationRow,
-  'id' | 'reference' | 'status' | 'reservationKind' | 'inventoryHeld' | 'checkin' | 'roomCodes'
+  | 'id'
+  | 'reference'
+  | 'status'
+  | 'reservationKind'
+  | 'inventoryHeld'
+  | 'checkin'
+  | 'checkout'
+  | 'roomCodes'
+  | 'guestName'
 >;
 
-type Danger = 'cancel' | 'no-show' | 'release' | null;
+type Danger = 'no-show' | 'release' | null;
 
-/** Which actions a reservation offers right now. Kept pure so the sheet and the menu agree. */
-export function actionsFor(row: Row, today: string) {
+/**
+ * Which actions a reservation offers right now. Kept pure so every screen agrees. The server is
+ * the authority (UX-STANDARD §4) — an action offered here can still be refused with a reason.
+ */
+export function actionsFor(
+  row: Pick<
+    Row,
+    'status' | 'reservationKind' | 'inventoryHeld' | 'checkin' | 'checkout' | 'roomCodes'
+  >,
+  today: string,
+) {
   const live = row.status === 'Pending' || row.status === 'Approved';
   const kind = row.reservationKind;
   const isHold = kind === 'hold_confirm' || kind === 'hold_unconfirm';
@@ -52,6 +74,11 @@ export function actionsFor(row: Row, today: string) {
       (kind === 'confirm' || kind === 'hold_confirm') &&
       row.checkin <= today,
     checkOut: row.status === 'CheckedIn',
+    takePayment: row.status === 'Approved' || row.status === 'CheckedIn',
+    changeDeparture: row.status === 'CheckedIn',
+    undoCheckIn: row.status === 'CheckedIn',
+    undoCheckOut: row.status === 'CheckedOut',
+    reinstate: (row.status === 'Cancelled' || row.status === 'NoShow') && row.checkout > today,
     assign: live && row.inventoryHeld && row.roomCodes.length === 0,
     noShow: row.status === 'Approved' && row.checkin < today,
     cancel: live,
@@ -60,25 +87,13 @@ export function actionsFor(row: Row, today: string) {
 
 /** Refresh every screen a reservation's change shows on. */
 export function useInvalidateReservations() {
-  const qc = useQueryClient();
-  return () => {
-    for (const key of [
-      'reservations',
-      'reservation-groups',
-      'stayview',
-      'dashboard',
-      'booking-extras',
-      // A transfer marked done, or a check-in, changes the bill.
-      'folio',
-    ]) {
-      qc.invalidateQueries({ queryKey: [key] });
-    }
-  };
+  return useRefreshDesk();
 }
 
 /**
- * The ⋮ menu on a reservation row: Yanolja's row actions. Anything that gives rooms away or ends
- * the reservation asks first.
+ * The ⋮ menu on a reservation: every front-desk action, each opening the same dialog it opens
+ * everywhere else (UX-1b). Anything that gives rooms away or ends the reservation asks first, and
+ * says why it is asking.
  */
 export function RowActions({
   row,
@@ -93,13 +108,19 @@ export function RowActions({
   onCard: () => void;
 }) {
   const [danger, setDanger] = React.useState<Danger>(null);
-  const refresh = useInvalidateReservations();
+  const refresh = useRefreshDesk();
+  const desk = useDesk();
   const can = actionsFor(row, today);
+  const target = {
+    id: row.id,
+    reference: row.reference,
+    guestName: row.guestName,
+    checkin: row.checkin,
+    checkout: row.checkout,
+  };
 
   const act = useMutation({
-    mutationFn: async (
-      what: 'confirm' | 'release' | 'check-in' | 'check-out' | 'assign' | 'cancel' | 'no-show',
-    ) => {
+    mutationFn: async (what: 'confirm' | 'release' | 'assign' | 'no-show') => {
       switch (what) {
         case 'confirm':
           return confirmBooking(row.id);
@@ -116,16 +137,12 @@ export function RowActions({
       const done: Record<string, string> = {
         confirm: 'confirmed',
         release: 'released: its rooms are back on sale',
-        'check-in': 'checked in',
-        'check-out': 'checked out',
         assign: 'given a room',
-        cancel: 'cancelled',
         'no-show': 'marked as a no-show',
       };
       toast.success(`${row.reference} ${done[what]}`);
     },
-    onError: (e) =>
-      toast.error(e instanceof ApiError ? e.message : 'That did not work. Try again.'),
+    onError: (e) => toast.error(describeError(e, 'That did not work. Try again.')),
   });
 
   return (
@@ -140,7 +157,7 @@ export function RowActions({
             <DotsThreeVertical size={18} weight="bold" />
           </button>
         </MenuTrigger>
-        <MenuContent align="end" className="w-52">
+        <MenuContent align="end" className="w-56">
           {onOpen && (
             <MenuItem onSelect={onOpen}>
               <Eye size={15} /> Open
@@ -152,13 +169,23 @@ export function RowActions({
             </MenuItem>
           )}
           {can.checkIn && (
-            <MenuItem onSelect={() => act.mutate('check-in')}>
+            <MenuItem onSelect={() => desk('check-in', target)}>
               <SignIn size={15} /> Check in
             </MenuItem>
           )}
           {can.checkOut && (
-            <MenuItem onSelect={() => act.mutate('check-out')}>
+            <MenuItem onSelect={() => desk('check-out', target)}>
               <SignOut size={15} /> Check out
+            </MenuItem>
+          )}
+          {can.takePayment && (
+            <MenuItem onSelect={() => desk('take-payment', target)}>
+              <Wallet size={15} /> Take payment
+            </MenuItem>
+          )}
+          {can.changeDeparture && (
+            <MenuItem onSelect={() => desk('change-departure', target)}>
+              <CalendarPlus size={15} /> Change departure
             </MenuItem>
           )}
           {can.assign && (
@@ -169,6 +196,22 @@ export function RowActions({
           <MenuItem onSelect={onCard}>
             <Printer size={15} /> Registration card
           </MenuItem>
+          {(can.undoCheckIn || can.undoCheckOut || can.reinstate) && <MenuSeparator />}
+          {can.undoCheckIn && (
+            <MenuItem onSelect={() => desk('undo-check-in', target)}>
+              <ArrowCounterClockwise size={15} /> Undo check-in
+            </MenuItem>
+          )}
+          {can.undoCheckOut && (
+            <MenuItem onSelect={() => desk('undo-check-out', target)}>
+              <ArrowCounterClockwise size={15} /> Undo check-out
+            </MenuItem>
+          )}
+          {can.reinstate && (
+            <MenuItem onSelect={() => desk('reinstate', target)}>
+              <ArrowCounterClockwise size={15} /> Bring back
+            </MenuItem>
+          )}
           {(can.release || can.noShow || can.cancel) && <MenuSeparator />}
           {can.release && (
             <MenuItem onSelect={() => setDanger('release')}>
@@ -181,7 +224,7 @@ export function RowActions({
             </MenuItem>
           )}
           {can.cancel && (
-            <MenuItem onSelect={() => setDanger('cancel')} className="text-closed-ink">
+            <MenuItem onSelect={() => desk('cancel', target)} className="text-closed-ink">
               <XCircle size={15} /> Cancel reservation
             </MenuItem>
           )}
@@ -191,26 +234,14 @@ export function RowActions({
         open={danger !== null}
         onOpenChange={(o) => !o && setDanger(null)}
         title={
-          danger === 'release'
-            ? `Release ${row.reference}?`
-            : danger === 'no-show'
-              ? `Mark ${row.reference} as a no-show?`
-              : `Cancel ${row.reference}?`
+          danger === 'release' ? `Release ${row.reference}?` : `Mark ${row.reference} as a no-show?`
         }
         description={
           danger === 'release'
             ? 'The hold ends now and its rooms go back on sale.'
-            : danger === 'no-show'
-              ? 'The guest did not arrive. The nights after tonight go back on sale.'
-              : 'The reservation is cancelled and its rooms go back on sale.'
+            : 'The guest did not arrive. The nights after tonight go back on sale. If they turn up later, bring the reservation back.'
         }
-        confirmLabel={
-          danger === 'release'
-            ? 'Release'
-            : danger === 'no-show'
-              ? 'Mark no-show'
-              : 'Cancel reservation'
-        }
+        confirmLabel={danger === 'release' ? 'Release' : 'Mark no-show'}
         cancelLabel="Keep it"
         destructive
         onConfirm={() => {

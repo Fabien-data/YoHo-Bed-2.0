@@ -29,8 +29,9 @@ export const postChargeSchema = z
   });
 export type PostChargeDto = z.infer<typeof postChargeSchema>;
 
+/** A void reverses money, so it always says why (UX-STANDARD §4). */
 export const voidChargeSchema = z.object({
-  reason: z.string().max(200).optional(),
+  reason: z.string().trim().min(3, 'Say why the charge is being voided').max(200),
 });
 export type VoidChargeDto = z.infer<typeof voidChargeSchema>;
 
@@ -58,8 +59,29 @@ export const recordFolioPaymentSchema = z.object({
    * so it can never appear on a Cashier Report — which is how a drawer ends up unexplainably short.
    */
   drawerSessionId: z.string().uuid().optional(),
+  /**
+   * The same amount by the same method on this bill in the last two minutes is refused as a
+   * probable double entry (409 `possible_duplicate`) unless the desk confirms it is a second
+   * payment (UX-1b).
+   */
+  confirmDuplicate: z.boolean().optional(),
 });
 export type RecordFolioPaymentDto = z.infer<typeof recordFolioPaymentSchema>;
+
+/**
+ * Money back to the guest (UX-1b). Never more than was paid on the window. A reason is required,
+ * and anyone but the owner needs the owner's on-the-spot approval (`approvalToken`, step-up action
+ * `refund`).
+ */
+export const refundSchema = z.object({
+  amount: z.number().positive(),
+  paymentMethodId: z.string().uuid(),
+  reference: z.string().max(120).optional(),
+  reason: z.string().trim().min(3, 'Say why the money is being given back').max(300),
+  drawerSessionId: z.string().uuid().optional(),
+  approvalToken: z.string().optional(),
+});
+export type RefundDto = z.infer<typeof refundSchema>;
 
 export const createParticularSchema = z.object({
   propertyId: z.string().uuid().optional(),

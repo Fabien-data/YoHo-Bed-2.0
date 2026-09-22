@@ -10,6 +10,7 @@ import { AppShell } from '@/components/app-shell';
 import { ReservationComposerProvider } from '@/components/reservations/composer/composer-context';
 import { FeatureDocsLink } from '@/components/feature-docs-link';
 import { PulseSurvey } from '@/components/pulse-survey';
+import { DeskDialogsProvider } from '@/components/booking/desk-dialogs';
 
 /** The owner PMS shell: auth guard + product navigation. Staff are routed to their own console. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -54,11 +55,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <CurrencyProvider>
         <ActivePropertyProvider>
           <ReservationComposerProvider>
-            <AppShell user={user} pending={pending}>
-              {children}
-              <FeatureDocsLink />
-              <PulseSurvey />
-            </AppShell>
+            <DeskDialogsProvider>
+              <AppShell user={user} pending={pending}>
+                {children}
+                <FeatureDocsLink />
+                <PulseSurvey />
+              </AppShell>
+            </DeskDialogsProvider>
           </ReservationComposerProvider>
         </ActivePropertyProvider>
       </CurrencyProvider>

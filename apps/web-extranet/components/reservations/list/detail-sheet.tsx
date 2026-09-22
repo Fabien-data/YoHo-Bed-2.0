@@ -92,6 +92,7 @@ import {
 } from '../full/line-extras';
 import { Pax, StatusChip, StayWhen, bookedAt } from './bits';
 import { RowActions, useInvalidateReservations } from './row-actions';
+import { DeskActionBar } from '@/components/booking/desk-action-bar';
 
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : 'That did not work. Try again.';
@@ -179,6 +180,16 @@ function Details({
         <StatusChip row={row} kinds={cfg.kinds} />
         <RowActions row={row} today={cfg.today} onCard={onCard} />
       </div>
+      <DeskActionBar
+        status={row.status}
+        booking={{
+          id: row.id,
+          reference: row.reference,
+          guestName: row.guestName,
+          checkin: row.checkin,
+          checkout: row.checkout,
+        }}
+      />
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
         <Item label="Arrival">

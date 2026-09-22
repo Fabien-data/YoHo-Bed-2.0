@@ -614,6 +614,107 @@ export function voidBooking(id: string): Promise<Booking> {
   return apiFetch(`/bookings/${id}/void`, { method: 'POST' });
 }
 
+// --- The guided front desk (UX-1a/1b) ------------------------------------------------------
+
+/** A refusal from a front-desk action: machine reason + a sentence that says what to do. */
+export interface DeskProblem {
+  reason: string;
+  message: string;
+  rooms?: string[];
+  balance?: string;
+  currency?: string;
+  checkin?: string;
+}
+
+export interface CheckInPreview {
+  ok: boolean;
+  problem: DeskProblem | null;
+  /** The room(s) the guest walks into tonight, and whether each is clean. */
+  rooms: Array<{ code: string; housekeeping: string }>;
+  balance: string;
+  currency: string;
+  requireDocuments: boolean;
+  customerId: string;
+}
+
+export interface CheckOutPreview {
+  ok: boolean;
+  problem: DeskProblem | null;
+  /** What the guest still owes after any company bill moves to the city ledger. */
+  balance: string;
+  currency: string;
+  policy: 'block' | 'allow';
+  unstayedNights: number;
+  /** The hotel's operating date. */
+  today: string;
+  guestEmail: string | null;
+}
+
+/** What the guest still owes on a stay: the Reservations list's Total − Paid. */
+export function getBookingBalance(id: string): Promise<{ balance: string; currency: string }> {
+  return apiFetch(`/bookings/${id}/balance`);
+}
+
+export function getCheckInPreview(id: string): Promise<CheckInPreview> {
+  return apiFetch(`/bookings/${id}/check-in-preview`);
+}
+
+export function getCheckOutPreview(id: string): Promise<CheckOutPreview> {
+  return apiFetch(`/bookings/${id}/check-out-preview`);
+}
+
+export function checkInBooking(
+  id: string,
+  body: { reason?: string; overrideDirty?: boolean } = {},
+): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/check-in`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function checkOutBooking(
+  id: string,
+  body: { reason?: string; allowBalance?: boolean; approvalToken?: string } = {},
+): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/check-out`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function switchToCleanRooms(
+  id: string,
+): Promise<Array<{ code: string; housekeeping: string }>> {
+  return apiFetch(`/bookings/${id}/rooms/switch-clean`, { method: 'POST' });
+}
+
+export function cancelBooking(id: string, reason: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) });
+}
+
+export function undoCheckIn(id: string, reason: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/undo-check-in`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function undoCheckOut(id: string, reason: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/undo-check-out`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function reinstateBooking(id: string, reason: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/reinstate`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function changeDeparture(id: string, checkout: string, reason: string): Promise<Booking> {
+  return apiFetch(`/bookings/${id}/change-departure`, {
+    method: 'POST',
+    body: JSON.stringify({ checkout, reason }),
+  });
+}
+
 export function amendBooking(
   id: string,
   body: {
@@ -1554,6 +1655,10 @@ export interface FolioLine {
 
 export interface FolioPaymentRow {
   id: string;
+  /** `sent` is money given back to the guest — a refund (UX-1b). */
+  direction: 'received' | 'sent';
+  /** A refund's reason ("Refund: …"). */
+  note: string | null;
   amount: string;
   method: string;
   /** The hotel's own method ("LankaQR"), when one was used. */
@@ -1631,7 +1736,7 @@ export function postFolioCharge(
   return apiFetch(`/folios/${folioId}/charges`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function voidFolioCharge(chargeId: string, reason?: string): Promise<FolioLine> {
+export function voidFolioCharge(chargeId: string, reason: string): Promise<FolioLine> {
   return apiFetch(`/folio-charges/${chargeId}/void`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
@@ -1656,9 +1761,25 @@ export function recordFolioPayment(
     reference?: string;
     fileId?: string;
     drawerSessionId?: string;
+    /** The desk confirmed this is a second payment, not the first one entered twice. */
+    confirmDuplicate?: boolean;
   },
 ): Promise<FolioPaymentRow> {
   return apiFetch(`/folios/${folioId}/payments`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Money back to the guest (UX-1b). Anyone but the owner sends the owner's `approvalToken`. */
+export function refundFolio(
+  folioId: string,
+  body: {
+    amount: number;
+    paymentMethodId: string;
+    reason: string;
+    reference?: string;
+    approvalToken?: string;
+  },
+): Promise<FolioPaymentRow> {
+  return apiFetch(`/folios/${folioId}/refunds`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 export function closeFolioWindow(folioId: string, force = false): Promise<FolioWindow> {
@@ -2152,7 +2273,7 @@ export function getReservationConfig(propertyId: string): Promise<ReservationCon
 export function stepUpApproval(body: {
   email: string;
   password: string;
-  action: 'rate_override' | 'complimentary' | 'tax_exempt';
+  action: ApprovalAction;
   reason?: string;
 }): Promise<{
   approvalToken: string;
@@ -2882,6 +3003,8 @@ export interface ReservationGuestInput {
 }
 
 export type PriceApproval = 'rate_override' | 'complimentary' | 'tax_exempt';
+/** Everything an owner can approve on the desk's screen (POST /auth/step-up). */
+export type ApprovalAction = PriceApproval | 'refund' | 'checkout_balance';
 
 /** What decides the price — shared by a quote and a reservation. */
 export interface ReservationStayInput {

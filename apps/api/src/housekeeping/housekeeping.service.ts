@@ -179,8 +179,9 @@ export class HousekeepingService {
                 string | null
               >`(select rc.code from occupancies o join rate_plans rp on rp.id = o.rate_plan_id join rate_codes rc on rc.id = rp.rate_code_id where o.id = ${bookings.occupancyId} limit 1)`,
               paid: sql<string>`coalesce((
-              select sum(p.amount) from payments p
-              where p.booking_id = ${bookings.id} and p.direction = 'received'
+              select sum(case when p.direction = 'received' then p.amount else -p.amount end)
+              from payments p
+              where p.booking_id = ${bookings.id}
             ), 0)`,
             })
             .from(bookingRooms)
@@ -294,7 +295,7 @@ export class HousekeepingService {
           siblingIndex: bookings.siblingIndex,
           customerId: bookings.customerId,
           nights: bookings.nights,
-          paid: sql<string>`coalesce((select sum(p.amount) from payments p where p.booking_id = ${bookings.id} and p.direction = 'received'), 0)`,
+          paid: sql<string>`coalesce((select sum(case when p.direction = 'received' then p.amount else -p.amount end) from payments p where p.booking_id = ${bookings.id}), 0)`,
         })
         .from(bookingRooms)
         .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))

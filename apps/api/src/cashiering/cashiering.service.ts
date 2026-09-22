@@ -324,9 +324,17 @@ export class CashieringService {
       .from(expenseVouchers)
       .where(eq(expenseVouchers.drawerSessionId, session.id));
 
+    // Cash handed back to guests from this till (refunds, UX-1b) leaves it like an expense.
+    const [refunded] = await tx
+      .select({
+        cash: sql<string>`coalesce(sum(${payments.amount}) filter (where ${payments.method} = 'cash'), 0)::text`,
+      })
+      .from(payments)
+      .where(and(eq(payments.drawerSessionId, session.id), eq(payments.direction, 'sent')));
+
     const float = Number(session.openingFloat);
     const cashIn = Number(taken?.cash ?? 0);
-    const cashOut = Number(spent?.cash ?? 0);
+    const cashOut = Number(spent?.cash ?? 0) + Number(refunded?.cash ?? 0);
 
     return {
       openingFloat: money(float),
@@ -559,9 +567,11 @@ export class CashieringService {
       // every report, exactly like a till that was counted and balanced, hiding any shortfall.
       const [row] = await tx
         .select({
+          // Cash in, less cash refunded from this till (UX-1b).
           cash: sql<string>`coalesce((
-            select sum(p.amount) from payments p
-            where p.drawer_session_id = ${s.id} and p.direction = 'received' and p.method = 'cash'
+            select sum(case when p.direction = 'received' then p.amount else -p.amount end)
+            from payments p
+            where p.drawer_session_id = ${s.id} and p.method = 'cash'
           ), 0)::text`,
           out: sql<string>`coalesce((
             select sum(e.amount) from expense_vouchers e where e.drawer_session_id = ${s.id}

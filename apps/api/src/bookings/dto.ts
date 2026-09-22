@@ -46,8 +46,10 @@ export type CheckInDto = z.infer<typeof checkInSchema>;
 export const checkOutSchema = z
   .object({
     reason: reasonText.optional(),
-    /** Owner only: check out with the guest's balance unpaid — the reason says why. */
+    /** Check out with the guest's balance unpaid — the reason says why. */
     allowBalance: z.boolean().optional(),
+    /** For anyone but the owner: the owner's step-up approval (`checkout_balance`). */
+    approvalToken: z.string().optional(),
   })
   .refine((d) => !d.allowBalance || (d.reason?.length ?? 0) >= 3, {
     message: 'Say why the guest is leaving with a balance unpaid',
@@ -55,6 +57,13 @@ export const checkOutSchema = z
   })
   .default({});
 export type CheckOutDto = z.infer<typeof checkOutSchema>;
+
+/** Move an in-house guest's departure (UX-1b). */
+export const changeDepartureSchema = z.object({
+  checkout: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Give the new departure as YYYY-MM-DD'),
+  reason: reasonText.min(3, 'Say why the stay is changing, in a few words'),
+});
+export type ChangeDepartureDto = z.infer<typeof changeDepartureSchema>;
 
 /** Undo and reinstate always say why — they rewrite what the desk told everyone had happened. */
 export const reasonRequiredSchema = z.object({

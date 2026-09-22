@@ -204,10 +204,14 @@ describe('extras and voids', () => {
       token: fx.token,
       body: { description: 'Oops', unitPrice: 100, quantity: 1 },
     });
-    await request('POST', `/folio-charges/${extra.body.id}/void`, { token: fx.token, body: {} });
+    const reason = { reason: 'Posted twice' };
+    await request('POST', `/folio-charges/${extra.body.id}/void`, {
+      token: fx.token,
+      body: reason,
+    });
     const again = await request('POST', `/folio-charges/${extra.body.id}/void`, {
       token: fx.token,
-      body: {},
+      body: reason,
     });
     expect(again.status).toBe(409);
   });
