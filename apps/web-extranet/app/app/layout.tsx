@@ -9,6 +9,7 @@ import { ActivePropertyProvider } from '@/components/active-property';
 import { AppShell } from '@/components/app-shell';
 import { ReservationComposerProvider } from '@/components/reservations/composer/composer-context';
 import { FeatureDocsLink } from '@/components/feature-docs-link';
+import { PulseSurvey } from '@/components/pulse-survey';
 
 /** The owner PMS shell: auth guard + product navigation. Staff are routed to their own console. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -56,6 +57,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <AppShell user={user} pending={pending}>
               {children}
               <FeatureDocsLink />
+              <PulseSurvey />
             </AppShell>
           </ReservationComposerProvider>
         </ActivePropertyProvider>

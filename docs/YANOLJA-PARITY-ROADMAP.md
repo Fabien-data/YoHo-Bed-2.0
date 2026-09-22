@@ -157,6 +157,36 @@ on a copy of the live database first (every total unchanged); the server now has
 - **Fixes along the way.** API CORS now allows `Idempotency-Key`. `Select` drops Radix's
   empty-string echo.
 
+### UX Excellence Program (approved 2026-09-22)
+
+The owner shared Cloudbeds' 2025 "Hotel PMS User Experience" report, a survey of 500 hotel
+employees. It is research, not a design spec, so we turned its findings into a binding
+[UX-STANDARD.md](UX-STANDARD.md) with click budgets, safety rules and first-party measurement,
+and a program that brings every screen up to it.
+
+The owner's decisions:
+
+- **Order:** safety first, then UX sprints alternate with feature sprints.
+- **Training:** a practice hotel plus guided drills.
+- **Support:** WhatsApp and an in-app email form.
+- **Measurement:** first-party, with no guest data.
+
+| Sprint | Deliverable                                                                                                                                                           | Status   |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Hotfix | Only the owner can see or change payout details (PR #10)                                                                                                              | ✅ Built |
+| UX-0   | The standard, click-budget tests, UX measurement + pulse survey + staff scoreboard, a real `/health`, request references, error screens, the Room View 3 s reload fix | ✅ Built |
+| UX-1a  | Safe front desk, server side: check-in/out guards, undo and reinstate, reasons + actor on reversals, housekeeping carry-forward, night-audit pre-checks               | ⬜ Next  |
+| UX-1b  | Safe front desk, UI: guided check-in/check-out, one booking-actions bar everywhere, change dates in-house                                                             | ⬜       |
+| UX-2   | Find anything, do it from anywhere: universal search, palette actions, walk-in in one sheet, bulk actions, charge items                                               | ⬜       |
+| UX-3   | Today board, alert engine, automations (scheduled audit, auto-assign, pre-arrival email)                                                                              | ⬜       |
+| UX-4   | Always current and fast: live updates across desks, performance budgets, zero-downtime deploys                                                                        | ⬜       |
+| UX-5   | Learn by doing: practice hotel, drills, tours, in-app help, WhatsApp/email support                                                                                    | ⬜       |
+| UX-6   | Personal, role-aware, mobile: preferences, manager/night-auditor roles, housekeeper's phone view                                                                      | ⬜       |
+| UX-7   | Reports that read themselves: daily manager flash, Excel export everywhere                                                                                            | ⬜       |
+
+Feature sprints alternate between UX sprints: after UX-1 come P2-S7, then the Property Configuration
+brief and then Sprint 8.
+
 Locked rules:
 
 - A multi-room reservation is **N sibling bookings** (`<ref>-1…n`) created in one transaction.

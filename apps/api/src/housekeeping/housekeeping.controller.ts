@@ -91,7 +91,13 @@ export class HousekeepingController {
     @TenantId() tenantId: string,
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ): Observable<MessageEvent> {
-    const heartbeat = timer(0, 3_000).pipe(map((sequence) => ({ sequence, source: 'poll' })));
+    // A keep-alive, not an update: it holds the connection open through nginx's read timeout.
+    // It used to be sent every 3 s as a `room-update`, which made every open Room View reload its
+    // whole grid every 3 s (UX-0). Clients refresh only on `room-update`; Room View's own 20 s
+    // poll still catches changes this stream does not carry.
+    const heartbeat = timer(0, 25_000).pipe(
+      map((sequence) => ({ type: 'ping', sequence, source: 'keepalive' })),
+    );
     const changes = this.hk.updates.pipe(
       filter(
         (event) =>
@@ -99,11 +105,11 @@ export class HousekeepingController {
           event.propertyId === q.propertyId &&
           (!event.date || !q.date || event.date === q.date),
       ),
-      map(() => ({ sequence: null, source: 'change' })),
+      map(() => ({ type: 'room-update', sequence: null, source: 'change' })),
     );
     return merge(heartbeat, changes).pipe(
-      map(({ sequence, source }) => ({
-        type: 'room-update',
+      map(({ type, sequence, source }) => ({
+        type,
         data: {
           tenantId,
           propertyId: q.propertyId,

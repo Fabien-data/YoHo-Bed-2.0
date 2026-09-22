@@ -35,6 +35,7 @@ import {
   type ReservationCreated,
 } from '@/lib/api';
 import { useReservationConfig } from '@/lib/queries';
+import { useUxTask } from '@/lib/ux';
 import { useActiveProperty } from '@/components/active-property';
 import { money as formatMoney } from '@/lib/format';
 import {
@@ -88,6 +89,8 @@ export function QuickReservationSheet({
   const { propertyId, property } = useActiveProperty();
   const config = useReservationConfig(open ? propertyId : undefined);
   const cfg = config.data;
+  // Timed from opening to Reserve (UX-STANDARD budget: new guest ≤ 7C+2T).
+  const uxTask = useUxTask('reservation.quick', open);
 
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [pristine, setPristine] = React.useState<string>('');
@@ -205,6 +208,7 @@ export function QuickReservationSheet({
       toast.success(`Reservation ${r.reference} saved`, {
         description: `${r.guest.name} · ${rooms} room${rooms === 1 ? '' : 's'} · ${formatMoney(r.due, r.currency)}`,
       });
+      uxTask.complete();
       onCreated(r);
       onOpenChange(false);
     },

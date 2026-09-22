@@ -3,6 +3,7 @@ export * from './scope';
 export * from './inventory';
 export * from './bookings';
 export * from './outbox';
+export * from './heartbeat';
 export * from './fx';
 export * from './tax';
 export * from './default-templates';

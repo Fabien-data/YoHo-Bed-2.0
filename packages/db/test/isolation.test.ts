@@ -109,6 +109,9 @@ run('tenant isolation (RLS)', () => {
       'outbox',
       // A guest leaving a review has no tenant context; the token is the key.
       'review_invites',
+      // UX measurement: written by every tenant, read only by platform staff; no guest data.
+      'ux_events',
+      'ux_survey_responses',
       // The guest booking page, likewise: the token is the key.
       'voucher_tokens',
     ]);

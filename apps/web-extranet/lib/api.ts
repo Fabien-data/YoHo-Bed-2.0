@@ -87,9 +87,31 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public data?: unknown,
+    /** The server's `X-Request-Id` — the reference staff read out to support. */
+    public requestId?: string,
   ) {
     super(message);
   }
+}
+
+/** The last failed request's reference, for the error screen and "Contact support". */
+let lastErrorRef: string | null = null;
+export function getLastErrorRef(): string | null {
+  return lastErrorRef;
+}
+
+/**
+ * What to tell the user (UX-STANDARD §5): the server's own sentence for a problem they can fix,
+ * and for a fault on our side a plain apology plus the reference support needs.
+ */
+export function describeError(e: unknown, fallback = 'Something went wrong'): string {
+  if (e instanceof ApiError) {
+    if (e.status >= 500 || e.status === 0) {
+      return e.requestId ? `${fallback}. Reference ${e.requestId}.` : `${fallback}.`;
+    }
+    return e.message;
+  }
+  return e instanceof Error && e.message ? e.message : fallback;
 }
 
 export function getToken(): string | null {
@@ -136,7 +158,14 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
     // surface as an error message rather than a redirect loop.
     endSessionIfTokenRejected(res.status, token);
     const message = (data && (data.message || data.reason)) || res.statusText || 'Request failed';
-    throw new ApiError(res.status, Array.isArray(message) ? message.join(', ') : message, data);
+    const requestId = res.headers.get('X-Request-Id') ?? undefined;
+    if (requestId) lastErrorRef = requestId;
+    throw new ApiError(
+      res.status,
+      Array.isArray(message) ? message.join(', ') : message,
+      data,
+      requestId,
+    );
   }
   return data as T;
 }
@@ -1084,8 +1113,8 @@ export function subscribeRoomUpdates(
           buffer += decoder.decode(value, { stream: true });
           const events = buffer.split('\n\n');
           buffer = events.pop() ?? '';
-          if (events.some((event) => event.split('\n').some((line) => line.startsWith('data:'))))
-            onUpdate();
+          // Only a real change refreshes; `ping` keep-alives just hold the connection open.
+          if (events.some((event) => event.split('\n').includes('event: room-update'))) onUpdate();
         }
       } catch {
         if (controller.signal.aborted) break;
@@ -3614,4 +3643,79 @@ export function updateTransportMode(
   body: { name?: string; defaultPrice?: number; sort?: number; active?: boolean },
 ): Promise<TransportMode> {
   return apiFetch(`/transport-modes/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+// ---------------------------------------------------------------------------------------------
+// UX measurement (UX Excellence Program, UX-0) — see docs/UX-STANDARD.md. No guest data, ever.
+
+export type UxEventKind = 'task' | 'client_error' | 'survey_shown' | 'survey_dismissed';
+
+export interface UxEvent {
+  kind: UxEventKind;
+  task?: string;
+  outcome?: 'completed' | 'abandoned';
+  durationMs?: number;
+  clicks?: number;
+  fields?: number;
+  route?: string;
+  appVersion?: string;
+}
+
+/**
+ * Fire-and-forget: `keepalive` lets the batch leave during page unload, and a failure is dropped
+ * on purpose. Measuring the product must never be the reason something in it breaks.
+ */
+export function postUxEvents(events: UxEvent[]): void {
+  const token = getToken();
+  if (!token || events.length === 0) return;
+  void fetch(`${API_BASE}/ux/events`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ events }),
+  }).catch(() => {});
+}
+
+export interface UxSurvey {
+  eligible: boolean;
+  items: Array<{ key: string; text: string }>;
+}
+
+export function getUxSurvey(): Promise<UxSurvey> {
+  return apiFetch('/ux/survey');
+}
+
+export function answerUxSurvey(body: {
+  answers: Record<string, number>;
+  comment?: string;
+}): Promise<{ saved: true }> {
+  return apiFetch('/ux/survey', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface UxScoreboard {
+  days: number;
+  tasks: Array<{
+    task: string;
+    completed: number;
+    abandoned: number;
+    medianMs: number | null;
+    p90Ms: number | null;
+    medianClicks: number | null;
+  }>;
+  survey: Array<{
+    key: string;
+    text: string;
+    responses: number;
+    agreePct: number | null;
+    mean: number | null;
+    baselinePct: number;
+  }>;
+  clientErrors: number;
+  mistakes: { quickVoids: number; quickCancels: number; quickCreditNotes: number };
+}
+
+export function getUxScoreboard(days = 30, tenantId?: string): Promise<UxScoreboard> {
+  const q = new URLSearchParams({ days: String(days) });
+  if (tenantId) q.set('tenantId', tenantId);
+  return apiFetch(`/staff/ux/scoreboard?${q.toString()}`);
 }
