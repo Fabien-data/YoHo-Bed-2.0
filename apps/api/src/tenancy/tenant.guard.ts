@@ -71,6 +71,9 @@ export class TenantGuard implements CanActivate {
   }
 
   private housekeepingRouteAllowed(method: string, path: string, role: string): boolean {
+    // UX measurement and the pulse survey are for every role: housekeeping is staff too.
+    if ((method === 'GET' || method === 'POST') && /^\/ux\/(events|survey)\/?$/.test(path))
+      return true;
     const read = method === 'GET';
     if (
       read &&

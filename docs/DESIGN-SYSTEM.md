@@ -5,6 +5,10 @@
 > at home; the execution is deliberately more premium — calmer color, real typography, purposeful
 > motion. Every later per-screen phase (Dashboard, Stay View, ARI, Cashiering …) must follow this
 > document rather than inventing local styles.
+>
+> Its behavioural twin is [UX-STANDARD.md](UX-STANDARD.md) (2026-09-22). This document governs how
+> a screen looks; that one governs how it behaves: click budgets, safety rules, errors, alerts,
+> help and measurement. Both are binding.
 
 ## 1. Principles
 

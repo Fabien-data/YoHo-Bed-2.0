@@ -29,11 +29,29 @@
 
 ---
 
+**Request references.** Every response carries `X-Request-Id` (`R-xxxxxxxx`, or a well-formed
+id the caller sent). It is exposed to the browser through CORS. The web app shows it in error
+messages, and the API log line for any unexpected failure starts with it. Grep the logs for the
+reference a hotel quotes.
+
 ## Health
 
-| Method & path | Auth   | Purpose                                  |
-| ------------- | ------ | ---------------------------------------- |
-| `GET /health` | public | Liveness: `{status:'ok', service, time}` |
+| Method & path          | Auth   | Purpose                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`          | public | `{status: ok\|degraded\|down, checks: {database, worker, outbox}, workerSeenSecondsAgo, outbox}`.<br>**200** whenever the database answers; `deploy.sh` relies on this.<br>**503** only when the database is down.<br>The worker is `degraded` after 2 minutes without a heartbeat. The outbox is `degraded` with dead letters, or with a push pending over 10 minutes. |
+| `GET /health?strict=1` | public | The same body, but **503** on anything not `ok`: point an external uptime monitor here.                                                                                                                                                                                                                                                                                 |
+
+## UX measurement (`/ux`) — UX-0
+
+No guest data: task keys, durations, click and field counts, route **patterns**, and the app
+version. See [UX-STANDARD.md §10](UX-STANDARD.md#10-measurement).
+
+| Method & path              | Auth       | Purpose                                                                                                                                                                                                                                                                                                                          |
+| -------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /ux/events`          | JWT+Tenant | Takes up to 50 events and answers **202** `{accepted}`.<br>Event kinds: `task`, `client_error`, `survey_shown`, `survey_dismissed`.<br>`task` must be a catalogue key (`reservation.quick`), never free text.<br>Unknown keys are dropped. Ids and numbers in `route` are masked server-side.<br>Housekeeping roles may call it. |
+| `GET /ux/survey`           | JWT+Tenant | `{eligible, items}`. A person is eligible once they have 14 days at the hotel, no answer in 90 days and no "Not now" in 14.                                                                                                                                                                                                      |
+| `POST /ux/survey`          | JWT+Tenant | `{answers: {easy_to_use, easy_to_learn, faster, fewer_mistakes}: 1–5, comment?}` → **201**. Every statement is required.                                                                                                                                                                                                         |
+| `GET /staff/ux/scoreboard` | Roles      | `?days=1–365&tenantId?`. Returns:<br>per task: completed, abandoned, median/p90 ms, median clicks<br>survey: agree % and mean beside the 2025 industry baseline<br>client crashes<br>mistake signals: voids within 10 min, cancels within 5 min, credit notes within a day                                                       |
 
 ## Auth (`/auth`)
 

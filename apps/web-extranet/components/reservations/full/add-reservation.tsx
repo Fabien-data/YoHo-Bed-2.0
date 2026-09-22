@@ -40,6 +40,7 @@ import {
   type Residency,
 } from '@/lib/api';
 import { useHasFeature, useReservationConfig } from '@/lib/queries';
+import { useUxTask } from '@/lib/ux';
 import { useActiveProperty } from '@/components/active-property';
 import { money as formatMoney } from '@/lib/format';
 import { isComplete, typedRate, type GuestDraft, type Prefill } from '../composer/draft';
@@ -108,6 +109,8 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
   const canTask = useHasFeature('work_orders');
   const hasCityLedger = useHasFeature('cashiering');
   const { takeHandoff } = useReservationComposer();
+  // Timed from arriving on the page to the saved reservation (or check-in).
+  const uxTask = useUxTask('reservation.full', true);
 
   const [draft, setDraft] = React.useState<FullDraft | null>(null);
   const [pristine, setPristine] = React.useState('');
@@ -246,6 +249,7 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
         });
       }
       for (const w of r.warnings) toast.warning(w);
+      uxTask.complete();
       setPristine(JSON.stringify(draft));
       router.push(
         `/app/reservations?tab=${r.checkedIn ? 'inhouse' : 'upcoming'}&q=${encodeURIComponent(r.reference)}`,

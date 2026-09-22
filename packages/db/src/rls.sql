@@ -256,6 +256,11 @@ CREATE POLICY tenant_isolation ON reviews
 -- voucher_tokens (Development Phase 02, Sprint 6) likewise has NO RLS, for the same reason: the
 -- guest booking page is opened by a guest with no tenant context. The public route reads it by
 -- exact token only; everything the page shows is then read under the token's tenant.
+--
+-- ux_events and ux_survey_responses (UX Excellence Program, UX-0) have NO RLS, like audit_log:
+-- every tenant's staff write their own rows, and only the role-gated staff console reads them,
+-- always filtering by tenant explicitly. They hold no guest data by design — a row names a task,
+-- never a booking, guest, room or amount. system_heartbeats has no tenant at all.
 
 ALTER TABLE ari_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON ari_history;

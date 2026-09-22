@@ -35,6 +35,7 @@ import {
 } from '@yohobed/ui';
 import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme';
+import { UxScoreboardPanel } from '@/components/staff/ux-scoreboard';
 import { money } from '@/lib/format';
 
 function tenantTone(status: StaffTenant['status']): 'avail' | 'low' | 'closed' {
@@ -371,6 +372,8 @@ export default function StaffPage() {
             </div>
           </section>
         </div>
+
+        <UxScoreboardPanel tenantId={tenantId} tenantName={selected?.name} />
       </main>
     </div>
   );

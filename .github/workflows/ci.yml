@@ -73,6 +73,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # docs/UX-STANDARD.md §11: no new window.confirm, bare "Validation failed" or silent catch.
+      # A ratchet — known debt is listed in the script and may only go down.
+      - name: UX lint
+        run: pnpm --filter @yohobed/web-extranet ux-lint
+
       # domain (pure units) + db (RLS/concurrency integration) + api (HTTP e2e)
       - name: Test
         run: pnpm test

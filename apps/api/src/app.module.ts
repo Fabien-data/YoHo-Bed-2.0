@@ -1,5 +1,8 @@
-import { Module } from '@nestjs/common';
+import { type MiddlewareConsumer, Module, type NestModule, RequestMethod } from '@nestjs/common';
+import { APP_FILTER } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { RequestErrorFilter, RequestIdMiddleware } from './common/request-id';
+import { UxModule } from './ux/ux.module';
 import { validateEnv } from './config/env';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
@@ -64,7 +67,13 @@ import { HealthController } from './health/health.controller';
     ConfigurationModule,
     ReservationsModule,
     VouchersModule,
+    UxModule,
   ],
   controllers: [HealthController],
+  providers: [{ provide: APP_FILTER, useClass: RequestErrorFilter }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestIdMiddleware).forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}

@@ -137,7 +137,8 @@ precisely to sidestep that.
 
 Every push to `main` and every PR runs one `verify` job on `ubuntu-latest` with Postgres 16 +
 Redis 7 service containers: install (frozen lockfile) → **build** → **db:migrate** →
-**db:seed** → **typecheck** → **test** (all six suites) → **format:check** (Prettier;
+**db:seed** → **typecheck** → **UX lint** (the [UX-STANDARD.md](UX-STANDARD.md) §11 ratchet) →
+**test** (all six suites) → **Playwright** (including the click budgets) → **format:check** (Prettier;
 generated files are excluded via `.prettierignore` — never hand-format `pnpm-lock.yaml` or
 `packages/db/drizzle/`).
 
@@ -172,6 +173,19 @@ generated files are excluded via `.prettierignore` — never hand-format `pnpm-l
    `GET /distribution/health`. The wire contract is pinned by 19 adapter tests — a green
    `pnpm --filter @yohobed/cm-adapter test` means only config can be wrong.
 
+### 5.4 Uptime monitoring
+
+Point an external uptime monitor at `https://<host>/api/health?strict=1`, every 1–5 minutes.
+UptimeRobot's free tier or Better Stack will do. Strict mode answers **503** when any of these
+happens:
+
+- the database is unreachable
+- the worker has been silent for 2 minutes
+- the channel outbox has dead letters, or a push has been pending for over 10 minutes
+
+Plain `/health` stays 200 in those cases, so deploys are not blocked by a slow worker start.
+Add the owner's and on-call's email, or WhatsApp where the monitor supports it, as contacts.
+
 ### 5.3 Secrets & security
 
 - Rotate `JWT_SECRET` (min 16 chars — boot fails otherwise) and `CM_WEBHOOK_SECRET`; change the
@@ -198,6 +212,8 @@ generated files are excluded via `.prettierignore` — never hand-format `pnpm-l
 | db/api tests all "skipped"                           | `DATABASE_URL` didn't reach the suite — run through `pnpm test` with the env set (Turbo passes it through), or set it inline for a single package.                                                                             |
 | Worker floods `missing 'propertyId'` retries         | Stale pre-K outbox rows met the AxisRooms adapter. Delete or let them dead-letter; see checklist 5.2 step 1.                                                                                                                   |
 | CM push permanently failed (`[ALERT]`)               | The core service rejected/was down for all 5 attempts. Row sits in `outbox` with `status='failed'` + `last_error`; fix the cause and re-set to `pending` to replay.                                                            |
+| A hotel quotes "Reference R-…"                       | That is the `X-Request-Id` of the failed request. `grep R-… ` in the API's PM2 error log finds the line, followed by its stack. A `C-…` reference is a browser-side crash, and the detail is in that browser's console.        |
+| `/health` says the worker is `degraded` or `down`    | No heartbeat in 2 minutes (the worker beats every 30 s into `system_heartbeats`). Check `pm2 logs yoho-worker`. PM2 showing "online" is not proof: a crash-looping worker restarts and dies between beats.                     |
 
 ## 7. Day-to-day conventions
 

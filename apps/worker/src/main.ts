@@ -7,6 +7,9 @@ import {
   markOutboxRetry,
   markOutboxFailed,
   sweepHousekeeping,
+  beat,
+  outboxHealth,
+  pruneUxEvents,
   type OutboxRow,
 } from '@yohobed/db';
 import { resolveAdapter } from '@yohobed/cm-adapter';
@@ -166,6 +169,16 @@ worker.on('failed', async (job, err) => {
   }
 });
 
+/**
+ * When each loop last finished cleanly. Carried in the heartbeat, so /health can tell a worker
+ * that is merely running from one whose loops are actually succeeding.
+ */
+const lastOk: Record<'relay' | 'holds' | 'housekeeping', string | null> = {
+  relay: null,
+  holds: null,
+  housekeeping: null,
+};
+
 /** Relay: move committed outbox rows onto the queue (and rescue any stuck by a crashed worker). */
 async function relay(): Promise<void> {
   try {
@@ -186,6 +199,7 @@ async function relay(): Promise<void> {
       });
     }
     if (rows.length) console.log(`[relay] enqueued ${rows.length} event(s)`);
+    lastOk.relay = new Date().toISOString();
   } catch (e) {
     console.error('[relay] error', e);
   }
@@ -199,6 +213,9 @@ const housekeepingTimer = setInterval(() => {
   if (housekeepingSweeping) return;
   housekeepingSweeping = true;
   void sweepHousekeeping(db)
+    .then(() => {
+      lastOk.housekeeping = new Date().toISOString();
+    })
     .catch((error) => console.error('[housekeeping] sweep failed', error))
     .finally(() => {
       housekeepingSweeping = false;
@@ -223,6 +240,7 @@ async function holdTick(): Promise<void> {
   sweeping = true;
   try {
     await sweepHolds(db);
+    lastOk.holds = new Date().toISOString();
   } catch (e) {
     console.error('[holds] error', e);
   } finally {
@@ -233,6 +251,35 @@ if (HOLD_SWEEP_INTERVAL_MS > 0) {
   holdTimer = setInterval(() => void holdTick(), HOLD_SWEEP_INTERVAL_MS);
   void holdTick();
 }
+
+// Heartbeat: proof of life for /health, with the outbox backlog the API cannot read itself.
+const startedAt = new Date().toISOString();
+async function heartbeat(): Promise<void> {
+  try {
+    await beat(db, 'worker', {
+      startedAt,
+      provider: adapter.provider,
+      outbox: await outboxHealth(db),
+      lastOk,
+    });
+  } catch (e) {
+    console.error('[heartbeat] error', e);
+  }
+}
+const heartbeatTimer = setInterval(() => void heartbeat(), 30_000);
+void heartbeat();
+
+// UX measurement retention (180 days), checked every 6 h.
+async function pruneUx(): Promise<void> {
+  try {
+    const n = await pruneUxEvents(db);
+    if (n) console.log(`[ux] pruned ${n} event(s) older than 180 days`);
+  } catch (e) {
+    console.error('[ux] prune error', e);
+  }
+}
+const uxPruneTimer = setInterval(() => void pruneUx(), 6 * 60 * 60 * 1000);
+void pruneUx();
 
 console.log(
   `[worker] YoHoBed CM worker started — queue=${QUEUE} redis=${REDIS_URL} provider=${adapter.provider} ` +
@@ -249,6 +296,8 @@ async function shutdown(): Promise<void> {
   shuttingDown = true;
   clearInterval(relayTimer);
   clearInterval(housekeepingTimer);
+  clearInterval(heartbeatTimer);
+  clearInterval(uxPruneTimer);
   if (fxTimer) clearInterval(fxTimer);
   if (holdTimer) clearInterval(holdTimer);
   try {
