@@ -1,5 +1,23 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { makeTenant, request, openAndPrice, book, stopApp, type TenantFixture } from './harness';
+import {
+  withTenant,
+  reconcileArrivalPreparation,
+  housekeepingTasks,
+  users,
+  memberships,
+} from '@yohobed/db';
+import bcrypt from 'bcryptjs';
+import { and, eq } from 'drizzle-orm';
+import {
+  admin,
+  login,
+  makeTenant,
+  request,
+  openAndPrice,
+  book,
+  stopApp,
+  type TenantFixture,
+} from './harness';
 
 afterAll(stopApp);
 
@@ -27,6 +45,24 @@ function roomView(fx: TenantFixture, date: string) {
   return request('GET', `/room-view?propertyId=${fx.propertyId}&date=${date}`, {
     token: fx.token,
   });
+}
+
+async function housekeepingUser(
+  fx: TenantFixture,
+  role: 'HOUSEKEEPING_ATTENDANT' | 'HOUSEKEEPING_SUPERVISOR',
+) {
+  const email = `housekeeper-${crypto.randomUUID()}@test.yohobed.local`;
+  const [user] = await admin()
+    .insert(users)
+    .values({
+      tenantId: fx.tenantId,
+      email,
+      name: 'E2E Housekeeper',
+      passwordHash: await bcrypt.hash('password123', 10),
+    })
+    .returning();
+  await admin().insert(memberships).values({ tenantId: fx.tenantId, userId: user!.id, role });
+  return { id: user!.id, token: await login(email) };
 }
 
 describe('room view', () => {
@@ -70,8 +106,11 @@ describe('room view', () => {
     const res = await roomView(fx, '2029-02-10');
     const by = Object.fromEntries(res.body.map((c: any) => [c.code, c]));
     expect(by['01'].state).toBe('Occupied');
+    expect(by['01'].frontDeskLabel).toBe('Stayover');
     expect(by['02'].state).toBe('PendingCheckout');
+    expect(by['02'].frontDeskLabel).toBe('Due out');
     expect(by['03'].state).toBe('ArrivingToday');
+    expect(by['03'].frontDeskLabel).toBe('Expected arrival');
     expect(by['01'].guestName).toBe('E2E Guest');
   });
 
@@ -125,6 +164,66 @@ describe('housekeeping status', () => {
     // The status is per-date, so the next day is unaffected.
     const nextDay = await roomView(fx, '2029-04-02');
     expect(nextDay.body[0].housekeeping).toBe('clean');
+  });
+
+  it('requires a clean submission before a dirty room can be inspected', async () => {
+    const fx = await makeTenant({ roomQuantity: 1 });
+    const [roomUnitId] = await makeUnits(fx, 1);
+    const path = `/properties/${fx.propertyId}/housekeeping`;
+    const body = { roomUnitId, date: '2029-04-11' };
+    expect(
+      (await request('POST', path, { token: fx.token, body: { ...body, status: 'dirty' } })).status,
+    ).toBe(200);
+    expect(
+      (await request('POST', path, { token: fx.token, body: { ...body, status: 'inspected' } }))
+        .status,
+    ).toBe(409);
+    expect(
+      (await request('POST', path, { token: fx.token, body: { ...body, status: 'clean' } })).status,
+    ).toBe(200);
+    expect(
+      (await request('POST', path, { token: fx.token, body: { ...body, status: 'inspected' } }))
+        .status,
+    ).toBe(200);
+  });
+
+  it('reconciles arrival preparation once and cancels it after the room is unassigned', async () => {
+    const fx = await makeTenant({ roomQuantity: 1 });
+    const [roomUnitId] = await makeUnits(fx, 1);
+    const date = '2029-04-14';
+    await openAndPrice(fx, '2029-04-12', '2029-04-20');
+    const created = await book(fx, { checkin: date, checkout: '2029-04-16' });
+    await assignFirstLeg(fx, created.body.id, roomUnitId!);
+    const reconcile = () =>
+      withTenant(admin(), fx.tenantId, (tx) =>
+        reconcileArrivalPreparation(tx, fx.tenantId, fx.propertyId, date),
+      );
+    expect(await reconcile()).toBe(1);
+    expect(await reconcile()).toBe(0);
+    const before = await request(
+      'GET',
+      `/properties/${fx.propertyId}/housekeeping/tasks?date=${date}`,
+      { token: fx.token },
+    );
+    expect(before.body).toMatchObject([{ kind: 'arrival_prep', status: 'queued', roomUnitId }]);
+
+    const legs = await request('GET', `/bookings/${created.body.id}/rooms`, { token: fx.token });
+    expect(
+      (
+        await request('POST', `/bookings/${created.body.id}/assign`, {
+          token: fx.token,
+          body: { assignments: [{ legId: legs.body[0].id, roomUnitId: null }] },
+        })
+      ).status,
+    ).toBe(200);
+    await reconcile();
+    const [task] = await admin()
+      .select()
+      .from(housekeepingTasks)
+      .where(
+        and(eq(housekeepingTasks.propertyId, fx.propertyId), eq(housekeepingTasks.date, date)),
+      );
+    expect(task?.status).toBe('cancelled');
   });
 
   it('treats an out-of-order housekeeping flag as an out-of-order room', async () => {
@@ -287,6 +386,46 @@ describe('work orders', () => {
 });
 
 describe('entitlements', () => {
+  it('limits attendant access to assigned operational work and redacts reservation details', async () => {
+    const fx = await makeTenant({ roomQuantity: 1 });
+    const [unitId] = await makeUnits(fx, 1);
+    await openAndPrice(fx, '2029-12-01', '2029-12-10');
+    const booking = await book(fx, { checkin: '2029-12-04', checkout: '2029-12-06' });
+    await assignFirstLeg(fx, booking.body.id, unitId!);
+    await request('PATCH', `/bookings/${booking.body.id}/room-signals`, {
+      token: fx.token,
+      body: { requestedSafetyFlag: true },
+    });
+    const attendant = await housekeepingUser(fx, 'HOUSEKEEPING_ATTENDANT');
+    const view = await request('GET', `/room-view?propertyId=${fx.propertyId}&date=2029-12-04`, {
+      token: attendant.token,
+    });
+    expect(view.status).toBe(200);
+    expect(view.body[0]).toMatchObject({
+      bookingId: null,
+      guestEmail: null,
+      reference: null,
+      source: null,
+      balanceDue: false,
+      requestedSafetyFlag: false,
+    });
+    expect(
+      (
+        await request('GET', `/reservations/${booking.body.id}/voucher/pdf`, {
+          token: attendant.token,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request('POST', `/properties/${fx.propertyId}/housekeeping`, {
+          token: attendant.token,
+          body: { roomUnitId: unitId, date: '2029-12-04', status: 'clean' },
+        })
+      ).status,
+    ).toBe(403);
+  });
+
   it('gives every plan housekeeping — even a Starter hotel has to clean rooms', async () => {
     const starter = await makeTenant({ plan: 'starter' });
     const res = await request('GET', `/room-view?propertyId=${starter.propertyId}`, {

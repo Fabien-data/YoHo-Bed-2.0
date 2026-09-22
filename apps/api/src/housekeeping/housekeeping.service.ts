@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, isNull, lte, sql } from 'drizzle-orm';
+import { Subject } from 'rxjs';
 import {
   bookingRooms,
+  bookingGroups,
   bookings,
   customers,
   housekeepingStatus,
@@ -15,6 +17,7 @@ import {
   roomStaySignals,
   maintenanceBlocks,
   roomUnits,
+  roomMoves,
   rooms,
   users,
   memberships,
@@ -54,9 +57,11 @@ export interface RoomCard {
   connectedRoomUnitId: string | null;
   unitStatus: 'active' | 'inactive';
   state: RoomState;
+  frontDeskLabel: string;
   housekeeping: 'dirty' | 'clean' | 'inspected' | 'out_of_order';
   remarks: string | null;
   assignedTo: string | null;
+  assignedToName: string | null;
   /** The stay occupying the room today, if any. */
   guestName: string | null;
   guestEmail: string | null;
@@ -76,6 +81,10 @@ export interface RoomCard {
   doNotDisturb: boolean;
   requestedSafetyFlag: boolean;
   groupBooking: boolean;
+  groupOwner: boolean;
+  splitReservation: boolean;
+  plannedMove: boolean;
+  dayUse: boolean;
   mealPlan: string | null;
   nextReservation: { guestName: string; checkin: string } | null;
   cleaningTask: { id: string; status: string; rush: boolean; kind: string } | null;
@@ -97,7 +106,13 @@ const taskIsDue = sql`(work_orders.trigger = 'instant' or exists (
 
 @Injectable()
 export class HousekeepingService {
+  readonly updates = new Subject<{ tenantId: string; propertyId: string; date?: string }>();
+
   constructor(private readonly dbs: DatabaseService) {}
+
+  publishUpdate(tenantId: string, propertyId: string, date?: string) {
+    this.updates.next({ tenantId, propertyId, date });
+  }
 
   /** The property's own calendar today — what a screen means when it asks without a date. */
   todayFor(tenantId: string, propertyId: string): Promise<string> {
@@ -135,107 +150,121 @@ export class HousekeepingService {
         .where(eq(roomUnits.propertyId, propertyId))
         .orderBy(asc(roomUnits.displayOrder), asc(roomUnits.code));
 
-      const [stays, hk, blocks, orders, tasks, signals, upcoming] = await Promise.all([
-        // The stay that covers `date`, plus arrivals on `date` for rooms that are otherwise free.
-        tx
-          .select({
-            roomUnitId: bookingRooms.roomUnitId,
-            checkin: bookingRooms.checkin,
-            checkout: bookingRooms.checkout,
-            adults: bookingRooms.adults,
-            children: bookingRooms.children,
-            bookingId: bookings.id,
-            legId: bookingRooms.id,
-            reference: bookings.reference,
-            status: bookings.status,
-            source: bookings.source,
-            amount: bookings.amount,
-            guestName: customers.name,
-            guestEmail: customers.email,
-            vip: customers.vip,
-            groupId: bookings.groupId,
-            mealPlan: sql<
-              string | null
-            >`(select rc.code from occupancies o join rate_plans rp on rp.id = o.rate_plan_id join rate_codes rc on rc.id = rp.rate_code_id where o.id = ${bookings.occupancyId} limit 1)`,
-            paid: sql<string>`coalesce((
+      const [stays, hk, blocks, orders, tasks, signals, upcoming, assignees, plannedMoves] =
+        await Promise.all([
+          // The stay that covers `date`, plus arrivals on `date` for rooms that are otherwise free.
+          tx
+            .select({
+              roomUnitId: bookingRooms.roomUnitId,
+              checkin: bookingRooms.checkin,
+              checkout: bookingRooms.checkout,
+              adults: bookingRooms.adults,
+              children: bookingRooms.children,
+              bookingId: bookings.id,
+              legId: bookingRooms.id,
+              reference: bookings.reference,
+              status: bookings.status,
+              source: bookings.source,
+              amount: bookings.amount,
+              guestName: customers.name,
+              guestEmail: customers.email,
+              vip: customers.vip,
+              groupId: bookings.groupId,
+              groupOwnerCustomerId: bookingGroups.ownerCustomerId,
+              siblingIndex: bookings.siblingIndex,
+              customerId: bookings.customerId,
+              nights: bookings.nights,
+              mealPlan: sql<
+                string | null
+              >`(select rc.code from occupancies o join rate_plans rp on rp.id = o.rate_plan_id join rate_codes rc on rc.id = rp.rate_code_id where o.id = ${bookings.occupancyId} limit 1)`,
+              paid: sql<string>`coalesce((
               select sum(p.amount) from payments p
               where p.booking_id = ${bookings.id} and p.direction = 'received'
             ), 0)`,
-          })
-          .from(bookingRooms)
-          .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
-          .innerJoin(customers, eq(customers.id, bookings.customerId))
-          .where(
-            and(
-              eq(bookings.propertyId, propertyId),
-              isNull(bookingRooms.releasedAt),
-              lte(bookingRooms.checkin, date),
-              gt(bookingRooms.checkout, date),
+            })
+            .from(bookingRooms)
+            .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+            .innerJoin(customers, eq(customers.id, bookings.customerId))
+            .leftJoin(bookingGroups, eq(bookingGroups.id, bookings.groupId))
+            .where(
+              and(
+                eq(bookings.propertyId, propertyId),
+                isNull(bookingRooms.releasedAt),
+                lte(bookingRooms.checkin, date),
+                gt(bookingRooms.checkout, date),
+              ),
             ),
-          ),
-        tx
-          .select()
-          .from(housekeepingStatus)
-          .where(
-            and(eq(housekeepingStatus.propertyId, propertyId), eq(housekeepingStatus.date, date)),
-          ),
-        tx
-          .select()
-          .from(maintenanceBlocks)
-          .where(
-            and(
-              eq(maintenanceBlocks.propertyId, propertyId),
-              isNull(maintenanceBlocks.releasedAt),
-              lte(maintenanceBlocks.blockFrom, date),
-              gt(maintenanceBlocks.blockTo, date),
+          tx
+            .select()
+            .from(housekeepingStatus)
+            .where(
+              and(eq(housekeepingStatus.propertyId, propertyId), eq(housekeepingStatus.date, date)),
             ),
-          ),
-        tx
-          .select({
-            roomUnitId: workOrders.roomUnitId,
-            n: sql<number>`count(*)::int`,
-          })
-          .from(workOrders)
-          .where(
-            and(
-              eq(workOrders.propertyId, propertyId),
-              sql`${workOrders.status} in ('open', 'in_progress')`,
-              taskIsDue,
+          tx
+            .select()
+            .from(maintenanceBlocks)
+            .where(
+              and(
+                eq(maintenanceBlocks.propertyId, propertyId),
+                isNull(maintenanceBlocks.releasedAt),
+                lte(maintenanceBlocks.blockFrom, date),
+                gt(maintenanceBlocks.blockTo, date),
+              ),
             ),
-          )
-          .groupBy(workOrders.roomUnitId),
-        tx
-          .select()
-          .from(housekeepingTasks)
-          .where(
-            and(eq(housekeepingTasks.propertyId, propertyId), eq(housekeepingTasks.date, date)),
-          ),
-        tx
-          .select({
-            bookingId: roomStaySignals.bookingId,
-            doNotDisturb: roomStaySignals.doNotDisturb,
-            requestedSafetyFlag: roomStaySignals.requestedSafetyFlag,
-          })
-          .from(roomStaySignals),
-        tx
-          .select({
-            roomUnitId: bookingRooms.roomUnitId,
-            checkin: bookingRooms.checkin,
-            guestName: customers.name,
-          })
-          .from(bookingRooms)
-          .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
-          .innerJoin(customers, eq(customers.id, bookings.customerId))
-          .where(
-            and(
-              eq(bookings.propertyId, propertyId),
-              isNull(bookingRooms.releasedAt),
-              gt(bookingRooms.checkin, date),
-              sql`${bookings.status} in ('Pending', 'Approved')`,
+          tx
+            .select({
+              roomUnitId: workOrders.roomUnitId,
+              n: sql<number>`count(*)::int`,
+            })
+            .from(workOrders)
+            .where(
+              and(
+                eq(workOrders.propertyId, propertyId),
+                sql`${workOrders.status} in ('open', 'in_progress')`,
+                taskIsDue,
+              ),
+            )
+            .groupBy(workOrders.roomUnitId),
+          tx
+            .select()
+            .from(housekeepingTasks)
+            .where(
+              and(eq(housekeepingTasks.propertyId, propertyId), eq(housekeepingTasks.date, date)),
             ),
-          )
-          .orderBy(asc(bookingRooms.checkin)),
-      ]);
+          tx
+            .select({
+              bookingId: roomStaySignals.bookingId,
+              doNotDisturb: roomStaySignals.doNotDisturb,
+              requestedSafetyFlag: roomStaySignals.requestedSafetyFlag,
+            })
+            .from(roomStaySignals),
+          tx
+            .select({
+              roomUnitId: bookingRooms.roomUnitId,
+              checkin: bookingRooms.checkin,
+              guestName: customers.name,
+            })
+            .from(bookingRooms)
+            .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+            .innerJoin(customers, eq(customers.id, bookings.customerId))
+            .where(
+              and(
+                eq(bookings.propertyId, propertyId),
+                isNull(bookingRooms.releasedAt),
+                gt(bookingRooms.checkin, date),
+                sql`${bookings.status} in ('Pending', 'Approved')`,
+              ),
+            )
+            .orderBy(asc(bookingRooms.checkin)),
+          tx
+            .select({ id: users.id, name: users.name })
+            .from(users)
+            .where(eq(users.tenantId, tenantId)),
+          tx
+            .select({ fromRoomUnitId: roomMoves.fromRoomUnitId })
+            .from(roomMoves)
+            .where(and(eq(roomMoves.propertyId, propertyId), eq(roomMoves.status, 'planned'))),
+        ]);
 
       // A guest departing TODAY is excluded by the half-open overlap above (checkout is
       // exclusive) but is still physically in the room until they leave — that is precisely the
@@ -257,11 +286,16 @@ export class HousekeepingService {
           guestEmail: customers.email,
           vip: customers.vip,
           groupId: bookings.groupId,
+          groupOwnerCustomerId: bookingGroups.ownerCustomerId,
+          siblingIndex: bookings.siblingIndex,
+          customerId: bookings.customerId,
+          nights: bookings.nights,
           paid: sql<string>`coalesce((select sum(p.amount) from payments p where p.booking_id = ${bookings.id} and p.direction = 'received'), 0)`,
         })
         .from(bookingRooms)
         .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
         .innerJoin(customers, eq(customers.id, bookings.customerId))
+        .leftJoin(bookingGroups, eq(bookingGroups.id, bookings.groupId))
         .where(
           and(
             eq(bookings.propertyId, propertyId),
@@ -291,8 +325,19 @@ export class HousekeepingService {
       const hkBy = new Map(hk.map((h) => [h.roomUnitId, h]));
       const blockBy = new Map(blocks.map((b) => [b.roomUnitId, b]));
       const ordersBy = new Map(orders.filter((o) => o.roomUnitId).map((o) => [o.roomUnitId!, o.n]));
-      const taskBy = new Map(tasks.map((t) => [t.roomUnitId, t]));
+      const taskBy = new Map<string, (typeof tasks)[number]>();
+      const taskPriority = (task: (typeof tasks)[number]) =>
+        (task.status === 'in_progress' ? 100 : task.status === 'queued' ? 50 : 0) +
+        (task.rush ? 20 : 0) +
+        (task.kind === 'departure' ? 3 : task.kind === 'arrival_prep' ? 2 : 1);
+      for (const task of tasks) {
+        const current = taskBy.get(task.roomUnitId);
+        if (!current || taskPriority(task) > taskPriority(current))
+          taskBy.set(task.roomUnitId, task);
+      }
       const signalBy = new Map(signals.map((s) => [s.bookingId, s]));
+      const assigneeBy = new Map(assignees.map((u) => [u.id, u.name]));
+      const plannedFrom = new Set(plannedMoves.map((m) => m.fromRoomUnitId));
       const nextBy = new Map<string, { guestName: string; checkin: string }>();
       for (const n of upcoming)
         if (n.roomUnitId && !nextBy.has(n.roomUnitId))
@@ -327,9 +372,33 @@ export class HousekeepingService {
         return {
           ...u,
           state,
+          frontDeskLabel: block
+            ? 'Maintenance block'
+            : u.unitStatus === 'inactive'
+              ? 'Out of service'
+              : departing
+                ? 'Due out'
+                : stay?.status === 'CheckedIn'
+                  ? stay.checkin === date
+                    ? 'Arrived'
+                    : 'Stayover'
+                  : stay?.nights === 0
+                    ? 'Dayuse reservation'
+                    : stay?.status === 'Approved'
+                      ? 'Confirmed reservation'
+                      : stay
+                        ? 'Expected arrival'
+                        : 'Vacant',
           housekeeping,
           remarks: hkBy.get(u.unitId)?.remarks ?? null,
-          assignedTo: hkBy.get(u.unitId)?.assignedToUserId ?? null,
+          assignedTo:
+            taskBy.get(u.unitId)?.assignedToUserId ?? hkBy.get(u.unitId)?.assignedToUserId ?? null,
+          assignedToName:
+            (taskBy.get(u.unitId)?.assignedToUserId ?? hkBy.get(u.unitId)?.assignedToUserId)
+              ? (assigneeBy.get(
+                  (taskBy.get(u.unitId)?.assignedToUserId ?? hkBy.get(u.unitId)?.assignedToUserId)!,
+                ) ?? null)
+              : null,
           guestName: active?.guestName ?? null,
           guestEmail: active?.guestEmail ?? null,
           bookingId: active?.bookingId ?? null,
@@ -351,6 +420,10 @@ export class HousekeepingService {
               ? (signalBy.get(active.bookingId)?.requestedSafetyFlag ?? false)
               : false,
           groupBooking: Boolean(active?.groupId),
+          groupOwner: Boolean(active?.groupId && active.groupOwnerCustomerId === active.customerId),
+          splitReservation: active?.siblingIndex != null,
+          plannedMove: plannedFrom.has(u.unitId),
+          dayUse: active?.nights === 0,
           mealPlan: stay?.mealPlan ?? null,
           nextReservation: nextBy.get(u.unitId) ?? null,
           cleaningTask: taskBy.has(u.unitId)
@@ -372,11 +445,39 @@ export class HousekeepingService {
     propertyId: string,
     userId: string | null,
     dto: SetHousekeepingDto,
+    role?: string,
   ) {
-    return this.dbs.withTenant(tenantId, async (tx) => {
+    const result = await this.dbs.withTenant(tenantId, async (tx) => {
       const [unit] = await tx.select().from(roomUnits).where(eq(roomUnits.id, dto.roomUnitId));
       if (!unit || unit.propertyId !== propertyId) {
         throw new NotFoundException('Room not found in this property');
+      }
+      const [previous] = await tx
+        .select({ status: housekeepingStatus.status })
+        .from(housekeepingStatus)
+        .where(
+          and(
+            eq(housekeepingStatus.roomUnitId, dto.roomUnitId),
+            eq(housekeepingStatus.date, dto.date),
+          ),
+        )
+        .for('update');
+      if (dto.status === 'inspected' && (previous?.status ?? 'clean') !== 'clean') {
+        throw new ConflictException('A room must be submitted as clean before inspection');
+      }
+      if (role === 'HOUSEKEEPING_ATTENDANT') {
+        const [assigned] = await tx
+          .select({ id: housekeepingTasks.id })
+          .from(housekeepingTasks)
+          .where(
+            and(
+              eq(housekeepingTasks.roomUnitId, dto.roomUnitId),
+              eq(housekeepingTasks.date, dto.date),
+              eq(housekeepingTasks.assignedToUserId, userId!),
+            ),
+          )
+          .limit(1);
+        if (!assigned) throw new ForbiddenException('This room is not assigned to you');
       }
 
       const [row] = await tx
@@ -405,6 +506,8 @@ export class HousekeepingService {
         .returning();
       return row;
     });
+    this.publishUpdate(tenantId, propertyId, dto.date);
+    return result;
   }
 
   listFloorLayouts(tenantId: string, propertyId: string) {
@@ -487,8 +590,8 @@ export class HousekeepingService {
     );
   }
 
-  updateTask(tenantId: string, id: string, dto: UpdateTaskDto, role: string, userId: string) {
-    return this.dbs.withTenant(tenantId, async (tx) => {
+  async updateTask(tenantId: string, id: string, dto: UpdateTaskDto, role: string, userId: string) {
+    const saved = await this.dbs.withTenant(tenantId, async (tx) => {
       const [task] = await tx
         .select()
         .from(housekeepingTasks)
@@ -557,6 +660,8 @@ export class HousekeepingService {
       }
       return saved;
     });
+    this.publishUpdate(tenantId, saved.propertyId, saved.date);
+    return saved;
   }
 
   updateSignals(tenantId: string, bookingId: string, dto: RoomSignalsDto, userId: string) {

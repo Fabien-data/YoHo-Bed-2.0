@@ -13,7 +13,7 @@ import {
   UseGuards,
   type MessageEvent,
 } from '@nestjs/common';
-import { timer, map, type Observable } from 'rxjs';
+import { timer, map, merge, filter, type Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
@@ -64,12 +64,24 @@ export class HousekeepingController {
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ) {
     const date = q.date ?? (await this.hk.todayFor(tenantId, q.propertyId));
-    return this.hk.roomCards(
+    const cards = await this.hk.roomCards(
       tenantId,
       q.propertyId,
       date,
       role === 'OWNER' || role === 'OWNER_STAFF',
     );
+    if (role === 'HOUSEKEEPING_ATTENDANT' || role === 'HOUSEKEEPING_SUPERVISOR') {
+      return cards.map((card) => ({
+        ...card,
+        guestEmail: null,
+        bookingId: null,
+        legId: null,
+        reference: null,
+        balanceDue: false,
+        source: null,
+      }));
+    }
+    return cards;
   }
 
   /** Authenticated refresh stream. Clients reconnect automatically and retain polling as backup. */
@@ -79,14 +91,25 @@ export class HousekeepingController {
     @TenantId() tenantId: string,
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ): Observable<MessageEvent> {
-    return timer(0, 3_000).pipe(
-      map((sequence) => ({
+    const heartbeat = timer(0, 3_000).pipe(map((sequence) => ({ sequence, source: 'poll' })));
+    const changes = this.hk.updates.pipe(
+      filter(
+        (event) =>
+          event.tenantId === tenantId &&
+          event.propertyId === q.propertyId &&
+          (!event.date || !q.date || event.date === q.date),
+      ),
+      map(() => ({ sequence: null, source: 'change' })),
+    );
+    return merge(heartbeat, changes).pipe(
+      map(({ sequence, source }) => ({
         type: 'room-update',
         data: {
           tenantId,
           propertyId: q.propertyId,
           date: q.date ?? null,
           sequence,
+          source,
           at: new Date().toISOString(),
         },
       })),
@@ -117,7 +140,7 @@ export class HousekeepingController {
     if (role === 'HOUSEKEEPING_ATTENDANT' && dto.status !== 'clean') {
       throw new ForbiddenException('Attendants can only submit rooms as clean');
     }
-    return this.hk.setStatus(tenantId, propertyId, user.sub, dto);
+    return this.hk.setStatus(tenantId, propertyId, user.sub, dto, role);
   }
 
   @Get('properties/:propertyId/floor-layouts')
@@ -174,6 +197,7 @@ export class HousekeepingController {
   /** The morning sweep: every room a guest left today becomes dirty. */
   @Post('properties/:propertyId/housekeeping/mark-departures-dirty')
   @HttpCode(200)
+  @TenantRoles('OWNER', 'OWNER_STAFF', 'HOUSEKEEPING_SUPERVISOR')
   async markDepartures(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthPrincipal,

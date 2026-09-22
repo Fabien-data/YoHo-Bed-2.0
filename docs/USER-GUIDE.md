@@ -145,6 +145,39 @@ Open it from wherever you are:
 - a **double-click on an empty night in Stay View**, which picks that room and date for you;
 - **New reservation in room …** on a vacant room in Room View.
 
+### Room and Floor View
+
+Open **Rooms** from the front desk navigation. Use **Floor | Rooms** beside the title to switch
+between a floor plan and cards. The business date, floor, status filter, maintenance overlay, and
+selected room stay in place. Choose **Comfortable** or **Compact** in Rooms. The floor plan supplies
+an automatic corridor until an Owner or housekeeping supervisor saves a layout. In layout edit mode,
+drag room cards and landmarks, then save; a version conflict asks you to reload another user's edits.
+
+Every card shows the front desk state separately from Dirty, Clean, or Inspected housekeeping
+condition. Its small indicators identify configured smoking/accessibility/connected-room settings,
+arrival or departure, VIP, group and linked bookings, DND, payment due, work orders, Rush Clean,
+meal plan, source, planned move, and next reservation when applicable. The guest-requested safety
+preference is set explicitly and is visible only to front desk staff. Use the **HK** button on a
+card for a quick condition change, or open the card for the reservation, folio, tasks, work orders,
+notes, and room actions.
+
+The cleaning queue orders Rush tasks first. Supervisors and Owners can assign attendants, mark
+Rush, and approve Inspected after a room is Clean. Attendants see their assigned work on a phone,
+tap **Start** and then **Clean**. The system creates stayover and arrival-preparation tasks after
+02:00 in the property's local time; checkout makes the departure room Dirty immediately. The
+**Mark departures dirty** control handles older departures that need a manual morning reset.
+
+From an occupied room, use reservation actions to check in/out, collect payment, amend the stay,
+add inclusions or a new booking, cancel, no-show, void where permitted, unassign before check-in,
+or move/exchange rooms. Review the affected room references in the confirmation. A planned move
+can be stopped before it takes effect. Void is an Owner correction for an unarrived reservation
+with no payment or issued invoice; otherwise use cancellation and the financial correction flow.
+
+**Print reservation voucher** and **Print invoice** open print-ready PDFs. **Send email** and
+**Send invoice** show the document and recipients first, then queue a snapshot for delivery. If
+there is no issued invoice, review the folio and issue it before sending. Failed deliveries appear
+in Communications for retry.
+
 Then fill it in, top to bottom:
 
 1. **Dates.** Type them (`17/09/2026` works, and so does `2026-09-17`) or pick them from the

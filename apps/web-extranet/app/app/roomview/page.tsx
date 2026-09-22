@@ -20,12 +20,17 @@ import {
   Lightning,
   LinkSimple,
   MapPin,
+  CalendarBlank,
+  GitBranch,
+  ArrowsLeftRight,
 } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
   Card,
   CountedChips,
+  Dialog,
+  DialogContent,
   Input,
   Sheet,
   SheetContent,
@@ -60,6 +65,8 @@ import {
   sendVoucher,
   sendInvoice,
   fetchDocumentPdf,
+  getBookingFolio,
+  listWorkOrders,
   listTeamMembers,
   listRooms,
   createRoomUnit,
@@ -73,7 +80,7 @@ import {
 import { useActiveProperty } from '@/components/active-property';
 import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 import { todayISO } from '@/lib/format';
-import { useTenantRole } from '@/lib/queries';
+import { useEntitlements, useTenantRole } from '@/lib/queries';
 import Link from 'next/link';
 
 const STATE_LABEL: Record<RoomState, string> = {
@@ -120,6 +127,7 @@ export default function RoomViewPage() {
   const [floor, setFloor] = React.useState('all');
   const [density, setDensity] = React.useState<'comfortable' | 'compact'>('comfortable');
   const [maintenanceOverlay, setMaintenanceOverlay] = React.useState(false);
+  const [floorDirection, setFloorDirection] = React.useState(0);
   const gridRef = React.useRef<HTMLDivElement>(null);
   const previousRects = React.useRef(new Map<string, DOMRect>());
 
@@ -157,6 +165,12 @@ export default function RoomViewPage() {
   const sweep = useMutation({
     mutationFn: () => markDeparturesDirty(propertyId!, date),
     onSuccess: refresh,
+  });
+  const quickStatus = useMutation({
+    mutationFn: ({ unitId, status }: { unitId: string; status: HousekeepingState }) =>
+      setHousekeeping(propertyId!, { roomUnitId: unitId, date, status }),
+    onSuccess: refresh,
+    onError: (error) => toast.error((error as Error).message),
   });
 
   const cards = rooms.data ?? [];
@@ -284,15 +298,17 @@ export default function RoomViewPage() {
             className="w-40"
             aria-label="Business date"
           />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => sweep.mutate()}
-            disabled={sweep.isPending || !propertyId}
-          >
-            <Sparkle size={14} />
-            {sweep.isPending ? 'Marking…' : 'Mark departures dirty'}
-          </Button>
+          {role !== 'HOUSEKEEPING_ATTENDANT' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => sweep.mutate()}
+              disabled={sweep.isPending || !propertyId}
+            >
+              <Sparkle size={14} />
+              {sweep.isPending ? 'Marking…' : 'Mark departures dirty'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -323,6 +339,9 @@ export default function RoomViewPage() {
           value={floor}
           onChange={(e) => {
             rememberRects();
+            setFloorDirection(
+              Math.sign(floors.indexOf(e.target.value) - floors.indexOf(displayedFloor)),
+            );
             setFloor(e.target.value);
           }}
           className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink"
@@ -399,6 +418,14 @@ export default function RoomViewPage() {
                 }}
                 onOpen={(id) => setSelectedId(id)}
                 maintenanceOverlay={maintenanceOverlay}
+                floorDirection={floorDirection}
+                selectedId={selectedId}
+                onQuickStatus={
+                  role === 'HOUSEKEEPING_ATTENDANT'
+                    ? undefined
+                    : (unitId, status) => quickStatus.mutate({ unitId, status })
+                }
+                canInspect={canEditLayout}
               />
             ) : (
               <div
@@ -409,13 +436,22 @@ export default function RoomViewPage() {
                     : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
                 )}
               >
-                {visible.map((c) => (
+                {visible.map((c, index) => (
                   <RoomTile
                     key={c.unitId}
                     card={c}
                     compact={density === 'compact'}
                     maintenanceOverlay={maintenanceOverlay}
                     onOpen={() => setSelectedId(c.unitId)}
+                    index={index}
+                    onQuickStatus={
+                      role === 'HOUSEKEEPING_ATTENDANT'
+                        ? undefined
+                        : (status) => quickStatus.mutate({ unitId: c.unitId, status })
+                    }
+                    canInspect={canEditLayout}
+                    selected={selectedId === c.unitId}
+                    dimmed={selectedId !== null && selectedId !== c.unitId}
                   />
                 ))}
               </div>
@@ -446,6 +482,7 @@ export default function RoomViewPage() {
       <RoomSheet
         card={selected}
         cards={cards}
+        tasks={tasks.data ?? []}
         propertyId={propertyId}
         date={date}
         onClose={() => setSelectedId(null)}
@@ -461,147 +498,246 @@ function RoomTile({
   onOpen,
   compact = false,
   maintenanceOverlay = false,
+  index = 0,
+  onQuickStatus,
+  canInspect = false,
+  selected = false,
+  dimmed = false,
 }: {
   card: RoomCard;
   onOpen: () => void;
   compact?: boolean;
   maintenanceOverlay?: boolean;
+  index?: number;
+  onQuickStatus?: (status: HousekeepingState) => void;
+  canInspect?: boolean;
+  selected?: boolean;
+  dimmed?: boolean;
 }) {
+  const [quickOpen, setQuickOpen] = React.useState(false);
+  const [statusPulse, setStatusPulse] = React.useState(false);
+  const previousStatus = React.useRef(card.housekeeping);
+  React.useEffect(() => {
+    if (previousStatus.current !== card.housekeeping) {
+      setStatusPulse(true);
+      const timeout = window.setTimeout(() => setStatusPulse(false), 650);
+      previousStatus.current = card.housekeeping;
+      return () => window.clearTimeout(timeout);
+    }
+  }, [card.housekeeping]);
   return (
-    <button
-      type="button"
+    <div
       data-room-id={card.unitId}
-      onClick={onOpen}
-      className={cn(
-        'relative flex min-h-36 flex-col gap-2 rounded-xl border border-l-[3px] bg-surface p-3 text-left shadow-sm transition duration-200',
-        'hover:-translate-y-0.5 hover:border-ink-3 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand',
-        card.state === 'OutOfOrder'
-          ? 'border-closed'
-          : card.state === 'Occupied'
-            ? 'border-l-brand'
-            : card.state === 'ArrivingToday'
-              ? 'border-l-info'
-              : 'border-l-avail',
-        card.cleaningTask?.rush && 'ring-2 ring-low',
-        maintenanceOverlay && card.openWorkOrders === 0 && !card.blockReason && 'opacity-45',
-        compact && 'min-h-28 gap-1',
-      )}
+      className="room-tile-wrap group relative"
+      style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
+      onContextMenu={(event) => {
+        if (!onQuickStatus) return;
+        event.preventDefault();
+        setQuickOpen(true);
+      }}
     >
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-lg font-bold text-ink">{card.code}</span>
-        {card.vip && (
-          <Tooltip label="VIP guest">
-            <Crown size={14} className="text-low-ink" />
-          </Tooltip>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn(
+          'relative flex min-h-36 w-full flex-col gap-2 rounded-xl border border-l-[3px] bg-surface p-3 pr-9 text-left shadow-sm transition duration-200',
+          'hover:-translate-y-0.5 hover:border-ink-3 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand',
+          card.state === 'OutOfOrder'
+            ? 'border-closed'
+            : card.state === 'Occupied'
+              ? 'border-l-brand'
+              : card.state === 'ArrivingToday'
+                ? 'border-l-info'
+                : 'border-l-avail',
+          card.cleaningTask?.rush && 'room-rush ring-2 ring-low',
+          selected && 'z-20 scale-[1.03] border-brand shadow-lg',
+          dimmed && 'scale-[.97] opacity-60',
+          statusPulse && 'room-status-ripple',
+          maintenanceOverlay && card.openWorkOrders === 0 && !card.blockReason && 'opacity-45',
+          compact && 'min-h-28 gap-1',
         )}
-        <div className="ml-auto flex items-center gap-1.5">
-          {card.balanceDue && (
-            <Tooltip label="Payment pending">
-              <Wallet size={14} className="text-closed-ink" />
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-lg font-bold text-ink">{card.code}</span>
+          {card.vip && (
+            <Tooltip label="VIP guest">
+              <Crown size={14} className="text-low-ink" />
             </Tooltip>
           )}
-          {card.openWorkOrders > 0 && (
-            <Tooltip label={`${card.openWorkOrders} open work order(s)`}>
-              <span className="flex items-center gap-0.5 text-low-ink">
-                <Wrench size={13} />
-                <span className="text-[11px] font-semibold">{card.openWorkOrders}</span>
-              </span>
-            </Tooltip>
-          )}
-          {card.state === 'ArrivingToday' && (
-            <Tooltip label="Arriving today">
-              <SignIn size={14} className="text-info" />
-            </Tooltip>
-          )}
-          {card.state === 'PendingCheckout' && (
-            <Tooltip label="Due out">
-              <SignOut size={14} className="text-low-ink" />
-            </Tooltip>
-          )}
-          {card.unitStatus === 'inactive' && (
-            <Tooltip label="Room disabled">
-              <Prohibit size={14} className="text-closed-ink" />
-            </Tooltip>
-          )}
-          {card.smokingPolicy !== 'unspecified' && (
-            <Tooltip label={card.smokingPolicy === 'smoking' ? 'Smoking room' : 'No smoking'}>
-              <Cigarette size={14} className="text-ink-3" />
-            </Tooltip>
-          )}
-          {card.wheelchairAccessible && (
-            <Tooltip label="Wheelchair accessible">
-              <Wheelchair size={14} className="text-info" />
-            </Tooltip>
-          )}
-          {card.connectedRoomUnitId && (
-            <Tooltip label="Connected room">
-              <LinkSimple size={14} className="text-ink-3" />
-            </Tooltip>
-          )}
-          {card.doNotDisturb && (
-            <Tooltip label="Do not disturb">
-              <BellSlash size={14} className="text-low-ink" />
-            </Tooltip>
-          )}
-          {card.groupBooking && (
-            <Tooltip label="Group booking">
-              <Users size={14} className="text-ink-3" />
-            </Tooltip>
-          )}
-          {card.mealPlan && (
-            <Tooltip label={`Meal plan ${card.mealPlan}`}>
-              <ForkKnife size={14} className="text-ink-3" />
-            </Tooltip>
-          )}
-          {card.cleaningTask?.rush && (
-            <Tooltip label="Rush clean">
-              <Lightning size={14} className="text-low-ink" />
-            </Tooltip>
-          )}
-          {card.requestedSafetyFlag && (
-            <Tooltip label="Guest-requested safety preference">
-              <ShieldCheck size={14} className="text-low-ink" />
-            </Tooltip>
+          <div className="ml-auto flex items-center gap-1.5">
+            {card.balanceDue && (
+              <Tooltip label="Payment pending">
+                <Wallet size={14} className="text-closed-ink" />
+              </Tooltip>
+            )}
+            {card.openWorkOrders > 0 && (
+              <Tooltip label={`${card.openWorkOrders} open work order(s)`}>
+                <span className="flex items-center gap-0.5 text-low-ink">
+                  <Wrench size={13} />
+                  <span className="text-[11px] font-semibold">{card.openWorkOrders}</span>
+                </span>
+              </Tooltip>
+            )}
+            {card.state === 'ArrivingToday' && (
+              <Tooltip label="Arriving today">
+                <SignIn size={14} className="text-info" />
+              </Tooltip>
+            )}
+            {card.state === 'PendingCheckout' && (
+              <Tooltip label="Due out">
+                <SignOut size={14} className="text-low-ink" />
+              </Tooltip>
+            )}
+            {card.unitStatus === 'inactive' && (
+              <Tooltip label="Room disabled">
+                <Prohibit size={14} className="text-closed-ink" />
+              </Tooltip>
+            )}
+            {card.smokingPolicy !== 'unspecified' && (
+              <Tooltip label={card.smokingPolicy === 'smoking' ? 'Smoking room' : 'No smoking'}>
+                <span className="relative inline-flex">
+                  <Cigarette size={14} className="text-ink-3" />
+                  {card.smokingPolicy === 'non_smoking' && (
+                    <span className="absolute left-0 top-1/2 h-px w-full -rotate-45 bg-closed-ink" />
+                  )}
+                </span>
+              </Tooltip>
+            )}
+            {card.wheelchairAccessible && (
+              <Tooltip label="Wheelchair accessible">
+                <Wheelchair size={14} className="text-info" />
+              </Tooltip>
+            )}
+            {card.connectedRoomUnitId && (
+              <Tooltip label="Connected room">
+                <LinkSimple size={14} className="text-ink-3" />
+              </Tooltip>
+            )}
+            {card.doNotDisturb && (
+              <Tooltip label="Do not disturb">
+                <BellSlash size={14} className="text-low-ink" />
+              </Tooltip>
+            )}
+            {card.groupBooking && (
+              <Tooltip label="Group booking">
+                <Users size={14} className="text-ink-3" />
+              </Tooltip>
+            )}
+            {card.groupOwner && (
+              <Tooltip label="Group owner">
+                <Crown size={14} className="text-info" />
+              </Tooltip>
+            )}
+            {card.splitReservation && (
+              <Tooltip label="Linked multi-room reservation">
+                <GitBranch size={14} className="text-ink-3" />
+              </Tooltip>
+            )}
+            {card.plannedMove && (
+              <Tooltip label="Planned room move">
+                <ArrowsLeftRight size={14} className="text-low-ink" />
+              </Tooltip>
+            )}
+            {card.dayUse && (
+              <Tooltip label="Day-use reservation">
+                <CalendarBlank size={14} className="text-info" />
+              </Tooltip>
+            )}
+            {card.mealPlan && (
+              <Tooltip label={`Meal plan ${card.mealPlan}`}>
+                <ForkKnife size={14} className="text-ink-3" />
+              </Tooltip>
+            )}
+            {card.cleaningTask?.rush && (
+              <Tooltip label="Rush clean">
+                <Lightning size={14} className="text-low-ink" />
+              </Tooltip>
+            )}
+            {card.requestedSafetyFlag && (
+              <Tooltip label="Guest-requested safety preference">
+                <ShieldCheck size={14} className="text-low-ink" />
+              </Tooltip>
+            )}
+          </div>
+        </div>
+
+        <div className="truncate text-xs text-ink-3">{card.roomName}</div>
+
+        <div className="flex flex-wrap gap-1.5">
+          <Badge tone={STATE_TONE[card.state]}>{card.frontDeskLabel}</Badge>
+          <Badge tone={HK_TONE[card.housekeeping]} dot={false}>
+            {card.housekeeping === 'inspected' ? <ShieldCheck size={11} /> : <Bed size={11} />}
+            {HK_LABEL[card.housekeeping]}
+          </Badge>
+        </div>
+
+        <div className="mt-auto min-h-[1.25rem] truncate text-sm text-ink-2">
+          {card.guestName ? (
+            <span className="flex items-center gap-1.5">
+              {card.guestName}
+              {card.adults != null && (
+                <span className="flex items-center gap-0.5 text-xs text-ink-3">
+                  <Users size={11} />
+                  {card.adults + (card.children ?? 0)}
+                </span>
+              )}
+            </span>
+          ) : card.blockReason ? (
+            <span className="text-xs text-closed-ink">{card.blockReason}</span>
+          ) : (
+            <span className="text-xs text-ink-3">No reservation</span>
           )}
         </div>
-      </div>
-
-      <div className="truncate text-xs text-ink-3">{card.roomName}</div>
-
-      <div className="flex flex-wrap gap-1.5">
-        <Badge tone={STATE_TONE[card.state]}>{STATE_LABEL[card.state]}</Badge>
-        <Badge tone={HK_TONE[card.housekeeping]} dot={false}>
-          {card.housekeeping === 'inspected' ? <ShieldCheck size={11} /> : <Bed size={11} />}
-          {HK_LABEL[card.housekeeping]}
-        </Badge>
-      </div>
-
-      <div className="mt-auto min-h-[1.25rem] truncate text-sm text-ink-2">
-        {card.guestName ? (
-          <span className="flex items-center gap-1.5">
-            {card.guestName}
-            {card.adults != null && (
-              <span className="flex items-center gap-0.5 text-xs text-ink-3">
-                <Users size={11} />
-                {card.adults + (card.children ?? 0)}
-              </span>
-            )}
-          </span>
-        ) : card.blockReason ? (
-          <span className="text-xs text-closed-ink">{card.blockReason}</span>
-        ) : (
-          <span className="text-xs text-ink-3">&mdash;</span>
+        {!compact && card.checkin && card.checkout && (
+          <p className="text-xs text-ink-3">
+            {card.checkin} &rarr; {card.checkout}
+          </p>
         )}
-      </div>
-      {!compact && card.nextReservation && (
-        <p className="text-xs text-ink-3">
-          Next: {card.nextReservation.checkin} · {card.nextReservation.guestName}
-        </p>
+        {!compact && card.nextReservation && (
+          <p className="text-xs text-ink-3">
+            Next: {card.nextReservation.checkin} · {card.nextReservation.guestName}
+          </p>
+        )}
+        {!compact && card.source && card.bookingId && (
+          <p className="truncate text-xs text-ink-3">Source: {card.source}</p>
+        )}
+        {card.cleaningTask?.status === 'in_progress' && (
+          <span className="text-xs font-medium text-info">Cleaning in progress</span>
+        )}
+      </button>
+      {onQuickStatus && (
+        <div className="absolute bottom-2 right-2 z-30">
+          <button
+            type="button"
+            aria-label={`Quick housekeeping for room ${card.code}`}
+            aria-expanded={quickOpen}
+            onClick={() => setQuickOpen((open) => !open)}
+            className="rounded-md border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-2 shadow-sm hover:bg-surface-2 focus-visible:outline-brand"
+          >
+            HK
+          </button>
+          {quickOpen && (
+            <div className="absolute right-0 top-full z-40 mt-1 flex min-w-28 flex-col rounded-lg border border-line bg-surface p-1 shadow-lg">
+              {(
+                ['dirty', 'clean', ...(canInspect ? ['inspected'] : [])] as HousekeepingState[]
+              ).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  className="rounded px-2 py-1 text-left text-xs text-ink hover:bg-surface-2 focus-visible:outline-brand"
+                  onClick={() => {
+                    onQuickStatus(status);
+                    setQuickOpen(false);
+                  }}
+                >
+                  {HK_LABEL[status]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
-      {card.cleaningTask?.status === 'in_progress' && (
-        <span className="text-xs font-medium text-info">Cleaning in progress</span>
-      )}
-    </button>
+    </div>
   );
 }
 
@@ -614,6 +750,10 @@ function FloorCanvas({
   onSaved,
   onOpen,
   maintenanceOverlay,
+  floorDirection,
+  selectedId,
+  onQuickStatus,
+  canInspect,
 }: {
   cards: RoomCard[];
   floor: string;
@@ -623,6 +763,10 @@ function FloorCanvas({
   onSaved: () => void;
   onOpen: (id: string) => void;
   maintenanceOverlay: boolean;
+  floorDirection: number;
+  selectedId: string | null;
+  onQuickStatus?: (unitId: string, status: HousekeepingState) => void;
+  canInspect: boolean;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [positions, setPositions] = React.useState<Record<string, { x: number; y: number }>>({});
@@ -730,6 +874,50 @@ function FloorCanvas({
           </Button>
         </div>
       )}
+      {editing && landmarks.length > 0 && (
+        <div className="mb-3 grid gap-2 sm:grid-cols-2" aria-label="Landmark positions">
+          {landmarks.map((landmark) => (
+            <div
+              key={landmark.id}
+              className="flex items-center gap-2 rounded border border-line p-2"
+            >
+              <span className="w-16 shrink-0 text-xs capitalize text-ink-2">{landmark.kind}</span>
+              <Input
+                aria-label={`${landmark.kind} label`}
+                value={landmark.label ?? ''}
+                placeholder="Label"
+                onChange={(e) =>
+                  setLandmarks((current) =>
+                    current.map((item) =>
+                      item.id === landmark.id ? { ...item, label: e.target.value } : item,
+                    ),
+                  )
+                }
+              />
+              {(['x', 'y'] as const).map((axis) => (
+                <Input
+                  key={axis}
+                  type="number"
+                  min={0}
+                  max={1000}
+                  className="w-16"
+                  aria-label={`${landmark.kind} ${axis} position`}
+                  value={landmark[axis]}
+                  onChange={(e) =>
+                    setLandmarks((current) =>
+                      current.map((item) =>
+                        item.id === landmark.id
+                          ? { ...item, [axis]: Math.max(0, Math.min(1000, Number(e.target.value))) }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
       <div
         ref={canvasRef}
         className="relative overflow-hidden rounded-xl border border-line bg-surface"
@@ -744,8 +932,34 @@ function FloorCanvas({
         {landmarks.map((l) => (
           <div
             key={l.id}
-            className="absolute z-10 rounded-md border border-line bg-surface-2 px-2 py-1 text-xs text-ink-2"
+            className={cn(
+              'absolute z-10 rounded-md border border-line bg-surface-2 px-2 py-1 text-xs text-ink-2',
+              editing && 'touch-none cursor-move',
+            )}
             style={{ left: `${l.x / 10}%`, top: `${l.y / 10}%` }}
+            onPointerDown={
+              editing ? (e) => e.currentTarget.setPointerCapture(e.pointerId) : undefined
+            }
+            onPointerMove={
+              editing
+                ? (e) => {
+                    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                    const rect = canvasRef.current?.getBoundingClientRect();
+                    if (!rect) return;
+                    const x = Math.max(
+                      0,
+                      Math.min(950, Math.round(((e.clientX - rect.left) / rect.width) * 1000)),
+                    );
+                    const y = Math.max(
+                      0,
+                      Math.min(950, Math.round(((e.clientY - rect.top) / rect.height) * 1000)),
+                    );
+                    setLandmarks((current) =>
+                      current.map((item) => (item.id === l.id ? { ...item, x, y } : item)),
+                    );
+                  }
+                : undefined
+            }
           >
             {l.label ?? l.kind}
             {editing && (
@@ -765,7 +979,12 @@ function FloorCanvas({
           return (
             <div
               key={c.unitId}
-              className={cn('absolute z-20 w-36 touch-none sm:w-40', editing && 'cursor-move')}
+              className={cn(
+                'absolute z-20 w-36 touch-none sm:w-40',
+                editing && 'cursor-move',
+                floorDirection > 0 && 'room-enter-up',
+                floorDirection < 0 && 'room-enter-down',
+              )}
               style={{ left: `min(${p.x / 10}%, calc(100% - 10rem))`, top: `${p.y / 10}%` }}
               onPointerDown={
                 editing ? (e) => e.currentTarget.setPointerCapture(e.pointerId) : undefined
@@ -806,6 +1025,15 @@ function FloorCanvas({
                 onOpen={() => {
                   if (!editing) onOpen(c.unitId);
                 }}
+                index={i}
+                onQuickStatus={
+                  editing || !onQuickStatus
+                    ? undefined
+                    : (status) => onQuickStatus(c.unitId, status)
+                }
+                canInspect={canInspect}
+                selected={selectedId === c.unitId}
+                dimmed={selectedId !== null && selectedId !== c.unitId}
               />
             </div>
           );
@@ -1105,6 +1333,7 @@ function PriorityQueue({
 function RoomSheet({
   card,
   cards,
+  tasks,
   propertyId,
   date,
   onClose,
@@ -1112,6 +1341,7 @@ function RoomSheet({
 }: {
   card: RoomCard | null;
   cards: RoomCard[];
+  tasks: CleaningTask[];
   propertyId?: string;
   date: string;
   onClose: () => void;
@@ -1120,12 +1350,32 @@ function RoomSheet({
   const [remarks, setRemarks] = React.useState('');
   const { openComposer } = useReservationComposer();
   const role = useTenantRole();
+  const entitlements = useEntitlements();
+  const canUseFolio = role === 'OWNER' || role === 'OWNER_STAFF';
+  const activeTask = tasks.find(
+    (task) => task.roomUnitId === card?.unitId && task.status !== 'cancelled',
+  );
+  const folio = useQuery({
+    queryKey: ['room-folio', card?.bookingId],
+    queryFn: () => getBookingFolio(card!.bookingId!),
+    enabled: !!card?.bookingId && canUseFolio,
+  });
+  const orders = useQuery({
+    queryKey: ['room-work-orders', propertyId],
+    queryFn: () => listWorkOrders(propertyId!),
+    enabled: !!propertyId && entitlements.data?.features.work_orders === true && card !== null,
+  });
+  const roomOrders = (orders.data ?? []).filter(
+    (order) =>
+      order.roomUnitId === card?.unitId &&
+      (order.status === 'open' || order.status === 'in_progress'),
+  );
   const housekeepingStates: HousekeepingState[] =
     role === 'HOUSEKEEPING_ATTENDANT'
       ? ['clean']
       : role === 'OWNER' || role === 'HOUSEKEEPING_SUPERVISOR'
-        ? ['dirty', 'clean', 'inspected', 'out_of_order']
-        : ['dirty', 'clean', 'out_of_order'];
+        ? ['dirty', 'clean', 'inspected']
+        : ['dirty', 'clean'];
 
   React.useEffect(() => {
     setRemarks(card?.remarks ?? '');
@@ -1141,13 +1391,14 @@ function RoomSheet({
       }),
     onSuccess: () => {
       onChanged();
-      onClose();
     },
   });
 
   return (
-    <Sheet open={card !== null} onOpenChange={(o) => !o && onClose()}>
+    <Sheet modal={false} open={card !== null} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
+        showOverlay={false}
+        onInteractOutside={(event) => event.preventDefault()}
         title={card ? `Room ${card.code}` : 'Room'}
         description={card?.roomName ?? undefined}
       >
@@ -1169,6 +1420,53 @@ function RoomSheet({
               </div>
             )}
 
+            {card.source && <Info label="Booking source" value={card.source} />}
+
+            {card.nextReservation && (
+              <div className="rounded-lg border border-info bg-info-soft p-3 text-sm text-info-ink">
+                <div className="font-semibold">Next arrival</div>
+                <div>
+                  {card.nextReservation.guestName} · {card.nextReservation.checkin}
+                </div>
+              </div>
+            )}
+
+            {canUseFolio && card.bookingId && (
+              <div className="rounded-lg border border-line p-3">
+                <h3 className="mb-2 text-sm font-bold text-ink">Folio</h3>
+                {folio.isLoading ? (
+                  <p className="text-xs text-ink-3">Loading folio…</p>
+                ) : folio.data ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <Info
+                        label="Charges"
+                        value={`${folio.data.currency} ${folio.data.totals.charges}`}
+                      />
+                      <Info
+                        label="Paid"
+                        value={`${folio.data.currency} ${folio.data.totals.paid}`}
+                      />
+                      <Info
+                        label="Balance"
+                        value={`${folio.data.currency} ${folio.data.totals.balance}`}
+                      />
+                    </div>
+                    <div className="mt-2 space-y-1 text-xs text-ink-2">
+                      {folio.data.windows.map((window) => (
+                        <p key={window.id}>
+                          {window.label}: {window.lines.filter((line) => !line.voidedAt).length}{' '}
+                          charges · balance {folio.data?.currency} {window.totals.balance}
+                        </p>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-closed-ink">Folio could not be loaded.</p>
+                )}
+              </div>
+            )}
+
             {card.bookingId && (role === 'OWNER' || role === 'OWNER_STAFF') && (
               <ReservationActions
                 card={card}
@@ -1178,7 +1476,7 @@ function RoomSheet({
               />
             )}
 
-            {card.state === 'Vacant' && card.unitStatus === 'active' && (
+            {card.state === 'Vacant' && card.unitStatus === 'active' && canUseFolio && (
               <Button
                 onClick={() => {
                   onClose();
@@ -1193,6 +1491,45 @@ function RoomSheet({
               <p className="rounded-lg bg-closed-soft px-3 py-2 text-sm text-closed-ink">
                 Blocked: {card.blockReason}
               </p>
+            )}
+
+            <div className="rounded-lg border border-line p-3 text-sm">
+              <h3 className="mb-2 font-bold text-ink">Room operations</h3>
+              <p className="text-ink-2">
+                Assigned housekeeper: {card.assignedToName ?? 'Unassigned'}
+              </p>
+              {activeTask ? (
+                <p className="mt-1 text-ink-2">
+                  {activeTask.kind.replace('_', ' ')} · {activeTask.status.replace('_', ' ')}
+                  {activeTask.rush ? ' · Rush Clean' : ''}
+                </p>
+              ) : (
+                <p className="mt-1 text-ink-3">No cleaning task for this date.</p>
+              )}
+              {activeTask?.notes && (
+                <p className="mt-2 text-ink-2">Task note: {activeTask.notes}</p>
+              )}
+              {card.remarks && <p className="mt-2 text-ink-2">Housekeeping note: {card.remarks}</p>}
+            </div>
+
+            {roomOrders.length > 0 && (
+              <div className="rounded-lg border border-line p-3 text-sm">
+                <h3 className="mb-2 font-bold text-ink">Maintenance work orders</h3>
+                {roomOrders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="border-t border-line py-2 first:border-0 first:pt-0"
+                  >
+                    <p className="font-semibold">
+                      {order.title} · {order.status.replace('_', ' ')}
+                    </p>
+                    {order.description && <p className="text-ink-2">{order.description}</p>}
+                    {order.assignedToName && (
+                      <p className="text-xs text-ink-3">Assigned to {order.assignedToName}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
 
             <div>
@@ -1240,11 +1577,44 @@ function ReservationActions({
   onChanged: () => void;
 }) {
   const role = useTenantRole();
+  const { openComposer } = useReservationComposer();
   const bookingId = card.bookingId!;
   const [destination, setDestination] = React.useState('');
   const [effectiveDate, setEffectiveDate] = React.useState('');
   const [exchangeLeg, setExchangeLeg] = React.useState('');
   const [recipient, setRecipient] = React.useState(card.guestEmail ?? '');
+  const [sendPreview, setSendPreview] = React.useState<{
+    kind: 'voucher' | 'invoice';
+    id: string;
+    title: string;
+  } | null>(null);
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [previewError, setPreviewError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!sendPreview) {
+      setPreviewUrl(null);
+      setPreviewError(null);
+      return;
+    }
+    let active = true;
+    let url: string | null = null;
+    setPreviewUrl(null);
+    setPreviewError(null);
+    void fetchDocumentPdf(sendPreview.kind, sendPreview.id)
+      .then((blob) => {
+        url = URL.createObjectURL(blob);
+        if (active) setPreviewUrl(url);
+        else URL.revokeObjectURL(url);
+      })
+      .catch((error) => {
+        if (active) setPreviewError((error as Error).message);
+      });
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [sendPreview]);
 
   React.useEffect(() => {
     setRecipient(card.guestEmail ?? '');
@@ -1357,7 +1727,10 @@ function ReservationActions({
       if (!emails.length) throw new Error('Enter at least one recipient');
       return kind === 'voucher' ? sendVoucher(bookingId, emails) : sendInvoice(invoiceId!, emails);
     },
-    onSuccess: () => toast.success('Document queued for delivery'),
+    onSuccess: () => {
+      toast.success('Document queued for delivery');
+      setSendPreview(null);
+    },
     onError: (e) => toast.error((e as Error).message),
   });
   const print = async (kind: 'voucher' | 'invoice', id: string) => {
@@ -1443,6 +1816,19 @@ function ReservationActions({
         >
           Amend stay / inclusions
         </Link>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            openComposer({
+              checkin: card.checkout && card.checkout > todayISO() ? card.checkout : todayISO(),
+              roomId: card.roomId,
+              roomUnitId: card.unitId,
+            })
+          }
+        >
+          Add new booking
+        </Button>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
@@ -1580,8 +1966,9 @@ function ReservationActions({
             </Button>
             <Button
               size="sm"
-              onClick={() => mail.mutate({ kind: 'voucher' })}
-              disabled={mail.isPending}
+              onClick={() =>
+                setSendPreview({ kind: 'voucher', id: bookingId, title: 'Reservation voucher' })
+              }
             >
               Send email
             </Button>
@@ -1604,7 +1991,13 @@ function ReservationActions({
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => mail.mutate({ kind: 'invoice', invoiceId: invoice.id })}
+                  onClick={() =>
+                    setSendPreview({
+                      kind: 'invoice',
+                      id: invoice.id,
+                      title: `${invoice.title} ${invoice.number}`,
+                    })
+                  }
                 >
                   Send invoice
                 </Button>
@@ -1624,6 +2017,60 @@ function ReservationActions({
           )}
         </div>
       </details>
+      <Dialog open={sendPreview !== null} onOpenChange={(open) => !open && setSendPreview(null)}>
+        <DialogContent
+          title={`Review and send ${sendPreview?.title ?? 'document'}`}
+          className="max-h-[80dvh] max-w-4xl"
+        >
+          <div className="max-h-[calc(80dvh-3.75rem)] space-y-3 overflow-y-auto p-4">
+            <p className="text-sm text-ink-2">
+              Review the exact PDF that will be attached to the email.
+            </p>
+            {previewError && <p className="text-sm text-closed-ink">{previewError}</p>}
+            {previewUrl ? (
+              <iframe
+                title={`${sendPreview?.title ?? 'Document'} PDF preview`}
+                src={previewUrl}
+                className="h-[55vh] w-full rounded-lg border border-line bg-white"
+              />
+            ) : !previewError ? (
+              <p className="text-sm text-ink-3">Preparing PDF preview…</p>
+            ) : null}
+            <label className="block text-sm font-medium text-ink">
+              Recipients (comma separated)
+              <Input
+                className="mt-1"
+                value={recipient}
+                onChange={(event) => setRecipient(event.target.value)}
+              />
+            </label>
+            {sendPreview?.kind === 'voucher' && voucher.data && (
+              <div className="rounded-lg bg-surface-2 p-3 text-xs text-ink-2">
+                <p className="font-semibold text-ink">{voucher.data.subject}</p>
+                <p className="mt-1 whitespace-pre-line">{voucher.data.body}</p>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setSendPreview(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!previewUrl || mail.isPending}
+                loading={mail.isPending}
+                onClick={() =>
+                  sendPreview &&
+                  mail.mutate({
+                    kind: sendPreview.kind,
+                    ...(sendPreview.kind === 'invoice' ? { invoiceId: sendPreview.id } : {}),
+                  })
+                }
+              >
+                Queue email
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
