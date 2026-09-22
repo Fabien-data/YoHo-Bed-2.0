@@ -1,6 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { BUDGETS, UxBudget } from './support/budget';
-import { addDays, cancelAll, dmy, findStay, signIn } from './support/demo';
+import {
+  API,
+  addDays,
+  api,
+  arrivalToday,
+  bookingApi,
+  cancelAll,
+  dmy,
+  findStay,
+  signIn,
+} from './support/demo';
 
 /**
  * Click budgets (UX-0): the core front-desk tasks, driven the shortest way the product allows and
@@ -58,15 +68,126 @@ test.describe('click budgets', () => {
     }
   });
 
+  // ---- The front desk (UX-1b): one dialog each, started where the work is ---------------------
+
+  test(`Check in a prepared arrival from the Dashboard — ≤ ${BUDGETS.checkInPrepared.clicks}C, with the §4 checks`, async ({
+    page,
+  }) => {
+    const b = await arrivalToday(page, 'Budget Wijesinghe');
+    try {
+      await page.goto('/app');
+      const ux = new UxBudget(page);
+      const row = page.getByRole('listitem').filter({ hasText: 'Budget Wijesinghe' });
+      await ux.click(row.getByRole('button', { name: 'Check in' }), 'check in (row)');
+      const dialog = page.getByRole('dialog', { name: 'Check in Budget Wijesinghe' });
+      await expect(dialog.getByRole('button', { name: 'Check in' })).toBeEnabled();
+      await ux.click(dialog.getByRole('button', { name: 'Check in' }), 'check in');
+      await expect(page.getByText('Budget Wijesinghe is checked in')).toBeVisible();
+      ux.expectWithin(BUDGETS.checkInPrepared);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await bookingApi(page, b.id, 'undo-check-in', { reason: 'Test clean-up' });
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
+  test(`Full check-in with the hotel's required ID and the registration card — ≤ ${BUDGETS.fullCheckIn.clicks}C+${BUDGETS.fullCheckIn.typed}T`, async ({
+    page,
+  }) => {
+    const { headers, propertyId } = await api(page);
+    const settings = `${API}/properties/${propertyId}/settings`;
+    await page.request.patch(settings, { headers, data: { requireDocumentsAtCheckin: true } });
+    const b = await arrivalToday(page, 'Budget Ratnayake');
+    try {
+      await page.goto('/app');
+      const ux = new UxBudget(page);
+      const row = page.getByRole('listitem').filter({ hasText: 'Budget Ratnayake' });
+      await ux.click(row.getByRole('button', { name: 'Check in' }), 'check in (row)');
+      const dialog = page.getByRole('dialog', { name: 'Check in Budget Ratnayake' });
+      await expect(dialog.getByText(/records the guest's ID/)).toBeVisible();
+      await ux.fill(dialog.getByLabel('Document number'), '199012345678', 'ID number');
+      await ux.click(dialog.getByRole('button', { name: 'Save ID' }), 'save ID');
+      await expect(dialog.getByRole('button', { name: 'Check in' })).toBeEnabled();
+      const card = dialog.getByRole('checkbox');
+      if (!(await card.isChecked())) await ux.click(card, 'print card');
+      await ux.click(dialog.getByRole('button', { name: 'Check in' }), 'check in');
+      await expect(page.getByRole('dialog', { name: 'Registration card' })).toBeVisible();
+      ux.expectWithin(BUDGETS.fullCheckIn);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await page.request.patch(settings, { headers, data: { requireDocumentsAtCheckin: false } });
+      await bookingApi(page, b.id, 'undo-check-in', { reason: 'Test clean-up' });
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
+  test(`Check out a guest who still owes: settle, invoice, email — ≤ ${BUDGETS.checkOutSettled.clicks}C+${BUDGETS.checkOutSettled.typed}T`, async ({
+    page,
+  }) => {
+    const b = await arrivalToday(page, 'Budget Gunawardena', 1);
+    await bookingApi(page, b.id, 'check-in');
+    // Starting with the reservation open, as the desk has it when the guest walks up.
+    await page.goto(`/app/reservations?bookingId=${b.id}`);
+    const ux = new UxBudget(page);
+    await ux.click(page.getByRole('button', { name: 'Check out' }).first(), 'check out (sheet)');
+    const dialog = page.getByRole('dialog', { name: 'Check out Budget Gunawardena' });
+    await expect(dialog.getByText('Still to pay')).toBeVisible();
+    await ux.click(dialog.getByRole('button', { name: 'Record payment' }), 'record payment');
+    await expect(dialog.getByText('The bill is settled.')).toBeVisible();
+    await ux.click(dialog.getByRole('button', { name: 'Check out' }), 'check out');
+    await expect(page.getByText(/Budget Gunawardena is checked out/)).toBeVisible();
+    ux.expectWithin(BUDGETS.checkOutSettled);
+    test.info().annotations.push({ type: 'cost', description: ux.summary });
+  });
+
+  test(`Take a payment from an open reservation — ≤ ${BUDGETS.takePayment.clicks}C+${BUDGETS.takePayment.typed}T`, async ({
+    page,
+  }) => {
+    const b = await arrivalToday(page, 'Budget Pathirana');
+    try {
+      await page.goto(`/app/reservations?bookingId=${b.id}`);
+      const ux = new UxBudget(page);
+      await ux.click(page.getByRole('button', { name: 'Take payment' }).first(), 'take payment');
+      const dialog = page.getByRole('dialog', { name: 'Take a payment from Budget Pathirana' });
+      await ux.click(dialog.getByRole('button', { name: 'Record payment' }), 'record payment');
+      await expect(page.getByText(/Payment recorded/)).toBeVisible();
+      ux.expectWithin(BUDGETS.takePayment);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
+  test(`Extend an in-house stay by a night — ≤ ${BUDGETS.changeStayDates.clicks}C+${BUDGETS.changeStayDates.typed}T`, async ({
+    page,
+  }) => {
+    const b = await arrivalToday(page, 'Budget Karunaratne', 2);
+    await bookingApi(page, b.id, 'check-in');
+    try {
+      await page.goto(`/app/reservations?bookingId=${b.id}`);
+      const ux = new UxBudget(page);
+      await ux.click(
+        page.getByRole('button', { name: 'Change departure' }).first(),
+        'change departure',
+      );
+      const dialog = page.getByRole('dialog', { name: /Change .*departure/ });
+      // The new departure starts one night later: extending by a night is the default.
+      await expect(dialog.getByText(/1 more night/)).toBeVisible();
+      await ux.click(dialog.getByRole('button', { name: 'Guest asked to extend' }), 'reason');
+      await ux.click(dialog.getByRole('button', { name: 'Change departure' }), 'save');
+      await expect(page.getByText(/now leaves on/)).toBeVisible();
+      ux.expectWithin(BUDGETS.changeStayDates);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await bookingApi(page, b.id, 'undo-check-in', { reason: 'Test clean-up' });
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
   // ---- Known debt: measured by the 2026-09-22 audit, fixed by the sprint named ----------------
 
-  test.fixme(`Check in a prepared arrival — ≤ ${BUDGETS.checkInPrepared.clicks}C with checks (today 4C with no checks; UX-1b)`, async () => {});
-  test.fixme(`Full check-in: room, ID, registration card — ≤ ${BUDGETS.fullCheckIn.clicks}C+${BUDGETS.fullCheckIn.typed}T (today ≈14C+1T over 4 screens; UX-1b)`, async () => {});
-  test.fixme(`Check out with settle, invoice and email — ≤ ${BUDGETS.checkOutSettled.clicks}C (today ≈16C over 3 screens; UX-1b)`, async () => {});
   test.fixme(`Walk-in: reserve, check in and take a deposit in one sheet — ≤ ${BUDGETS.walkIn.clicks}C+${BUDGETS.walkIn.typed}T (today 8C+2T plus a page load; UX-2)`, async () => {});
-  test.fixme(`Take a payment — ≤ ${BUDGETS.takePayment.clicks}C+${BUDGETS.takePayment.typed}T (today 6C; UX-1b)`, async () => {});
   test.fixme(`Find a booking by name, phone or reference from anywhere — ≤ ${BUDGETS.findBooking.clicks}C+${BUDGETS.findBooking.typed}T (today 4C+1T and often misses; UX-2)`, async () => {});
-  test.fixme(`Extend or shorten an in-house stay — ≤ ${BUDGETS.changeStayDates.clicks}C+${BUDGETS.changeStayDates.typed}T (today impossible; UX-1b)`, async () => {});
   test.fixme(`Move a guest to another room — ≤ ${BUDGETS.moveRoom.clicks}C (today 7C, Room View only; UX-2)`, async () => {});
   test.fixme(`Post a standard charge — ≤ ${BUDGETS.postStandardCharge.clicks}C (today 5–6C, typed by hand; UX-2)`, async () => {});
   test.fixme(`Mark a room clean from a housekeeper's phone — ${BUDGETS.markRoomClean.clicks} tap (today 3C on the desktop Room View; UX-6)`, async () => {});

@@ -36,9 +36,11 @@ export async function settleAtCheckout(
           select sum(c.total) from folio_charges c
           where c.folio_id = ${w.id} and c.voided_at is null
         ), 0)::text`,
+        // Net of refunds (UX-1b): money given back is no longer paid.
         paid: sql<string>`coalesce((
-          select sum(p.amount) from payments p
-          where p.folio_id = ${w.id} and p.direction = 'received'
+          select sum(case when p.direction = 'received' then p.amount else -p.amount end)
+          from payments p
+          where p.folio_id = ${w.id}
         ), 0)::text`,
       })
       .from(folios)

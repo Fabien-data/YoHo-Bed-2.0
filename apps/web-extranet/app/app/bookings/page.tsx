@@ -1,11 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { listBookings, bookingTransition, amendBooking, ApiError, type Booking } from '@/lib/api';
+import { useDesk } from '@/components/booking/desk-dialogs';
 import {
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   Field,
   Input,
@@ -54,18 +57,31 @@ function canEdit(s: Booking['status']) {
 
 export default function BookingsPage() {
   const { money } = useMoney();
-  const [bookings, setBookings] = useState<Booking[]>([]);
   const [filter, setFilter] = useState<Filter>('All');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'avail' | 'closed'; text: string } | null>(null);
+  const [noShow, setNoShow] = useState<Booking | null>(null);
+  const desk = useDesk();
 
-  const load = useCallback(async () => setBookings(await listBookings().catch(() => [])), []);
+  // Under the "reservations" key, so an action taken in the shared dialogs refreshes this list.
+  const list = useQuery({ queryKey: ['reservations', 'all-bookings'], queryFn: listBookings });
+  const bookings = useMemo(() => list.data ?? [], [list.data]);
+  const load = useCallback(async () => {
+    await list.refetch();
+  }, [list]);
   const { openComposer } = useReservationComposer();
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  /** Check-in, check-out and cancel go through the same guided dialogs as everywhere else. */
+  function openDesk(b: Booking, action: 'check-in' | 'check-out' | 'cancel') {
+    desk(action, {
+      id: b.id,
+      reference: b.reference,
+      guestName: b.customerName,
+      checkin: b.checkin,
+      checkout: b.checkout,
+    });
+  }
 
   // A reservation saved from the Quick Reservation lands in this list straight away.
   useOnReservationCreated(() => void load());
@@ -384,14 +400,14 @@ export default function BookingsPage() {
                       )}
                       {b.status === 'Approved' && (
                         <>
-                          <Button size="sm" disabled={busy} onClick={() => act(b.id, 'check-in')}>
+                          <Button size="sm" disabled={busy} onClick={() => openDesk(b, 'check-in')}>
                             Check in
                           </Button>
                           <Button
                             variant="secondary"
                             size="sm"
                             disabled={busy}
-                            onClick={() => act(b.id, 'no-show')}
+                            onClick={() => setNoShow(b)}
                           >
                             No-show
                           </Button>
@@ -399,14 +415,14 @@ export default function BookingsPage() {
                             variant="ghost"
                             size="sm"
                             disabled={busy}
-                            onClick={() => act(b.id, 'cancel')}
+                            onClick={() => openDesk(b, 'cancel')}
                           >
                             Cancel
                           </Button>
                         </>
                       )}
                       {b.status === 'CheckedIn' && (
-                        <Button size="sm" disabled={busy} onClick={() => act(b.id, 'check-out')}>
+                        <Button size="sm" disabled={busy} onClick={() => openDesk(b, 'check-out')}>
                           Check out
                         </Button>
                       )}
@@ -428,6 +444,16 @@ export default function BookingsPage() {
           </table>
         )}
       </Card>
+      <ConfirmDialog
+        open={noShow !== null}
+        onOpenChange={(o) => !o && setNoShow(null)}
+        title={`Mark ${noShow?.reference ?? ''} as a no-show?`}
+        description="The guest did not arrive. The nights after tonight go back on sale. If they turn up later, bring the reservation back."
+        confirmLabel="Mark no-show"
+        cancelLabel="Keep it"
+        destructive
+        onConfirm={() => noShow && void act(noShow.id, 'no-show')}
+      />
     </div>
   );
 }

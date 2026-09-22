@@ -15,6 +15,8 @@ import { BookingService, type TransitionContext } from './booking.service';
 import {
   amendBookingSchema,
   cancelSchema,
+  changeDepartureSchema,
+  type ChangeDepartureDto,
   checkInSchema,
   checkOutSchema,
   createBookingSchema,
@@ -146,7 +148,63 @@ export class BookingsController {
     return this.bookings.checkOut(tenantId, id, dto.reason, {
       ...actor(user, role, ip),
       allowBalance: dto.allowBalance,
+      approvalToken: dto.approvalToken,
     });
+  }
+
+  /** What the guest still owes on the stay — the list's Total − Paid (UX-1b). */
+  @Get(':id/balance')
+  balance(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.bookings.balance(tenantId, id);
+  }
+
+  /** What check-in would do now: the room(s) and any refusal, from a dry run (UX-1b). */
+  @Get(':id/check-in-preview')
+  checkInPreview(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.bookings.checkInPreview(tenantId, id, { actorUserId: user.sub, role });
+  }
+
+  /** What check-out would do now: the balance the guest still owes and any refusal (UX-1b). */
+  @Get(':id/check-out-preview')
+  checkOutPreview(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.bookings.checkOutPreview(tenantId, id, { actorUserId: user.sub, role });
+  }
+
+  /** Swap a dirty room for a clean, free one of the same type before check-in (UX-1b). */
+  @Post(':id/rooms/switch-clean')
+  @HttpCode(200)
+  switchClean(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.bookings.switchToCleanRooms(tenantId, id);
+  }
+
+  /** Extend or shorten an in-house stay (UX-1b). */
+  @Post(':id/change-departure')
+  @HttpCode(200)
+  changeDeparture(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(changeDepartureSchema)) dto: ChangeDepartureDto,
+  ) {
+    return this.bookings.changeDeparture(
+      tenantId,
+      id,
+      dto.checkout,
+      dto.reason,
+      actor(user, role, ip),
+    );
   }
 
   @Post(':id/undo-check-in')

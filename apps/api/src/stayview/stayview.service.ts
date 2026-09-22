@@ -292,8 +292,9 @@ export class StayViewService {
         groupId: bookings.groupId,
         amount: bookings.amount,
         paid: sql<string>`coalesce((
-          select sum(p.amount) from payments p
-          where p.booking_id = ${bookings.id} and p.direction = 'received'
+          select sum(case when p.direction = 'received' then p.amount else -p.amount end)
+          from payments p
+          where p.booking_id = ${bookings.id}
         ), 0)`,
         guestName: customers.name,
         channel: otaReservations.channel,

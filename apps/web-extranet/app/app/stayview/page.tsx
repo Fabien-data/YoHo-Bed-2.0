@@ -29,6 +29,7 @@ import { useActiveProperty } from '@/components/active-property';
 import { todayISO } from '@/lib/format';
 import { TapeChart } from '@/components/stayview/tape-chart';
 import { FolioPanel } from '@/components/folio/folio-panel';
+import { DeskActionBar } from '@/components/booking/desk-action-bar';
 import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 
 /** Yanolja shows a fortnight at a time; wide enough to plan, narrow enough to read. */
@@ -278,6 +279,19 @@ function ReservationSheet({
                 {bar.channel ?? bar.source}
               </Badge>
             </div>
+
+            {bar.bookingId && (
+              <DeskActionBar
+                status={bar.status ?? ''}
+                booking={{
+                  id: bar.bookingId,
+                  reference: bar.reference ?? '',
+                  guestName: bar.guestName ?? 'the guest',
+                  checkin: bar.from,
+                  checkout: bar.to,
+                }}
+              />
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <InfoRow label="Reservation" value={bar.reference ?? '—'} />

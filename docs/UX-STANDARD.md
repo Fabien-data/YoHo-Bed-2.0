@@ -59,19 +59,19 @@ live in `BUDGETS` there **and** in the table below, and must be changed together
 
 "Today" is the 2026-09-22 audit. The sprint named is the one that makes the budget a hard gate.
 
-| Task                                                             | Budget        | Today                 | Gate    |
-| ---------------------------------------------------------------- | ------------- | --------------------- | ------- |
-| Quick Reservation, new guest, 1 room × 2 nights on a chosen date | **≤ 8C + 3T** | 7C + 3T               | ✅ UX-0 |
-| Check in a prepared arrival (with the §4 checks)                 | **≤ 3C**      | 4C, no checks         | UX-1b   |
-| Full check-in: room, ID, registration card                       | **≤ 6C + 2T** | ≈14C + 1T, 4 screens  | UX-1b   |
-| Check out: settle, invoice, email                                | **≤ 5C + 1T** | ≈16C, 3 screens       | UX-1b   |
-| Take a payment                                                   | **≤ 4C + 1T** | 6C                    | UX-1b   |
-| Extend or shorten an in-house stay                               | **≤ 4C + 1T** | impossible            | UX-1b   |
-| Walk-in: reserve, check in, deposit, one sheet                   | **≤ 8C + 3T** | 8C + 2T + a page load | UX-2    |
-| Find a booking by name, phone or reference, from anywhere        | **≤ 2C + 1T** | 4C + 1T, often misses | UX-2    |
-| Move a guest to another room                                     | **≤ 3C**      | 7C, Room View only    | UX-2    |
-| Post a standard charge (minibar, laundry)                        | **≤ 3C**      | 5–6C, typed by hand   | UX-2    |
-| Mark a room clean, housekeeper's phone                           | **1 tap**     | 3C on the desktop     | UX-6    |
+| Task                                                             | Budget        | Today                    | Gate     |
+| ---------------------------------------------------------------- | ------------- | ------------------------ | -------- |
+| Quick Reservation, new guest, 1 room × 2 nights on a chosen date | **≤ 8C + 3T** | 7C + 3T                  | ✅ UX-0  |
+| Check in a prepared arrival (with the §4 checks)                 | **≤ 3C**      | 2C (was 4C, no checks)   | ✅ UX-1b |
+| Full check-in: room, ID, registration card                       | **≤ 6C + 2T** | 4C + 1T (was ≈14C + 1T)  | ✅ UX-1b |
+| Check out: settle, invoice, email                                | **≤ 5C + 1T** | 3C (was ≈16C, 3 screens) | ✅ UX-1b |
+| Take a payment                                                   | **≤ 4C + 1T** | 2C (was 6C)              | ✅ UX-1b |
+| Extend or shorten an in-house stay                               | **≤ 4C + 1T** | 3C (was impossible)      | ✅ UX-1b |
+| Walk-in: reserve, check in, deposit, one sheet                   | **≤ 8C + 3T** | 8C + 2T + a page load    | UX-2     |
+| Find a booking by name, phone or reference, from anywhere        | **≤ 2C + 1T** | 4C + 1T, often misses    | UX-2     |
+| Move a guest to another room                                     | **≤ 3C**      | 7C, Room View only       | UX-2     |
+| Post a standard charge (minibar, laundry)                        | **≤ 3C**      | 5–6C, typed by hand      | UX-2     |
+| Mark a room clean, housekeeper's phone                           | **1 tap**     | 3C on the desktop        | UX-6     |
 
 `e2e/budgets.spec.ts` drives each gated task through the harness. Every task not yet gated is
 listed there as `fixme`, with the cost above, so the debt shows in every test run.
@@ -104,17 +104,22 @@ These are **server** rules. The UI explains them, but it never _is_ them.
 - **A room's housekeeping state carries forward.** A room stays dirty until someone cleans it. A
   status is never read from a single day's row as if a missing row meant clean.
 
-**Where it stands (UX-1a, 2026-09-22).**
+**Where it stands (UX-1b, 2026-09-22).**
 
-- **Enforced by the server:** the check-in and check-out guards; undo check-in, undo check-out and
-  reinstate; actor and IP on every lifecycle action; who voided each folio line; the housekeeping
-  carry-forward; night-audit pre-checks, `keep`, the owner gate and uncounted tills.
-- **Coming with UX-1b's dialogs:**
-  - reasons made _mandatory_ on cancel and void (optional today, so the current screens keep
-    working)
-  - refunds
-  - the duplicate-payment guard
-  - approval for voiding a price-approved line
+- **Enforced by the server:**
+  - the check-in and check-out guards
+  - undo check-in, undo check-out and reinstate
+  - actor and IP on every lifecycle action
+  - a reason on every void, and who did it
+  - refunds: no more than was paid, with a reason, and the owner's approval for anyone else
+  - the double-payment guard
+  - an owner approving on the spot (step-up) for refunds and for a guest leaving with a balance
+  - the housekeeping carry-forward
+  - night-audit pre-checks, `keep`, the owner gate and uncounted tills
+- **Asked for by every screen, not yet by the server:** a reason on cancel. It becomes mandatory
+  once Room View moves onto the shared front-desk dialogs, because its cancel button still sends
+  none.
+- **Still to come:** approval for voiding a line whose price was owner-approved.
 
 ## 5. Feedback and errors
 

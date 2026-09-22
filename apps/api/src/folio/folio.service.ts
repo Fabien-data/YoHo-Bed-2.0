@@ -1,10 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import {
   bookingDays,
   bookings,
@@ -26,14 +27,17 @@ import { DatabaseService } from '../database/database.service';
 import { localToday, propertyBusinessDate } from '../common/local-date';
 import {
   insertPayment,
+  insertRefund,
   resolveDrawerSession,
   resolvePaymentMethod,
 } from '../payments/take-payment';
+import { StepUpService } from '../auth/step-up.service';
 import type {
   CreateParticularDto,
   OpenFolioDto,
   PostChargeDto,
   RecordFolioPaymentDto,
+  RefundDto,
   TransferChargesDto,
   VoidChargeDto,
 } from './dto';
@@ -45,7 +49,10 @@ function money(n: number): string {
 
 @Injectable()
 export class FolioService {
-  constructor(private readonly dbs: DatabaseService) {}
+  constructor(
+    private readonly dbs: DatabaseService,
+    private readonly stepUp: StepUpService,
+  ) {}
 
   /**
    * The bill for a booking: every window, its lines, its payments and its balance.
@@ -118,13 +125,16 @@ export class FolioService {
         .leftJoin(chargeParticulars, eq(chargeParticulars.id, folioCharges.particularId))
         .where(eq(folioCharges.folioId, folio.id))
         .orderBy(asc(folioCharges.postedFor), asc(folioCharges.createdAt)),
+      // Money in, and money given back (a refund is a `sent` row on the same window, UX-1b).
       tx
         .select({
           id: payments.id,
+          direction: payments.direction,
           amount: payments.amount,
           method: payments.method,
           methodName: paymentMethods.name,
           reference: payments.reference,
+          note: payments.note,
           receiptNo: payments.receiptNo,
           attachmentFileId: payments.attachmentFileId,
           ledgerAccountId: payments.ledgerAccountId,
@@ -132,7 +142,7 @@ export class FolioService {
         })
         .from(payments)
         .leftJoin(paymentMethods, eq(paymentMethods.id, payments.paymentMethodId))
-        .where(and(eq(payments.folioId, folio.id), eq(payments.direction, 'received')))
+        .where(eq(payments.folioId, folio.id))
         .orderBy(desc(payments.createdAt)),
     ]);
     // Who this window bills — a name to print, not just a type.
@@ -156,7 +166,10 @@ export class FolioService {
     const live = lines.filter((l) => !l.voidedAt);
     const charges = live.reduce((s, l) => s + Number(l.total), 0);
     const tax = live.reduce((s, l) => s + Number(l.tax), 0);
-    const paidTotal = paid.reduce((s, p) => s + Number(p.amount), 0);
+    const paidTotal = paid.reduce(
+      (s, p) => s + (p.direction === 'received' ? Number(p.amount) : -Number(p.amount)),
+      0,
+    );
 
     return {
       id: folio.id,
@@ -439,6 +452,7 @@ export class FolioService {
   ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const folio = await this.loadOpenFolio(tx, folioId);
+      if (!dto.confirmDuplicate) await this.assertNotDuplicate(tx, folio, dto);
       if (dto.paymentMethodId) {
         const method = await resolvePaymentMethod(tx, dto.paymentMethodId, folio.propertyId);
         if (method.category === 'city_ledger') {
@@ -519,6 +533,112 @@ export class FolioService {
   }
 
   /**
+   * A double entry is the commonest cashier mistake: the button pressed twice, or the payment
+   * recorded again because the first toast was missed. The same amount by the same method on the
+   * same bill within two minutes is refused until the desk confirms it is a second payment.
+   */
+  private async assertNotDuplicate(
+    tx: Tx,
+    folio: typeof folios.$inferSelect,
+    dto: RecordFolioPaymentDto,
+  ) {
+    const since = new Date(Date.now() - 2 * 60_000);
+    const [dup] = await tx
+      .select({ createdAt: payments.createdAt })
+      .from(payments)
+      .where(
+        and(
+          eq(payments.folioId, folio.id),
+          eq(payments.direction, 'received'),
+          eq(payments.amount, money(dto.amount)),
+          dto.paymentMethodId
+            ? eq(payments.paymentMethodId, dto.paymentMethodId)
+            : eq(payments.method, dto.method),
+          gte(payments.createdAt, since),
+        ),
+      )
+      .limit(1);
+    if (dup) {
+      const seconds = Math.max(1, Math.round((Date.now() - dup.createdAt.getTime()) / 1000));
+      throw new ConflictException({
+        reason: 'possible_duplicate',
+        message: `A payment of ${folio.currency} ${money(dto.amount)} was recorded on this bill ${seconds} seconds ago. If this is a second payment, record it again and confirm.`,
+      });
+    }
+  }
+
+  /**
+   * Give money back to the guest (UX-1b) — an overpaid deposit, a goodwill refund. Never more than
+   * this window has actually been paid, cash leaves the till it is given from, and anyone but the
+   * owner needs the owner's on-the-spot approval.
+   */
+  async refund(
+    tenantId: string,
+    folioId: string,
+    dto: RefundDto,
+    actor: { userId: string; role?: string },
+  ) {
+    if (actor.role !== 'OWNER') {
+      if (!dto.approvalToken) {
+        throw new ForbiddenException({
+          reason: 'approval_required',
+          message: 'A refund needs the owner. Ask them to approve it on this screen.',
+        });
+      }
+      await this.stepUp.verify(dto.approvalToken, {
+        tenantId,
+        action: 'refund',
+        requesterId: actor.userId,
+      });
+    }
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const folio = await this.loadOpenFolio(tx, folioId);
+      const detail = await this.windowDetail(tx, folio);
+      const paid = Number(detail.totals.paid);
+      if (dto.amount > paid + 0.004) {
+        throw new ConflictException({
+          reason: 'refund_exceeds_paid',
+          message: `Only ${folio.currency} ${money(paid)} has been paid on this bill, so no more than that can be given back.`,
+        });
+      }
+      const method = await resolvePaymentMethod(tx, dto.paymentMethodId, folio.propertyId);
+      if (method.category === 'city_ledger') {
+        throw new BadRequestException(
+          'A refund goes back by cash, card or bank, not the city ledger',
+        );
+      }
+      const drawerSessionId =
+        method.method === 'cash'
+          ? await resolveDrawerSession(tx, {
+              propertyId: folio.propertyId,
+              userId: actor.userId,
+              drawerSessionId: dto.drawerSessionId,
+              required: false,
+            })
+          : null;
+      const [prop] = await tx
+        .select({ timezone: properties.timezone })
+        .from(properties)
+        .where(eq(properties.id, folio.propertyId));
+      const businessDate = (await propertyBusinessDate(tx, folio.propertyId, prop?.timezone)).date;
+      return insertRefund(tx, {
+        tenantId,
+        propertyId: folio.propertyId,
+        userId: actor.userId,
+        bookingId: folio.bookingId,
+        folioId: folio.id,
+        amount: dto.amount,
+        currency: folio.currency,
+        method,
+        reference: dto.reference ?? null,
+        drawerSessionId,
+        businessDate,
+        reason: dto.reason,
+      });
+    });
+  }
+
+  /**
    * Close a window at check-out.
    *
    * Refuses while the balance is non-zero — closing a bill someone still owes money on is how a
@@ -568,9 +688,11 @@ export class FolioService {
             select sum(c.total) from folio_charges c
             where c.folio_id = ${folios.id} and c.voided_at is null
           ), 0)::text`,
+          // Net of refunds (UX-1b).
           paid: sql<string>`coalesce((
-            select sum(p.amount) from payments p
-            where p.folio_id = ${folios.id} and p.direction = 'received'
+            select sum(case when p.direction = 'received' then p.amount else -p.amount end)
+            from payments p
+            where p.folio_id = ${folios.id}
           ), 0)::text`,
           roomCodes: sql<string[]>`coalesce((
             select array_agg(ru.code order by ru.display_order)

@@ -1,17 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { Bed, Clock, Gauge, SignIn, SignOut, Wallet, Warning } from '@phosphor-icons/react';
 import {
   getDashboard,
   listProperties,
-  bookingTransition,
-  ApiError,
+  describeError,
   type DashboardOverview,
   type DashboardBooking,
   type Property,
 } from '@/lib/api';
+import { useDesk } from '@/components/booking/desk-dialogs';
 import {
   Badge,
   Button,
@@ -92,40 +93,34 @@ export default function DashboardPage() {
   const [date, setDate] = useState(today());
   const [properties, setProperties] = useState<Property[]>([]);
   const [propertyId, setPropertyId] = useState('');
-  const [data, setData] = useState<DashboardOverview | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const { money } = useMoney();
+  const desk = useDesk();
 
-  const load = useCallback(async () => {
-    try {
-      setData(await getDashboard(date, propertyId || undefined));
-      setErr(null);
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Failed to load dashboard');
-    }
-  }, [date, propertyId]);
+  // A query, so a check-in or check-out made in the shared dialogs refreshes this screen too.
+  const dashboard = useQuery({
+    queryKey: ['dashboard', date, propertyId],
+    queryFn: () => getDashboard(date, propertyId || undefined),
+  });
+  const data: DashboardOverview | undefined = dashboard.data;
+  const err = dashboard.isError ? describeError(dashboard.error, 'Failed to load dashboard') : null;
 
   useEffect(() => {
     listProperties()
       .then(setProperties)
       .catch(() => {});
   }, []);
-  useEffect(() => {
-    load();
-  }, [load]);
 
-  async function act(b: DashboardBooking, action: 'check-in' | 'check-out') {
-    setBusy(true);
-    try {
-      await bookingTransition(b.id, action);
-      await load();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Action failed');
-    } finally {
-      setBusy(false);
-    }
+  // The same guided dialogs as everywhere else (UX-1b): checks first, then one press.
+  function act(b: DashboardBooking, action: 'check-in' | 'check-out') {
+    desk(action, {
+      id: b.id,
+      reference: b.reference,
+      guestName: b.customerName,
+      checkin: b.checkin,
+      checkout: b.checkout,
+    });
   }
+  const busy = false;
 
   const monthLabel = data
     ? new Date(`${data.month.from}T00:00:00Z`).toLocaleDateString('en-US', {

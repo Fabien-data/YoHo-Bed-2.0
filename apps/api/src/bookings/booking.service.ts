@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -56,6 +57,7 @@ import {
 } from '@yohobed/domain';
 import { ConfigService } from '@nestjs/config';
 import { BillingService } from '../billing/billing.service';
+import { StepUpService } from '../auth/step-up.service';
 import { settleAtCheckout } from '../folio/settlement';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
@@ -73,6 +75,7 @@ import { ReservationPricer } from '../reservations/pricer';
 import { policyForAmend, readPricingSnapshot } from '../reservations/pricing-snapshot';
 import type { Env } from '../config/env';
 import type { AmendBookingDto, CreateBookingDto } from './dto';
+import { totalsFromNights } from './stay-change';
 
 type Transition = 'approve' | 'reject' | 'cancel' | 'no_show' | 'check_in' | 'check_out';
 
@@ -85,8 +88,12 @@ export interface TransitionContext {
   role?: string;
   /** Check in to a room still marked dirty. Needs a reason. */
   overrideDirty?: boolean;
-  /** Check out with the guest's balance unpaid. Owner only; needs a reason. */
+  /**
+   * Check out with the guest's balance unpaid. Needs a reason, and — for anyone but the owner —
+   * the owner's on-the-spot approval (`approvalToken`, step-up action `checkout_balance`).
+   */
   allowBalance?: boolean;
+  approvalToken?: string;
 }
 
 /** The calendar date an instant falls on in a timezone. */
@@ -106,6 +113,7 @@ export class BookingService {
     private readonly config: ConfigService<Env, true>,
     private readonly pricer: ReservationPricer,
     private readonly billing: BillingService,
+    private readonly stepUp: StepUpService,
   ) {}
 
   list(tenantId: string) {
@@ -422,6 +430,413 @@ export class BookingService {
     const updated = await this.transition(tenantId, id, 'check_out', reason, ctx);
     this.mailer.deliverQueuedSafe(tenantId); // after commit: send the queued review invite
     return updated;
+  }
+
+  /**
+   * What the guest owes on this stay (UX-1b) — the Reservations list's Total − Paid, which is
+   * what the desk means by "still to pay", even before any night is posted to the bill.
+   */
+  balance(tenantId: string, id: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const b = await this.lockBooking(tx, id);
+      return { balance: (await this.guestOwes(tx, id)).toFixed(2), currency: b.currency };
+    });
+  }
+
+  /**
+   * What checking this guest in would do right now (UX-1b) — computed by DOING it inside a
+   * transaction that is always rolled back, so the dialog can never promise something the real
+   * check-in then refuses. Returns the room(s) the guest would get and, if it would be refused,
+   * the refusal (`reason`, `message`, `rooms`) the dialog turns into a choice.
+   */
+  async checkInPreview(tenantId: string, id: string, ctx: TransitionContext = {}) {
+    const preview = {
+      ok: false,
+      problem: null as Record<string, unknown> | null,
+      rooms: [] as Array<{ code: string; housekeeping: string }>,
+      balance: '0.00',
+      currency: '',
+      requireDocuments: false,
+      customerId: '',
+    };
+    await this.rolledBack(tenantId, async (tx) => {
+      const b = await this.lockBooking(tx, id);
+      const property = await this.propertyOf(tx, b.propertyId);
+      preview.currency = b.currency;
+      preview.customerId = b.customerId;
+      preview.requireDocuments = property.settings.requireDocumentsAtCheckin;
+      preview.balance = (await this.guestOwes(tx, id)).toFixed(2);
+      preview.problem = await this.attempt(() =>
+        this.transitionWithin(tx, tenantId, id, 'check_in', undefined, ctx),
+      );
+      preview.ok = preview.problem === null;
+      preview.rooms = await this.roomsTonight(tx, b, property.timezone);
+    });
+    return preview;
+  }
+
+  /**
+   * What checking this guest out would do right now (UX-1b), the same way: for real, rolled back.
+   * `balance` is what the guest still owes AFTER any company bill moved to the city ledger.
+   */
+  async checkOutPreview(tenantId: string, id: string, ctx: TransitionContext = {}) {
+    const preview = {
+      ok: false,
+      problem: null as Record<string, unknown> | null,
+      balance: '0.00',
+      currency: '',
+      policy: 'block' as 'block' | 'allow',
+      /** Leaving before the booked departure: these nights go back on sale. */
+      unstayedNights: 0,
+      /** The hotel's operating date — "today" for shortening the stay to leave now. */
+      today: '',
+      guestEmail: null as string | null,
+    };
+    await this.rolledBack(tenantId, async (tx) => {
+      const b = await this.lockBooking(tx, id);
+      const property = await this.propertyOf(tx, b.propertyId);
+      preview.currency = b.currency;
+      preview.policy = property.settings.checkoutBalancePolicy;
+      const operating = await this.operatingDate(tx, b.propertyId, property.timezone);
+      preview.today = operating;
+      preview.unstayedNights = operating < b.checkout ? eachNight(operating, b.checkout).length : 0;
+      const [guest] = await tx
+        .select({ email: customers.email })
+        .from(customers)
+        .where(eq(customers.id, b.customerId));
+      preview.guestEmail = guest?.email ?? null;
+      preview.problem = await this.attempt(async () => {
+        await this.transitionWithin(tx, tenantId, id, 'check_out', undefined, ctx);
+        // Past the guard: nothing is owed after the city-ledger move.
+        preview.balance = (await this.guestOwes(tx, id)).toFixed(2);
+      });
+      if (preview.problem?.reason === 'balance_open') {
+        preview.balance = String(preview.problem.balance);
+      } else if (preview.problem) {
+        preview.balance = (await this.guestOwes(tx, id)).toFixed(2);
+      }
+      preview.ok = preview.problem === null;
+    });
+    return preview;
+  }
+
+  /**
+   * Swap any room the guest would walk into dirty for a clean, free one of the same type
+   * (UX-1b) — the "use a clean room instead" choice in the check-in dialog. Legs already in a clean
+   * room are left alone. Returns the rooms tonight, as the preview shows them.
+   */
+  switchToCleanRooms(tenantId: string, id: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const b = await this.lockBooking(tx, id);
+      if (b.status !== 'Approved') {
+        throw new BadRequestException('Rooms are chosen before check-in');
+      }
+      const property = await this.propertyOf(tx, b.propertyId);
+      const today = await this.operatingDate(tx, b.propertyId, property.timezone);
+      const asOf = await housekeepingAsOf(tx, b.propertyId, today);
+      const legs = await tx
+        .select({ id: bookingRooms.id, unitId: bookingRooms.roomUnitId })
+        .from(bookingRooms)
+        .where(and(eq(bookingRooms.bookingId, b.id), isNull(bookingRooms.releasedAt)));
+      const dirty = legs.filter((l) => l.unitId && asOf.get(l.unitId)?.status === 'dirty');
+      if (dirty.length === 0) return this.roomsTonight(tx, b, property.timezone);
+      await tx
+        .update(bookingRooms)
+        .set({ roomUnitId: null, updatedAt: new Date() })
+        .where(
+          inArray(
+            bookingRooms.id,
+            dirty.map((l) => l.id),
+          ),
+        );
+      await assignRoomsForCheckIn(tx, b, today);
+      const rooms = await this.roomsTonight(tx, b, property.timezone);
+      if (rooms.some((r) => r.housekeeping === 'dirty' || r.code === '')) {
+        throw new ConflictException({
+          reason: 'no_clean_room',
+          message:
+            'There is no clean room of this type free for the stay. Have one cleaned, or check in anyway with a reason.',
+        });
+      }
+      return rooms;
+    });
+  }
+
+  /**
+   * Move an in-house guest's departure (UX-1b) — "can I stay two more nights?", "we're leaving
+   * tomorrow instead". Only the nights added or removed change; nights already slept keep the
+   * price they were sold at. The guest keeps their room: if it is taken on an added night, the
+   * change is refused with the room and date, rather than silently moving them.
+   *
+   * A stay before arrival is changed with PATCH /bookings/:id instead.
+   */
+  changeDeparture(
+    tenantId: string,
+    id: string,
+    newCheckout: string,
+    reason: string,
+    ctx: TransitionContext = {},
+  ) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const b = await this.lockBooking(tx, id);
+      if (b.status !== 'CheckedIn') {
+        throw new BadRequestException(
+          'Only an in-house stay changes its departure here; edit the reservation before arrival',
+        );
+      }
+      if (newCheckout === b.checkout) {
+        throw new BadRequestException(`${b.reference} already leaves on ${b.checkout}`);
+      }
+      const property = await this.propertyOf(tx, b.propertyId);
+      const today = await this.operatingDate(tx, b.propertyId, property.timezone);
+      if (newCheckout < today || newCheckout <= b.checkin) {
+        throw new ConflictException({
+          reason: 'departure_in_past',
+          message: `The guest cannot leave before ${today}. To let them go today, check them out.`,
+        });
+      }
+
+      const now = new Date();
+      if (newCheckout > b.checkout) {
+        // Extend: price the added nights only, under the terms the stay was sold on.
+        const added = eachNight(b.checkout, newCheckout);
+        const snapshot = readPricingSnapshot(b.pricing);
+        const currentDays = await tx
+          .select({ sellingPrice: bookingDays.sellingPrice })
+          .from(bookingDays)
+          .where(eq(bookingDays.bookingId, id));
+        const [tenant] = await tx
+          .select({ mode: tenants.distributionMode })
+          .from(tenants)
+          .where(eq(tenants.id, tenantId));
+        const line = await this.pricer.priceLine(
+          tx,
+          {
+            roomId: b.roomId,
+            occupancyId: b.occupancyId,
+            checkin: b.checkout,
+            checkout: newCheckout,
+            rooms: b.rooms,
+            policy: policyForAmend(
+              snapshot,
+              currentDays.map((d) => Number(d.sellingPrice)),
+            ),
+            unpricedMessage: 'Prices are not set for the extra nights',
+          },
+          tenant?.mode ?? 'yoho',
+        );
+        try {
+          await reserveStay(tx, b.roomId, added, b.rooms);
+        } catch (e) {
+          if (e instanceof InsufficientAvailabilityError) {
+            throw new ConflictException({
+              reason: 'insufficient_availability',
+              date: e.date,
+              message: `This room type is sold out on ${e.date}, so the stay cannot be extended past it.`,
+            });
+          }
+          throw e;
+        }
+        await enqueueOutbox(tx, {
+          tenantId,
+          aggregate: 'availability',
+          aggregateId: b.roomId,
+          eventType: 'ari.availability',
+          payload: {
+            propertyId: b.propertyId,
+            roomId: b.roomId,
+            nights: added,
+            rooms: b.rooms,
+            action: 'reserve',
+            origin: 'stay_extended',
+          },
+        });
+
+        // The guest stays in their room. Each leg is stretched in its own savepoint, so a clash
+        // is reported with the room and not as a generic failure.
+        const legs = await tx
+          .select({ id: bookingRooms.id, code: roomUnits.code })
+          .from(bookingRooms)
+          .leftJoin(roomUnits, eq(roomUnits.id, bookingRooms.roomUnitId))
+          .where(
+            and(
+              eq(bookingRooms.bookingId, id),
+              isNull(bookingRooms.releasedAt),
+              eq(bookingRooms.checkout, b.checkout),
+            ),
+          );
+        for (const leg of legs) {
+          try {
+            await tx.transaction(async (sp) => {
+              await sp
+                .update(bookingRooms)
+                .set({ checkout: newCheckout, updatedAt: now })
+                .where(eq(bookingRooms.id, leg.id));
+            });
+          } catch (e) {
+            if ((e as { code?: string })?.code !== '23P01') throw e;
+            throw new ConflictException({
+              reason: 'room_taken',
+              message: `Room ${leg.code ?? ''} is booked for another guest during the extra nights. Move this guest to a free room first, then extend.`,
+            });
+          }
+        }
+
+        await tx.insert(bookingDays).values(
+          line.nights.map((n) => ({
+            tenantId,
+            bookingId: id,
+            date: n.date,
+            basePrice: n.basePrice,
+            sellingPrice: n.sellingPrice,
+            commission: n.commission,
+            tax: n.tax,
+            listSellingPrice: n.listSellingPrice,
+            rateSource: n.rateSource,
+            taxLines: n.taxLines,
+          })),
+        );
+      } else {
+        // Shorten: the nights from the new departure go back on sale and off the bill.
+        const removed = eachNight(newCheckout, b.checkout);
+        const posted = await tx
+          .select({ id: folioCharges.id })
+          .from(folioCharges)
+          .innerJoin(folios, eq(folios.id, folioCharges.folioId))
+          .where(
+            and(
+              eq(folios.bookingId, id),
+              eq(folioCharges.source, 'room'),
+              isNull(folioCharges.voidedAt),
+              inArray(folioCharges.bookingDate, removed),
+            ),
+          );
+        if (posted.length) {
+          await tx
+            .update(folioCharges)
+            .set({
+              voidedAt: now,
+              voidReason: 'Stay shortened',
+              voidedByUserId: ctx.actorUserId ?? null,
+              updatedAt: now,
+            })
+            .where(
+              inArray(
+                folioCharges.id,
+                posted.map((p) => p.id),
+              ),
+            );
+        }
+        await releaseStay(tx, b.roomId, removed, b.rooms);
+        await enqueueOutbox(tx, {
+          tenantId,
+          aggregate: 'availability',
+          aggregateId: b.roomId,
+          eventType: 'ari.availability',
+          payload: {
+            propertyId: b.propertyId,
+            roomId: b.roomId,
+            nights: removed,
+            rooms: b.rooms,
+            action: 'release',
+            origin: 'stay_shortened',
+          },
+        });
+        const live = and(eq(bookingRooms.bookingId, id), isNull(bookingRooms.releasedAt));
+        await tx
+          .update(bookingRooms)
+          .set({ releasedAt: now, updatedAt: now })
+          .where(and(live, gte(bookingRooms.checkin, newCheckout)));
+        await tx
+          .update(bookingRooms)
+          .set({ checkout: newCheckout, updatedAt: now })
+          .where(and(live, gt(bookingRooms.checkout, newCheckout)));
+        await tx
+          .delete(bookingDays)
+          .where(and(eq(bookingDays.bookingId, id), inArray(bookingDays.date, removed)));
+      }
+
+      const nights = await tx
+        .select({
+          sellingPrice: bookingDays.sellingPrice,
+          basePrice: bookingDays.basePrice,
+          tax: bookingDays.tax,
+        })
+        .from(bookingDays)
+        .where(eq(bookingDays.bookingId, id));
+      const [updated] = await tx
+        .update(bookings)
+        .set({
+          checkout: newCheckout,
+          nights: nights.length,
+          ...totalsFromNights(nights, b.rooms),
+          updatedAt: now,
+        })
+        .where(eq(bookings.id, id))
+        .returning();
+      await this.record(
+        tx,
+        tenantId,
+        id,
+        'amended',
+        `Departure ${b.checkout} → ${newCheckout}: ${reason.trim()}`,
+        ctx,
+      );
+      return updated;
+    });
+  }
+
+  /** Run `fn` in a tenant transaction that is always rolled back — a dry run of the real thing. */
+  private async rolledBack(tenantId: string, fn: (tx: Tx) => Promise<void>): Promise<void> {
+    const rollback = new Error('rollback');
+    try {
+      await this.dbs.withTenant(tenantId, async (tx) => {
+        await fn(tx);
+        throw rollback;
+      });
+    } catch (e) {
+      if (e !== rollback) throw e;
+    }
+  }
+
+  /** The refusal an HTTP exception carries, or null when the action went through. */
+  private async attempt(fn: () => Promise<unknown>): Promise<Record<string, unknown> | null> {
+    try {
+      await fn();
+      return null;
+    } catch (e) {
+      if (!(e instanceof HttpException)) throw e;
+      const body = e.getResponse();
+      return typeof body === 'string'
+        ? { reason: 'refused', message: body }
+        : { reason: 'refused', ...(body as Record<string, unknown>) };
+    }
+  }
+
+  /** The room(s) a stay occupies on the operating date, with their housekeeping state. */
+  private async roomsTonight(
+    tx: Tx,
+    b: typeof bookings.$inferSelect,
+    timezone: string | null,
+  ): Promise<Array<{ code: string; housekeeping: string }>> {
+    const today = await this.operatingDate(tx, b.propertyId, timezone);
+    const legs = await tx
+      .select({ unitId: bookingRooms.roomUnitId, code: roomUnits.code })
+      .from(bookingRooms)
+      .leftJoin(roomUnits, eq(roomUnits.id, bookingRooms.roomUnitId))
+      .where(
+        and(
+          eq(bookingRooms.bookingId, b.id),
+          isNull(bookingRooms.releasedAt),
+          lte(bookingRooms.checkin, today),
+          gt(bookingRooms.checkout, today),
+        ),
+      );
+    const asOf = await housekeepingAsOf(tx, b.propertyId, today);
+    return legs.map((l) => ({
+      code: l.code ?? '',
+      housekeeping: l.unitId ? (asOf.get(l.unitId)?.status ?? 'clean') : 'unassigned',
+    }));
   }
 
   /**
@@ -755,17 +1170,25 @@ export class BookingService {
       // rolls back the whole check-out, settlement included.
       const owed = await this.guestOwes(tx, b.id);
       if (owed > 0.004 && property.settings.checkoutBalancePolicy === 'block') {
-        if (ctx.allowBalance && ctx.role !== 'OWNER') {
-          throw new ForbiddenException(
-            'Only the owner can check a guest out with a balance unpaid',
-          );
-        }
         if (!(ctx.allowBalance && reason?.trim())) {
           throw new ConflictException({
             reason: 'balance_open',
             balance: owed.toFixed(2),
             currency: b.currency,
-            message: `${b.reference} still has ${b.currency} ${owed.toFixed(2)} to pay. Take the payment or move it to the city ledger; the owner can check out anyway with a reason.`,
+            message: `${b.reference} still has ${b.currency} ${owed.toFixed(2)} to pay. Take the payment or move it to the city ledger; the owner can let the guest go anyway, with a reason.`,
+          });
+        }
+        if (ctx.role !== 'OWNER') {
+          // The desk may, with the owner's approval given on the spot (step-up).
+          if (!ctx.approvalToken || !ctx.actorUserId) {
+            throw new ForbiddenException(
+              'Only the owner can check a guest out with a balance unpaid. Ask them to approve it on this screen.',
+            );
+          }
+          await this.stepUp.verify(ctx.approvalToken, {
+            tenantId,
+            action: 'checkout_balance',
+            requesterId: ctx.actorUserId,
           });
         }
       }
