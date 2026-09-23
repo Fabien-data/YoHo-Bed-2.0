@@ -388,6 +388,9 @@ test('sets housekeeping from the room panel without leaving the calendar', async
 test('offers the night’s actions on right-click, and they lead somewhere', async ({ page }) => {
   await signIn(page);
   await page.goto('/app/stayview');
+  // Measure only once the rooms are drawn and the columns are fitted.
+  await expect(page.locator('[data-unit-id]').first()).toBeVisible();
+  await expect(page.locator('.sv-grid')).toHaveAttribute('data-col-width', /^\d/);
   const target = await page.evaluate(() => {
     const grid = document.querySelector<HTMLElement>('.sv-grid')!;
     const col = Number(grid.dataset.colWidth);
