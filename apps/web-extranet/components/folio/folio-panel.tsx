@@ -40,6 +40,7 @@ import {
   openPrivateFile,
   getBookingFolio,
   listChargeParticulars,
+  type ChargeParticular,
   openFolioWindow,
   postFolioCharge,
   postRoomCharges,
@@ -51,6 +52,7 @@ import {
   type FolioWindow,
 } from '@/lib/api';
 import Link from 'next/link';
+import { useUxTask } from '@/lib/ux';
 import { TakePaymentForm } from '@/components/booking/take-payment-form';
 import { RefundDialog } from '@/components/booking/refund-dialog';
 import { ReasonDialog } from '@/components/booking/reason-dialog';
@@ -519,6 +521,7 @@ function AddCharge({ folioId, onDone }: { folioId: string; onDone: () => void })
   const [description, setDescription] = React.useState('');
   const [unitPrice, setUnitPrice] = React.useState('');
   const [quantity, setQuantity] = React.useState('1');
+  const ux = useUxTask('folio.post_charge', true);
 
   const particulars = useQuery({
     queryKey: ['charge-particulars'],
@@ -533,10 +536,42 @@ function AddCharge({ folioId, onDone }: { folioId: string; onDone: () => void })
         unitPrice: unitPrice ? Number(unitPrice) : undefined,
         quantity: Number(quantity) || 1,
       }),
-    onSuccess: onDone,
+    onSuccess: () => {
+      ux.complete();
+      onDone();
+    },
+  });
+
+  /**
+   * One tap posts a catalogue item at its own price (UX-2): a minibar or a laundry bag is the
+   * same charge every time, and typing it out was five presses. It is posted straight away and
+   * undone from the toast, the way the rest of the desk works.
+   */
+  const oneTap = useMutation({
+    mutationFn: (p: ChargeParticular) =>
+      postFolioCharge(folioId, { particularId: p.id, quantity: 1 }).then((line) => ({ p, line })),
+    onSuccess: ({ p, line }) => {
+      ux.complete();
+      onDone();
+      toast.success(`${p.name} posted`, {
+        action: {
+          label: 'Undo',
+          onClick: () =>
+            voidFolioCharge(line.id, 'Posted by mistake')
+              .then(() => {
+                onDone();
+                toast.success(`${p.name} taken off the bill`);
+              })
+              .catch((e) => toast.error(describeError(e, 'It could not be taken off'))),
+        },
+      });
+    },
+    onError: (e) => toast.error(describeError(e, 'The charge could not be posted')),
   });
 
   const list = (particulars.data ?? []).filter((p) => p.active);
+  // The handful the desk actually rings up, in the order the owner set.
+  const quick = list.slice(0, 8);
 
   return (
     <form
@@ -546,6 +581,29 @@ function AddCharge({ folioId, onDone }: { folioId: string; onDone: () => void })
       }}
       className="space-y-3 rounded-lg border border-line p-3"
     >
+      {quick.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-ink-3">One tap</p>
+          <div className="flex flex-wrap gap-2">
+            {quick.map((p) => (
+              <Button
+                key={p.id}
+                type="button"
+                size="sm"
+                variant="secondary"
+                loading={oneTap.isPending && oneTap.variables?.id === p.id}
+                onClick={() => oneTap.mutate(p)}
+              >
+                {p.name}
+                <span className="ml-1.5 font-mono text-xs text-ink-3">
+                  {Number(p.defaultPrice).toFixed(2)}
+                </span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {list.length > 0 && (
         <Field label="From the catalogue" hint="Or leave blank and type a one-off charge below.">
           <Select value={particularId} onValueChange={setParticularId}>

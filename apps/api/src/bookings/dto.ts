@@ -84,6 +84,12 @@ export const amendBookingSchema = z
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to amend' });
 export type AmendBookingDto = z.infer<typeof amendBookingSchema>;
 
+/** A desk action over a selection (UX-2). Capped so one click cannot walk the whole hotel. */
+export const bulkSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'choose at least one reservation').max(100),
+});
+export type BulkDto = z.infer<typeof bulkSchema>;
+
 // --- Reservations screen -----------------------------------------------------
 
 /** Reservation types, plus `holds` for both hold kinds at once. */

@@ -16,11 +16,13 @@ import {
 import { CheckInDialog, type DeskBooking } from './check-in-dialog';
 import { CheckOutDialog } from './check-out-dialog';
 import { ChangeDepartureDialog } from './change-departure-dialog';
+import { MoveRoomDialog } from './move-room-dialog';
 import { ReasonDialog } from './reason-dialog';
 import { TakePaymentForm } from './take-payment-form';
 import { useRefreshDesk } from './refresh';
 
 export type DeskAction =
+  | 'move-room'
   | 'check-in'
   | 'check-out'
   | 'take-payment'
@@ -155,6 +157,11 @@ function useDeskDialogs(opts: { onPrintCard?: (bookingId: string) => void } = {}
       <ChangeDepartureDialog
         booking={state?.booking ?? null}
         open={is('change-departure')}
+        onOpenChange={(o) => !o && close()}
+      />
+      <MoveRoomDialog
+        booking={state?.booking ?? null}
+        open={is('move-room')}
         onOpenChange={(o) => !o && close()}
       />
       <TakePaymentDialog booking={is('take-payment') ? state!.booking : null} onClose={close} />

@@ -5,6 +5,7 @@ import { CurrentUser, TenantId } from '../tenancy/decorators';
 import type { AuthPrincipal } from '../auth/dto';
 import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { bulkSchema as bulkAssignSchema } from '../bookings/dto';
 import { RoomUnitsService } from './room-units.service';
 import {
   assignRoomsSchema,
@@ -78,6 +79,16 @@ export class RoomUnitsController {
   }
 
   /** Fill every unassigned leg with the lowest-numbered free room. Partial success is reported. */
+  /** Give rooms to a selection of stays at once (UX-2). */
+  @Post('bookings/bulk/assign-rooms')
+  @HttpCode(200)
+  bulkAssign(
+    @TenantId() tenantId: string,
+    @Body(new ZodValidationPipe(bulkAssignSchema)) dto: { ids: string[] },
+  ) {
+    return this.units.bulkAutoAssign(tenantId, dto.ids);
+  }
+
   @Post('bookings/:id/auto-assign')
   @HttpCode(200)
   autoAssign(@TenantId() tenantId: string, @Param('id') id: string) {

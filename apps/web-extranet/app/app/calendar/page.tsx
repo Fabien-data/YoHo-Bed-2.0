@@ -313,7 +313,7 @@ export default function CalendarPage() {
     <div>
       <PageHeader
         eyebrow="Rates & availability"
-        title="Calendar"
+        title="Rates & inventory"
         actions={
           <div className="flex items-center gap-2">
             <Button

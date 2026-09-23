@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
@@ -8,6 +18,8 @@ import { EntitlementGuard } from '../common/entitlement.guard';
 import { FolioService } from './folio.service';
 import {
   createParticularSchema,
+  updateParticularSchema,
+  type UpdateParticularDto,
   openFolioSchema,
   postChargeSchema,
   recordFolioPaymentSchema,
@@ -148,5 +160,14 @@ export class FolioController {
     @Body(new ZodValidationPipe(createParticularSchema)) dto: CreateParticularDto,
   ) {
     return this.folio.createParticular(tenantId, dto);
+  }
+
+  @Patch('charge-particulars/:id')
+  updateParticular(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateParticularSchema)) dto: UpdateParticularDto,
+  ) {
+    return this.folio.updateParticular(tenantId, id, dto);
   }
 }

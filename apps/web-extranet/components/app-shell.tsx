@@ -44,6 +44,7 @@ import { NotificationsBell } from '@/components/notifications-bell';
 import { ThemeToggle } from '@/components/theme';
 import { CurrencyPicker } from '@/components/currency';
 import { CommandPalette } from '@/components/command-palette';
+import { ShortcutsDialog, useShortcutsKey } from '@/components/shortcuts-dialog';
 import { useReservationComposer } from '@/components/reservations/composer/composer-context';
 import { Logo } from '@/components/logo';
 
@@ -84,6 +85,7 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
 
   // The active property is shared app-wide (see components/active-property.tsx) — the switcher
   // must re-scope every screen, not just this header's label.
@@ -123,6 +125,8 @@ export function AppShell({
     }
     // Entitlements hide items once they load, which moves the rest of the tree.
   }, [active?.href, entitlements]);
+
+  useShortcutsKey(React.useCallback(() => setShortcutsOpen(true), []));
 
   function toggleNav() {
     // One button, two meanings: below xl it opens the overlay drawer; at xl+ it pins/unpins.
@@ -432,6 +436,7 @@ export function AppShell({
       </div>
 
       {!housekeepingUser && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 }

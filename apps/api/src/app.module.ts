@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { RequestErrorFilter, RequestIdMiddleware } from './common/request-id';
 import { UxModule } from './ux/ux.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { SearchModule } from './search/search.module';
 import { validateEnv } from './config/env';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
@@ -70,6 +71,7 @@ import { HealthController } from './health/health.controller';
     VouchersModule,
     UxModule,
     ComplianceModule,
+    SearchModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: RequestErrorFilter }],

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
-import { resolveReservationOptions } from '@yohobed/domain';
+import { phoneNeedle, resolveReservationOptions } from '@yohobed/domain';
 import {
   bookingGroups,
   bookingInclusions,
@@ -175,7 +175,9 @@ export class ReservationsService {
   /** The filters every tab shares: property, search, and the dropdowns. */
   private filtersFor(q: ListFilters): SQL | undefined {
     const term = q.q?.trim();
-    const digits = term?.replace(/\D/g, '') ?? '';
+    // A phone number is matched on digits alone, and on the part that survives every format, so
+    // "0771234567" finds a booking stored as "+94 77 123 4567" (UX-2).
+    const digits = term ? phoneNeedle(term) : null;
     // Search spans what a guest can quote at the desk: their reference (a master reference finds
     // every room of the reservation), voucher, name, email or phone.
     const searchFilter = term
@@ -185,7 +187,12 @@ export class ReservationsService {
           sql`${customers.name} ilike ${`%${term}%`}`,
           sql`${customers.email} ilike ${`%${term}%`}`,
           sql`${customers.phone} ilike ${`%${term}%`}`,
-          digits.length >= 5 ? sql`${customers.mobileE164} like ${`%${digits}%`}` : undefined,
+          digits
+            ? sql`regexp_replace(coalesce(${customers.phone}, ''), '[^0-9]', '', 'g') like ${`%${digits}%`}`
+            : undefined,
+          digits
+            ? sql`regexp_replace(coalesce(${customers.mobileE164}, ''), '[^0-9]', '', 'g') like ${`%${digits}%`}`
+            : undefined,
         )
       : undefined;
 

@@ -99,7 +99,7 @@ export default function FinancePage() {
     <div>
       <PageHeader
         eyebrow="Cashiering"
-        title="Finance"
+        title="Finance & payouts"
         actions={
           <>
             <div className="flex items-center gap-1.5">

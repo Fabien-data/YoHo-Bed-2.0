@@ -34,6 +34,7 @@ import {
 import { StepUpService } from '../auth/step-up.service';
 import type {
   CreateParticularDto,
+  UpdateParticularDto,
   OpenFolioDto,
   PostChargeDto,
   RecordFolioPaymentDto,
@@ -748,6 +749,27 @@ export class FolioService {
     return this.dbs.withTenant(tenantId, (tx) =>
       tx.select().from(chargeParticulars).orderBy(asc(chargeParticulars.code)),
     );
+  }
+
+  /** Edit a catalogue item; deactivating keeps it on the bills it has already been posted to. */
+  updateParticular(tenantId: string, id: string, dto: UpdateParticularDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [row] = await tx
+        .update(chargeParticulars)
+        .set({
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.category !== undefined && { category: dto.category }),
+          ...(dto.defaultPrice !== undefined && { defaultPrice: money(dto.defaultPrice) }),
+          ...(dto.taxRatePct !== undefined && { taxRatePct: dto.taxRatePct.toFixed(3) }),
+          ...(dto.taxInclusive !== undefined && { taxInclusive: dto.taxInclusive }),
+          ...(dto.active !== undefined && { active: dto.active }),
+          updatedAt: new Date(),
+        })
+        .where(eq(chargeParticulars.id, id))
+        .returning();
+      if (!row) throw new NotFoundException('Charge particular not found');
+      return row;
+    });
   }
 
   createParticular(tenantId: string, dto: CreateParticularDto) {

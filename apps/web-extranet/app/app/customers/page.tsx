@@ -61,7 +61,7 @@ export default function CustomersPage() {
     <div>
       <PageHeader
         eyebrow="Guest"
-        title="Customers"
+        title="Guest database"
         description="Every guest you have hosted, with their booking history and value. Click a guest to see their stays."
         actions={
           <>
