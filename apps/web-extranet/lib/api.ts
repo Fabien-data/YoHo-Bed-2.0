@@ -3210,6 +3210,7 @@ export interface RoomAvailability {
       free: boolean;
       outOfService: boolean;
       blocked: boolean;
+      housekeeping: 'clean' | 'dirty' | 'inspected' | 'out_of_order';
     }>;
   }>;
 }

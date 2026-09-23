@@ -40,7 +40,11 @@ export function DeskActionBar({ booking, status }: { booking: DeskTarget; status
         </Button>
       )}
       {(arriving || inHouse) && (
-        <Button size="sm" variant="secondary" onClick={() => desk('move-room', booking)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => desk('move-room', { ...booking, status })}
+        >
           <DoorOpen size={14} /> Move room
         </Button>
       )}

@@ -37,6 +37,12 @@ describe('smart operational controls', () => {
       { token: fx.token },
     );
     expect(calendar.body.roomTypes[0].units[0].housekeeping).toBe('dirty');
+    const availability = await request(
+      'GET',
+      `/properties/${fx.propertyId}/room-availability?checkin=${today}&checkout=${hotelToday(2)}`,
+      { token: fx.token },
+    );
+    expect(availability.body.roomTypes[0].units[0].housekeeping).toBe('dirty');
     const refused = await request('POST', `/bookings/${id}/check-in`, { token: fx.token });
     expect(refused.status).toBe(409);
     await request('POST', `/properties/${fx.propertyId}/housekeeping`, {

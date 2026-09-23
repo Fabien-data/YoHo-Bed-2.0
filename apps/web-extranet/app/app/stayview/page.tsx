@@ -561,20 +561,22 @@ export default function StayViewPage() {
           </button>
         </div>
       )}
-      {selection && (
-        <div className="mb-2 flex items-center gap-3 rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand-ink">
-          <span>
-            {units.find((unit) => unit.id === selection.unitId)?.code} · {selection.from} →{' '}
-            {selection.to}
-          </span>
-          <button className="font-semibold underline" onClick={() => setRange(selection)}>
-            Actions for selected nights
-          </button>
-          <button aria-label="Clear selected nights" onClick={() => setSelection(null)}>
-            ×
-          </button>
-        </div>
-      )}
+      <div className="relative mb-2 h-9">
+        {selection && (
+          <div className="absolute inset-0 flex items-center gap-3 overflow-hidden rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand-ink">
+            <span>
+              {units.find((unit) => unit.id === selection.unitId)?.code} · {selection.from} →{' '}
+              {selection.to}
+            </span>
+            <button className="font-semibold underline" onClick={() => setRange(selection)}>
+              Actions for selected nights
+            </button>
+            <button aria-label="Clear selected nights" onClick={() => setSelection(null)}>
+              ×
+            </button>
+          </div>
+        )}
+      </div>
       <Card className="overflow-hidden">
         {chart.isLoading ? (
           <div className="space-y-2 p-4">
