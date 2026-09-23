@@ -15,7 +15,7 @@ const PASSWORD = 'password123';
 /** Every route reachable from the nav, plus the page each one must show to prove it rendered. */
 const ROUTES: Array<{ path: string; heading: RegExp }> = [
   { path: '/app', heading: /dashboard|today|arrivals/i },
-  { path: '/app/bookings', heading: /booking|reservation/i },
+  { path: '/app/bookings', heading: /booking|reservation|check-in/i },
   { path: '/app/calendar', heading: /calendar|rates|inventory/i },
   { path: '/app/deals', heading: /promotion|deal|coupon/i },
   { path: '/app/inbox', heading: /inbox|reservation/i },

@@ -9,6 +9,7 @@ import {
   cancelAll,
   dmy,
   findStay,
+  futureStay,
   signIn,
 } from './support/demo';
 
@@ -184,11 +185,80 @@ test.describe('click budgets', () => {
     }
   });
 
+  // ---- Finding and doing, from anywhere (UX-2) ------------------------------------------------
+
+  test(`Find a booking by name from anywhere — ≤ ${BUDGETS.findBooking.clicks}C+${BUDGETS.findBooking.typed}T`, async ({
+    page,
+  }) => {
+    const guest = `Budget Senanayake ${Date.now().toString(36).slice(-4)}`;
+    const b = await arrivalToday(page, guest);
+    try {
+      // Anywhere: start on a screen that has nothing to do with reservations.
+      await page.goto('/app/finance');
+      const ux = new UxBudget(page);
+      await ux.press('Control+k', undefined, 'open search');
+      await ux.fill(page.getByPlaceholder(/search reservations, guests and more/i), guest, 'name');
+      const hit = page.getByRole('option').filter({ hasText: guest }).first();
+      await expect(hit).toBeVisible();
+      await ux.press('Enter', undefined, 'open');
+      await expect(page.getByRole('dialog', { name: new RegExp(b.reference) })).toBeVisible({
+        timeout: 15_000,
+      });
+      ux.expectWithin(BUDGETS.findBooking);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
+  // These two book a stay a few days out rather than tonight: the demo hotel has few rooms, and
+  // a budget test must not eat the one free room another spec needs for an arrival today.
+  test(`Move a guest to another room — ≤ ${BUDGETS.moveRoom.clicks}C`, async ({ page }) => {
+    const b = await futureStay(page, 'Budget Jayasuriya');
+    await bookingApi(page, b.id, 'auto-assign');
+    try {
+      await page.goto(`/app/reservations?bookingId=${b.id}`);
+      const ux = new UxBudget(page);
+      await ux.click(page.getByRole('button', { name: 'Move room' }).first(), 'move room');
+      const dialog = page.getByRole('dialog', { name: /Move Budget Jayasuriya/ });
+      const room = dialog.getByRole('radio').first();
+      await expect(room).toBeVisible();
+      await ux.click(room, 'pick a room');
+      await ux.click(dialog.getByRole('button', { name: 'Move', exact: true }), 'move');
+      await expect(page.getByText(/moved to room/i)).toBeVisible();
+      ux.expectWithin(BUDGETS.moveRoom);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
+  test(`Post a standard charge — ≤ ${BUDGETS.postStandardCharge.clicks}C`, async ({ page }) => {
+    const { headers } = await api(page);
+    // The hotel's catalogue is what makes a charge one tap; make sure it has an item.
+    const code = `E2E${Date.now().toString(36).slice(-5).toUpperCase()}`;
+    await page.request.post(`${API}/charge-particulars`, {
+      headers,
+      data: { code, name: `Minibar ${code}`, category: 'beverage', defaultPrice: 950 },
+    });
+    const b = await futureStay(page, 'Budget Fernando');
+    // A bill to post onto: the same window check-in would open.
+    await page.request.post(`${API}/bookings/${b.id}/folio/post-room-charges`, { headers });
+    try {
+      await page.goto(`/app/reservations?bookingId=${b.id}&section=folio`);
+      const ux = new UxBudget(page);
+      await ux.click(page.getByRole('button', { name: 'Add charge' }).first(), 'add charge');
+      await ux.click(page.getByRole('button', { name: new RegExp(`Minibar ${code}`) }), 'one tap');
+      await expect(page.getByText(/posted/i).first()).toBeVisible();
+      ux.expectWithin(BUDGETS.postStandardCharge);
+      test.info().annotations.push({ type: 'cost', description: ux.summary });
+    } finally {
+      await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
+    }
+  });
+
   // ---- Known debt: measured by the 2026-09-22 audit, fixed by the sprint named ----------------
 
-  test.fixme(`Walk-in: reserve, check in and take a deposit in one sheet — ≤ ${BUDGETS.walkIn.clicks}C+${BUDGETS.walkIn.typed}T (today 8C+2T plus a page load; UX-2)`, async () => {});
-  test.fixme(`Find a booking by name, phone or reference from anywhere — ≤ ${BUDGETS.findBooking.clicks}C+${BUDGETS.findBooking.typed}T (today 4C+1T and often misses; UX-2)`, async () => {});
-  test.fixme(`Move a guest to another room — ≤ ${BUDGETS.moveRoom.clicks}C (today 7C, Room View only; UX-2)`, async () => {});
-  test.fixme(`Post a standard charge — ≤ ${BUDGETS.postStandardCharge.clicks}C (today 5–6C, typed by hand; UX-2)`, async () => {});
+  test.fixme(`Walk-in: reserve, check in and take a deposit in one sheet — ≤ ${BUDGETS.walkIn.clicks}C+${BUDGETS.walkIn.typed}T (Quick Reservation now checks in from the sheet; measured in UX-3)`, async () => {});
   test.fixme(`Mark a room clean from a housekeeper's phone — ${BUDGETS.markRoomClean.clicks} tap (today 3C on the desktop Room View; UX-6)`, async () => {});
 });

@@ -1394,6 +1394,8 @@ export interface ReservationFilters {
   createdBy?: string;
   /** One group's rooms, whatever the tab. */
   groupId?: string;
+  /** One reservation, whatever its dates or state — how the search opens a stay (UX-2). */
+  bookingId?: string;
   groupsOnly?: boolean;
 }
 
@@ -1409,6 +1411,7 @@ function reservationParams(params: ReservationFilters): URLSearchParams {
     'ledgerAccountId',
     'createdBy',
     'groupId',
+    'bookingId',
   ] as const) {
     const v = params[k];
     if (v) sp.set(k, v);
@@ -1837,6 +1840,23 @@ export interface ChargeParticular {
 
 export function listChargeParticulars(): Promise<ChargeParticular[]> {
   return apiFetch<ChargeParticular[]>('/charge-particulars');
+}
+
+export function updateChargeParticular(
+  id: string,
+  body: Partial<{
+    name: string;
+    category: string;
+    defaultPrice: number;
+    taxRatePct: number;
+    taxInclusive: boolean;
+    active: boolean;
+  }>,
+): Promise<ChargeParticular> {
+  return apiFetch(`/charge-particulars/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }
 
 export function createChargeParticular(body: {
@@ -3982,4 +4002,78 @@ export function getFormCTracker(
   propertyId: string,
 ): Promise<{ required: boolean; pending?: number; overdue?: number; rows: FormCRow[] }> {
   return apiFetch(`/properties/${propertyId}/form-c`);
+}
+
+// --- One search for the desk (UX-2) -----------------------------------------
+
+export interface SearchReservation {
+  id: string;
+  reference: string;
+  status: string;
+  checkin: string;
+  checkout: string;
+  rooms: number;
+  currency: string;
+  amount: string;
+  guestName: string;
+  guestPhone: string | null;
+  vip: boolean;
+  /** The rooms this stay holds, e.g. "101, 102". */
+  roomCodes: string | null;
+}
+
+export interface SearchGuest {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  vip: boolean;
+  companyName: string | null;
+  stays: number;
+  lastStay: string | null;
+}
+
+export interface SearchRoom {
+  id: string;
+  code: string;
+  floor: string | null;
+  status: string;
+  bookingId: string | null;
+  reference: string | null;
+  guestName: string | null;
+}
+
+export interface SearchResults {
+  query: string;
+  /** The hotel's own date, so the palette can say "arriving today". */
+  today: string | null;
+  reservations: SearchReservation[];
+  guests: SearchGuest[];
+  rooms: SearchRoom[];
+}
+
+/** Search the whole hotel: reference, guest, phone, voucher or room number. */
+export function searchEverything(propertyId: string, q: string): Promise<SearchResults> {
+  return apiFetch(`/search?propertyId=${propertyId}&q=${encodeURIComponent(q)}`);
+}
+
+export interface BulkResult {
+  done: number;
+  failed: number;
+  results: Array<{
+    id: string;
+    ok: boolean;
+    reference?: string | null;
+    reason?: string;
+    message?: string;
+  }>;
+}
+
+/** The same desk action over a selection; each stay stands or falls on its own (UX-2). */
+export function bulkDeskAction(
+  action: 'check-in' | 'check-out' | 'assign-rooms',
+  ids: string[],
+): Promise<BulkResult> {
+  const path = action === 'assign-rooms' ? 'bulk/assign-rooms' : `bulk/${action}`;
+  return apiFetch(`/bookings/${path}`, { method: 'POST', body: JSON.stringify({ ids }) });
 }

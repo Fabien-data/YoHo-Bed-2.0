@@ -191,6 +191,25 @@ stored total. A night priced from the rate calendar follows the legacy engine ex
 test pins `POST /reservations` to `POST /bookings`). See PRICING.md §12 for overrides, contract
 rates, complimentary rooms and tax exemption.
 
+## One search, and doing it in bulk (UX-2)
+
+| Method & path                      | Auth       | Purpose                                                                                                                                                                                                         |
+| ---------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /search`                      | JWT+Tenant | `?propertyId=&q=&limit=` — the whole hotel in one answer: `reservations` (any date, any status), `guests` and `rooms`, plus the hotel's `today`. Under two characters it returns nothing rather than the hotel. |
+| `POST /bookings/bulk/check-in`     | JWT+Tenant | `{ ids: [1..100] }`. Each stay runs on its own transaction: `{ done, failed, results[] }`, and a refusal carries the same `reason` and sentence the single action gives.                                        |
+| `POST /bookings/bulk/check-out`    | JWT+Tenant | The same, for departures.                                                                                                                                                                                       |
+| `POST /bookings/bulk/assign-rooms` | JWT+Tenant | The same, auto-assigning rooms.                                                                                                                                                                                 |
+| `PATCH /charge-particulars/:id`    | JWT+Tenant | Edit a catalogue charge — price, tax, or deactivate it. The code never changes; a deactivated item stays on the bills it was posted to.                                                                         |
+
+**What the search matches.** Reference (a master reference finds every room), OTA voucher, guest
+name, email, company, the room number of a guest in house, and the phone number **however either
+side wrote it**: both are reduced to digits and compared on the part that survives every format,
+so `0771234567` finds `+94 77 123 4567` (`phoneNeedle`, `@yohobed/domain/phone-search`). The
+Reservations list search uses the same rule.
+
+**Order.** The stay in front of the desk first: in house, then arriving, then pending, then
+checked out, and within each the nearest arrival date.
+
 ## Rooms, room types, availability (inventory)
 
 | Method & path                                                 | Auth       | Purpose                                                                                                                                                                          |

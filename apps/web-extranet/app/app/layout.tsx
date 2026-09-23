@@ -54,15 +54,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <Providers>
       <CurrencyProvider>
         <ActivePropertyProvider>
-          <ReservationComposerProvider>
-            <DeskDialogsProvider>
+          {/* The desk dialogs sit outside the composer so a walk-in booked in Quick Reservation
+              can be checked in without leaving the sheet (UX-2). */}
+          <DeskDialogsProvider>
+            <ReservationComposerProvider>
               <AppShell user={user} pending={pending}>
                 {children}
                 <FeatureDocsLink />
                 <PulseSurvey />
               </AppShell>
-            </DeskDialogsProvider>
-          </ReservationComposerProvider>
+            </ReservationComposerProvider>
+          </DeskDialogsProvider>
         </ActivePropertyProvider>
       </CurrencyProvider>
     </Providers>

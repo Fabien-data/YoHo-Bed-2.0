@@ -186,7 +186,7 @@ export default function BookingsPage() {
     <div>
       <PageHeader
         eyebrow="Front desk"
-        title="Bookings"
+        title="Check-in & walk-ins"
         actions={
           <>
             <span className="font-mono text-sm tabular-nums text-ink-3">{bookings.length}</span>

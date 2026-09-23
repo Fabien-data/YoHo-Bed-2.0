@@ -43,7 +43,7 @@ export default function ReviewsPage() {
     <div>
       <PageHeader
         eyebrow="Guest"
-        title="Guest reviews"
+        title="Reviews"
         description="Guests are invited to review their stay when you check them out. Reviews are collected through a single-use link in the check-out email."
       />
 

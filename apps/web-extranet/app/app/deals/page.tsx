@@ -165,7 +165,7 @@ export default function DealsPage() {
     <div>
       <PageHeader
         eyebrow="Rates & availability"
-        title="Deals & codes"
+        title="Promotions"
         description="Promotions push a discount onto the rate calendar; coupons are guest codes redeemed at booking; referral partners earn a commission on the bookings they bring."
       />
 

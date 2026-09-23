@@ -60,6 +60,7 @@ import { BillingService } from '../billing/billing.service';
 import { StepUpService } from '../auth/step-up.service';
 import { settleAtCheckout } from '../folio/settlement';
 import { reconcileLevies, voidAllLevies } from '../folio/levies';
+import { runBulk, type BulkResult } from './bulk';
 import { assertRegistered } from '../compliance/compliance.service';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
@@ -434,6 +435,22 @@ export class BookingService {
     return updated;
   }
 
+  /**
+   * The same desk action across a selection (UX-2) — check in a coach party, close a morning's
+   * departures. Each stay runs on its own, so one refusal never stops the rest (see bulk.ts).
+   */
+  bulk(
+    tenantId: string,
+    action: 'check-in' | 'check-out',
+    ids: string[],
+    ctx: TransitionContext = {},
+  ): Promise<BulkResult> {
+    return runBulk(ids, (id) =>
+      action === 'check-in'
+        ? this.checkIn(tenantId, id, undefined, ctx)
+        : this.checkOut(tenantId, id, undefined, ctx),
+    );
+  }
   /**
    * What the guest owes on this stay (UX-1b) — the Reservations list's Total − Paid, which is
    * what the desk means by "still to pay", even before any night is posted to the bill.

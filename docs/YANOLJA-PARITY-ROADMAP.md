@@ -217,21 +217,31 @@ The owner's decisions:
 - **Support:** WhatsApp and an in-app email form.
 - **Measurement:** first-party, with no guest data.
 
-| Sprint | Deliverable                                                                                                                                                                                                                    | Status   |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| Hotfix | Only the owner can see or change payout details (PR #10)                                                                                                                                                                       | ✅ Built |
-| UX-0   | The standard, click-budget tests, UX measurement + pulse survey + staff scoreboard, a real `/health`, request references, error screens, the Room View 3 s reload fix                                                          | ✅ Built |
-| UX-1a  | Safe front desk, server side: check-in/out guards, undo and reinstate, actor + IP on every action, housekeeping carry-forward, night-audit pre-checks + `keep` + owner gate + uncounted tills (migration `0039`)               | ✅ Built |
-| UX-1b  | Safe front desk, UI: guided check-in/check-out dialogs (dry-run previews), one set of desk dialogs everywhere, change departure in-house, refunds, double-payment guard, owner approval on the spot; check-in 2C, check-out 3C | ✅ Built |
-| UX-2   | Find anything, do it from anywhere: universal search, palette actions, walk-in in one sheet, bulk actions, charge items                                                                                                        | ⬜       |
-| UX-3   | Today board, alert engine, automations (scheduled audit, auto-assign, pre-arrival email)                                                                                                                                       | ⬜       |
-| UX-4   | Always current and fast: live updates across desks, performance budgets, zero-downtime deploys                                                                                                                                 | ⬜       |
-| UX-5   | Learn by doing: practice hotel, drills, tours, in-app help, WhatsApp/email support                                                                                                                                             | ⬜       |
-| UX-6   | Personal, role-aware, mobile: preferences, manager/night-auditor roles, housekeeper's phone view                                                                                                                               | ⬜       |
-| UX-7   | Reports that read themselves: daily manager flash, Excel export everywhere                                                                                                                                                     | ⬜       |
+| Sprint | Deliverable                                                                                                                                                                                                                                                                                            | Status   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| Hotfix | Only the owner can see or change payout details (PR #10)                                                                                                                                                                                                                                               | ✅ Built |
+| UX-0   | The standard, click-budget tests, UX measurement + pulse survey + staff scoreboard, a real `/health`, request references, error screens, the Room View 3 s reload fix                                                                                                                                  | ✅ Built |
+| UX-1a  | Safe front desk, server side: check-in/out guards, undo and reinstate, actor + IP on every action, housekeeping carry-forward, night-audit pre-checks + `keep` + owner gate + uncounted tills (migration `0039`)                                                                                       | ✅ Built |
+| UX-1b  | Safe front desk, UI: guided check-in/check-out dialogs (dry-run previews), one set of desk dialogs everywhere, change departure in-house, refunds, double-payment guard, owner approval on the spot; check-in 2C, check-out 3C                                                                         | ✅ Built |
+| UX-2   | Find anything, do it from anywhere: one search over every date and status (phone numbers matched however written), Ctrl+K that opens and acts, a `?` cheat-sheet, move room, one-tap charges + the charge catalogue, bulk check-in/out/assign, list state in the URL, menu labels matching page titles | ✅ Built |
+| UX-3   | Today board, alert engine, automations (scheduled audit, auto-assign, pre-arrival email)                                                                                                                                                                                                               | ⬜       |
+| UX-4   | Always current and fast: live updates across desks, performance budgets, zero-downtime deploys                                                                                                                                                                                                         | ⬜       |
+| UX-5   | Learn by doing: practice hotel, drills, tours, in-app help, WhatsApp/email support                                                                                                                                                                                                                     | ⬜       |
+| UX-6   | Personal, role-aware, mobile: preferences, manager/night-auditor roles, housekeeper's phone view                                                                                                                                                                                                       | ⬜       |
+| UX-7   | Reports that read themselves: daily manager flash, Excel export everywhere                                                                                                                                                                                                                             | ⬜       |
 
-Feature sprints alternate between UX sprints: after UX-1 come P2-S7, then the Property Configuration
-brief and then Sprint 8.
+Feature sprints alternate between UX sprints: after UX-1 came P2-S7 and UX-2; next are the Property
+Configuration brief, UX-3 and then Sprint 8.
+
+**UX-2 in detail.** GET /search answers the whole hotel at once — reference, guest, OTA voucher,
+company, the room number of a guest in house, and the phone number reduced to digits on both sides
+so  771234567 finds +94 77 123 4567. Results are ordered by what the desk means: in house,
+then arriving, then the nearest date. Ctrl+K opens it, Enter opens the stay, and a stay that can be
+checked in, checked out or paid carries that action in the list. Opening a stay that is not on the
+list's current tab now fetches that one row, so a future or cancelled booking still opens. Bulk
+check-in, check-out and room assignment run each stay in its own transaction and report the
+refusals with the same words the single action gives. Sheets open on their first field instead of
+the Close button.
 
 Locked rules:
 

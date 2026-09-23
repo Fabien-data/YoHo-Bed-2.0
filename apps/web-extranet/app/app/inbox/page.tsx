@@ -89,7 +89,7 @@ export default function InboxPage() {
     <div>
       <PageHeader
         eyebrow="Distribution"
-        title="OTA reservation inbox"
+        title="Channel inbox"
         description="Reservations pushed by the channel manager land here and are imported as bookings automatically — inventory is reserved atomically, and failures stay visible below so nothing is ever silently dropped. Retry a failed import after fixing its cause."
       />
 
