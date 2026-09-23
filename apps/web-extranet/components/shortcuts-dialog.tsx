@@ -5,7 +5,10 @@ import { Dialog, DialogContent, Kbd } from '@yohobed/ui';
 
 /** The keys the desk can use, and what each one does. */
 const SHORTCUTS: Array<{ keys: string[]; what: string }> = [
-  { keys: ['Ctrl', 'K'], what: 'Search reservations, guests and rooms — and check in or out from the result' },
+  {
+    keys: ['Ctrl', 'K'],
+    what: 'Search reservations, guests and rooms — and check in or out from the result',
+  },
   { keys: ['Alt', 'N'], what: 'Start a new reservation' },
   { keys: ['?'], what: 'This list' },
   { keys: ['↑', '↓'], what: 'Move through a list' },
@@ -56,7 +59,8 @@ export function useShortcutsKey(onOpen: () => void) {
       if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable)
+        return;
       e.preventDefault();
       onOpen();
     }

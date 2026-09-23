@@ -13,6 +13,46 @@ import {
 afterAll(stopApp);
 
 describe('smart operational controls', () => {
+  it('carries previous housekeeping state into the calendar and check-in readiness', async () => {
+    const fx = await makeTenant({ roomQuantity: 1 });
+    const [unit] = await addUnits(fx, fx.roomId, ['101']);
+    const today = hotelToday();
+    await openAndPrice(fx, today, hotelToday(4), { roomsToSell: 1, base: 10000 });
+    const booking = await book(fx, { checkin: today, checkout: hotelToday(2) });
+    const id = booking.body.id;
+    const legs = await request('GET', `/bookings/${id}/rooms`, { token: fx.token });
+    await request('POST', `/bookings/${id}/assign`, {
+      token: fx.token,
+      body: { assignments: [{ legId: legs.body[0].id, roomUnitId: unit }] },
+    });
+    await request('POST', `/bookings/${id}/approve`, { token: fx.token });
+    const changed = await request('POST', `/properties/${fx.propertyId}/housekeeping`, {
+      token: fx.token,
+      body: { roomUnitId: unit, date: hotelToday(-1), status: 'dirty' },
+    });
+    expect(changed.status).toBe(200);
+    const calendar = await request(
+      'GET',
+      `/stayview?propertyId=${fx.propertyId}&from=${today}&to=${hotelToday(3)}`,
+      { token: fx.token },
+    );
+    expect(calendar.body.roomTypes[0].units[0].housekeeping).toBe('dirty');
+    const availability = await request(
+      'GET',
+      `/properties/${fx.propertyId}/room-availability?checkin=${today}&checkout=${hotelToday(2)}`,
+      { token: fx.token },
+    );
+    expect(availability.body.roomTypes[0].units[0].housekeeping).toBe('dirty');
+    const refused = await request('POST', `/bookings/${id}/check-in`, { token: fx.token });
+    expect(refused.status).toBe(409);
+    await request('POST', `/properties/${fx.propertyId}/housekeeping`, {
+      token: fx.token,
+      body: { roomUnitId: unit, date: today, status: 'clean' },
+    });
+    expect((await request('POST', `/bookings/${id}/check-in`, { token: fx.token })).status).toBe(
+      200,
+    );
+  });
   it('scopes custom roles to granted properties and revokes access with the same token', async () => {
     const fx = await makeTenant();
     const desk = await addDeskUser(fx);

@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
-import { housekeepingStatus, roomUnits, smartPropertyPolicies, type Tx } from '@yohobed/db';
+import { housekeepingAsOf, roomUnits, smartPropertyPolicies, type Tx } from '@yohobed/db';
 
 /** A missing housekeeping row means clean, as in the existing room grid. */
 export async function assertRoomsReadyForCheckIn(
@@ -21,19 +21,9 @@ export async function assertRoomsReadyForCheckIn(
     .where(and(eq(roomUnits.propertyId, propertyId), inArray(roomUnits.id, roomUnitIds)));
   if (units.length !== new Set(roomUnitIds).size)
     throw new ConflictException('A selected room is no longer in this property.');
-  const rows = await tx
-    .select({ roomUnitId: housekeepingStatus.roomUnitId, status: housekeepingStatus.status })
-    .from(housekeepingStatus)
-    .where(
-      and(
-        eq(housekeepingStatus.propertyId, propertyId),
-        eq(housekeepingStatus.date, date),
-        inArray(housekeepingStatus.roomUnitId, roomUnitIds),
-      ),
-    );
-  const status = new Map(rows.map((row) => [row.roomUnitId, row.status]));
+  const status = await housekeepingAsOf(tx, propertyId, date);
   const blocked = units.filter((unit) => {
-    const value = status.get(unit.id) ?? 'clean';
+    const value = status.get(unit.id)?.status ?? 'clean';
     return required === 'inspected'
       ? value !== 'inspected'
       : value !== 'clean' && value !== 'inspected';

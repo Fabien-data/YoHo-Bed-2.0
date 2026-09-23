@@ -1,13 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import {
-  bookingRooms,
-  bookings,
-  customers,
-  properties,
-  roomUnits,
-  type Tx,
-} from '@yohobed/db';
+import { bookingRooms, bookings, customers, properties, roomUnits, type Tx } from '@yohobed/db';
 import { phoneNeedle } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { propertyBusinessDate } from '../common/local-date';
@@ -31,7 +24,8 @@ export class SearchService {
   search(tenantId: string, q: SearchQueryDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const term = q.q.trim();
-      if (term.length < 2) return { query: term, today: null, reservations: [], guests: [], rooms: [] };
+      if (term.length < 2)
+        return { query: term, today: null, reservations: [], guests: [], rooms: [] };
       const [property] = await tx
         .select({ id: properties.id, timezone: properties.timezone })
         .from(properties)
@@ -55,31 +49,32 @@ export class SearchService {
   private reservations(tx: Tx, propertyId: string, term: string, today: string, limit: number) {
     const like = `%${term}%`;
     const digits = phoneNeedle(term);
-    return tx
-      .select({
-        id: bookings.id,
-        reference: bookings.reference,
-        status: bookings.status,
-        checkin: bookings.checkin,
-        checkout: bookings.checkout,
-        rooms: bookings.rooms,
-        currency: bookings.currency,
-        amount: bookings.amount,
-        guestName: customers.name,
-        guestPhone: customers.phone,
-        vip: customers.vip,
-        roomCodes: sql<string | null>`(
+    return (
+      tx
+        .select({
+          id: bookings.id,
+          reference: bookings.reference,
+          status: bookings.status,
+          checkin: bookings.checkin,
+          checkout: bookings.checkout,
+          rooms: bookings.rooms,
+          currency: bookings.currency,
+          amount: bookings.amount,
+          guestName: customers.name,
+          guestPhone: customers.phone,
+          vip: customers.vip,
+          roomCodes: sql<string | null>`(
           select string_agg(ru.code, ', ' order by ru.code)
           from booking_rooms br join room_units ru on ru.id = br.room_unit_id
           where br.booking_id = bookings.id and br.released_at is null
         )`,
-      })
-      .from(bookings)
-      .innerJoin(customers, eq(customers.id, bookings.customerId))
-      .where(
-        and(
-          eq(bookings.propertyId, propertyId),
-          sql`(
+        })
+        .from(bookings)
+        .innerJoin(customers, eq(customers.id, bookings.customerId))
+        .where(
+          and(
+            eq(bookings.propertyId, propertyId),
+            sql`(
             ${bookings.reference} ilike ${like}
             or ${bookings.voucherNo} ilike ${like}
             or ${customers.name} ilike ${like}
@@ -97,20 +92,21 @@ export class SearchService {
                 and bookings.status = 'CheckedIn'
             )
           )`,
-        ),
-      )
-      // What the desk means by "find this booking" is almost always the stay in front of them.
-      .orderBy(
-        sql`case ${bookings.status}
+          ),
+        )
+        // What the desk means by "find this booking" is almost always the stay in front of them.
+        .orderBy(
+          sql`case ${bookings.status}
               when 'CheckedIn' then 0
               when 'Approved' then 1
               when 'Pending' then 2
               when 'CheckedOut' then 3
               else 4 end`,
-        sql`abs(${bookings.checkin} - ${today}::date)`,
-        desc(bookings.createdAt),
-      )
-      .limit(limit);
+          sql`abs(${bookings.checkin} - ${today}::date)`,
+          desc(bookings.createdAt),
+        )
+        .limit(limit)
+    );
   }
 
   /** Guests matching the term, with how many stays they have had. */

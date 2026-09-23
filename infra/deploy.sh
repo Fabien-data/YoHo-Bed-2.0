@@ -72,7 +72,7 @@ if pg_dump --dbname="$DATABASE_URL" --format=custom --file="$PRE_DUMP"; then
   ls -1t "$BACKUP_DIR"/pre-migrate-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f
   echo "ok — $PRE_DUMP"
 else
-  echo "WARNING: pre-migration pg_dump failed — continuing, but rollback point is the nightly backup" >&2
+  die "pre-migration pg_dump failed — deployment stopped before migrating or reloading"
 fi
 
 log "Migrating the database"
@@ -96,7 +96,7 @@ for i in $(seq 1 20); do
   [[ $i -eq 20 ]] && die "api did not become healthy"
   sleep 3
 done
-curl -fsS -m 10 -o /dev/null -w 'web http %{http_code}\n' http://127.0.0.1:3000/ || true
+curl -fsS -m 10 -o /dev/null -w 'web http %{http_code}\n' http://127.0.0.1:3000/ || die "web health check failed"
 
 # The worker has no HTTP surface, so ask PM2. Without this a crash-looping worker (bad
 # CM_PROVIDER, wrong DB URL) deploys "green" while channel sync and FX refresh are dead.

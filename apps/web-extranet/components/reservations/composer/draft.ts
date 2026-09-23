@@ -59,6 +59,7 @@ export interface Draft {
 }
 
 export interface Prefill {
+  kind?: QuickKind;
   checkin?: string;
   nights?: number;
   roomId?: string;

@@ -120,7 +120,7 @@ export function QuickReservationSheet({
         checkinTime: cfg.property.checkinTime.slice(0, 5),
         checkoutTime: cfg.property.checkoutTime.slice(0, 5),
       },
-      kind: 'confirm',
+      kind: prefill?.kind ?? 'confirm',
       holdDate: hold.date,
       holdTime: hold.time,
       businessSourceId: null,

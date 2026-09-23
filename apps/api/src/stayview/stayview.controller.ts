@@ -76,16 +76,21 @@ export class StayViewController {
   @Patch('blocks/:id')
   updateBlock(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateBlockSchema)) dto: UpdateBlockDto,
   ) {
-    return this.blocks.update(tenantId, id, dto);
+    return this.blocks.update(tenantId, id, dto, user.sub);
   }
 
   /** "Unblock Room" — puts it back in service without erasing that it was ever blocked. */
   @Post('blocks/:id/release')
   @HttpCode(200)
-  releaseBlock(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.blocks.release(tenantId, id);
+  releaseBlock(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.blocks.release(tenantId, id, user.sub);
   }
 }

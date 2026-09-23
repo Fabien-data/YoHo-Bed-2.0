@@ -7,6 +7,7 @@ import {
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   availabilityCalendar,
+  auditLog,
   bookingRooms,
   maintenanceBlocks,
   roomUnits,
@@ -95,6 +96,14 @@ export class BlocksService {
             origin: 'maintenance_block',
           },
         });
+        await tx.insert(auditLog).values({
+          tenantId,
+          actorUserId: userId,
+          action: 'room_block.created',
+          entity: 'maintenance_block',
+          entityId: created!.id,
+          detail: { propertyId, ...dto },
+        });
         return created;
       } catch (e) {
         if ((e as { code?: string })?.code === EXCLUSION_VIOLATION) {
@@ -105,9 +114,13 @@ export class BlocksService {
     });
   }
 
-  async update(tenantId: string, id: string, dto: UpdateBlockDto) {
+  async update(tenantId: string, id: string, dto: UpdateBlockDto, actorId: string | null = null) {
     return this.dbs.withTenant(tenantId, async (tx) => {
-      const [block] = await tx.select().from(maintenanceBlocks).where(eq(maintenanceBlocks.id, id));
+      const [block] = await tx
+        .select()
+        .from(maintenanceBlocks)
+        .where(eq(maintenanceBlocks.id, id))
+        .for('update');
       if (!block) throw new NotFoundException('Block not found');
       if (block.releasedAt) throw new BadRequestException('This block has already been lifted');
 
@@ -151,6 +164,17 @@ export class BlocksService {
             origin: 'maintenance_block',
           },
         });
+        await tx.insert(auditLog).values({
+          tenantId,
+          actorUserId: actorId,
+          action: 'room_block.updated',
+          entity: 'maintenance_block',
+          entityId: id,
+          detail: {
+            before: { from: block.blockFrom, to: block.blockTo, reason: block.reason },
+            after: dto,
+          },
+        });
         return updated;
       } catch (e) {
         if ((e as { code?: string })?.code === EXCLUSION_VIOLATION) {
@@ -162,9 +186,13 @@ export class BlocksService {
   }
 
   /** Put the room back in service. The block is kept, released, so the history survives. */
-  async release(tenantId: string, id: string) {
+  async release(tenantId: string, id: string, actorId: string | null = null) {
     return this.dbs.withTenant(tenantId, async (tx) => {
-      const [block] = await tx.select().from(maintenanceBlocks).where(eq(maintenanceBlocks.id, id));
+      const [block] = await tx
+        .select()
+        .from(maintenanceBlocks)
+        .where(eq(maintenanceBlocks.id, id))
+        .for('update');
       if (!block) throw new NotFoundException('Block not found');
       if (block.releasedAt) throw new ConflictException('Block already released');
       const [unit] = await tx.select().from(roomUnits).where(eq(roomUnits.id, block.roomUnitId));
@@ -187,6 +215,19 @@ export class BlocksService {
           rooms: 1,
           action: 'release',
           origin: 'maintenance_block',
+        },
+      });
+      await tx.insert(auditLog).values({
+        tenantId,
+        actorUserId: actorId,
+        action: 'room_block.released',
+        entity: 'maintenance_block',
+        entityId: id,
+        detail: {
+          propertyId: block.propertyId,
+          roomUnitId: block.roomUnitId,
+          from: block.blockFrom,
+          to: block.blockTo,
         },
       });
       return updated;

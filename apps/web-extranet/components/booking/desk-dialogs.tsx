@@ -35,6 +35,7 @@ export type DeskAction =
 export interface DeskTarget extends DeskBooking {
   checkin: string;
   checkout: string;
+  status?: string;
   currency?: string;
 }
 

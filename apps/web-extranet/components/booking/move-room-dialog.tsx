@@ -19,14 +19,14 @@ import type { DeskBooking } from './check-in-dialog';
 interface Target extends DeskBooking {
   checkin: string;
   checkout: string;
+  status?: string;
 }
 
 /**
  * Moving a guest to another room (UX-2).
  *
- * Only rooms that are free for every night of the stay are offered — the desk never picks a room
- * the server will refuse — and rooms of another type are offered too, because an upgrade is the
- * usual reason for moving someone. Open, pick, move: three presses (docs/UX-STANDARD.md §3).
+ * Only rooms of the booked type that are free for every night are offered. For a guest already
+ * in house, the destination must also be ready. Open, pick, move: three presses.
  */
 export function MoveRoomDialog({
   booking,
@@ -77,10 +77,24 @@ export function MoveRoomDialog({
     },
   });
 
-  // Every free room of every type, the guest's own type first: a move is usually an upgrade.
+  // The move endpoint requires the booked room type, and a same-day in-house move requires
+  // a ready destination. Keep the choices aligned with those server-side rules.
+  const roomTypeId = grid.data?.roomTypes.find((type) =>
+    type.units.some((unit) => unit.id === leg?.roomUnitId),
+  )?.roomId;
   const options = (grid.data?.roomTypes ?? []).flatMap((t) =>
     t.units
-      .filter((u) => u.free && !u.outOfService && !u.blocked && u.id !== leg?.roomUnitId)
+      .filter(
+        (u) =>
+          t.roomId === roomTypeId &&
+          u.free &&
+          !u.outOfService &&
+          !u.blocked &&
+          u.id !== leg?.roomUnitId &&
+          (booking?.status !== 'CheckedIn' ||
+            u.housekeeping === 'clean' ||
+            u.housekeeping === 'inspected'),
+      )
       .map((u) => ({ ...u, roomType: t.name })),
   );
 
@@ -130,8 +144,9 @@ export function MoveRoomDialog({
 
               {options.length === 0 ? (
                 <InlineAlert tone="warn">
-                  No other room is free for every night of this stay. Shorten the stay, or move
-                  another guest first.
+                  {booking?.status === 'CheckedIn'
+                    ? 'No other ready room of this type is free for the stay. Clean a room or change the stay first.'
+                    : 'No other room of this type is free for every night of this stay. Shorten the stay or move another guest first.'}
                 </InlineAlert>
               ) : (
                 <div

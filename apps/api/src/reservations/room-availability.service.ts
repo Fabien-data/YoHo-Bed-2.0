@@ -13,6 +13,7 @@ import {
   rooms,
   smartPropertyPolicies,
   resolveForwardTaxesForDates,
+  housekeepingAsOf,
 } from '@yohobed/db';
 import {
   applyLastMinuteDrop,
@@ -23,6 +24,7 @@ import {
 } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { eachNight } from '../common/dates';
+import { localToday } from '../common/local-date';
 import type { RoomAvailabilityQuery } from './dto';
 
 /**
@@ -42,7 +44,12 @@ export class RoomAvailabilityService {
   get(tenantId: string, propertyId: string, q: RoomAvailabilityQuery) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [property] = await tx
-        .select({ id: properties.id, currency: properties.currency, taxMode: properties.taxMode })
+        .select({
+          id: properties.id,
+          currency: properties.currency,
+          taxMode: properties.taxMode,
+          timezone: properties.timezone,
+        })
         .from(properties)
         .where(eq(properties.id, propertyId));
       if (!property) throw new NotFoundException('Property not found');
@@ -184,6 +191,7 @@ export class RoomAvailabilityService {
       );
       const busyUnits = new Set(busy.map((b) => b.unitId));
       const blockedUnits = new Set(blocked.map((b) => b.unitId));
+      const housekeeping = await housekeepingAsOf(tx, propertyId, localToday(property.timezone));
 
       const roomTypes = roomRows.map((room) => {
         const days = avail.filter((a) => a.roomId === room.id);
@@ -251,6 +259,7 @@ export class RoomAvailabilityService {
               free: u.status === 'active' && !busyUnits.has(u.id) && !blockedUnits.has(u.id),
               outOfService: u.status !== 'active',
               blocked: blockedUnits.has(u.id),
+              housekeeping: housekeeping.get(u.id)?.status ?? 'clean',
             })),
         };
       });

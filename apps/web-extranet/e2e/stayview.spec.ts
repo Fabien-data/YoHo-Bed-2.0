@@ -68,8 +68,12 @@ test('keeps the calendar usable on tablet and narrow screens', async ({ page }) 
   ]) {
     await page.setViewportSize(viewport);
     await page.reload();
-    const navigation = page.getByRole('button', { name: 'Open navigation' });
-    if ((await navigation.getAttribute('aria-expanded')) === 'true') await navigation.click();
+    const closeNavigation = page.getByRole('button', { name: 'Close navigation' });
+    if (await closeNavigation.isVisible()) await closeNavigation.click();
+    if (viewport.width < 768) {
+      await expect(page.getByLabel('Daily stay list')).toBeVisible();
+      await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+    }
     await expect(page.getByRole('region', { name: 'Stay calendar' })).toBeVisible();
     await expect(page.getByLabel('Calendar days')).toHaveValue('14');
     const overflow = await page.evaluate(
@@ -98,7 +102,7 @@ test('opens the reservation slide-over from a bar', async ({ page }) => {
   // The demo data books stays around the day it was seeded, so look in the window that opens.
   // Count only once the chart has settled: counting straight after a window change caught a bar
   // from the old window, which then vanished while the click waited for it.
-  await page.waitForLoadState('networkidle');
+  await expect(page.locator('[data-unit-id]').first()).toBeVisible();
   const bar = page.locator('button', { hasText: /Direct|OTA|YoHo/ }).first();
   if ((await bar.count()) === 0) test.skip(true, 'no bars in the seeded window');
 
@@ -158,7 +162,6 @@ test('reviews a keyboard resize before saving and respects reduced motion', asyn
 
   try {
     await page.getByLabel(/window start date/i).fill(checkin);
-    await page.waitForLoadState('networkidle');
     const handle = page.getByRole('button', {
       name: `Resize ${booking.reference} checkout`,
       exact: true,
