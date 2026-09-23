@@ -127,6 +127,16 @@ export interface PricedLine {
 
 const money = (n: number) => n.toFixed(2);
 
+type PriceRow = {
+  date: string;
+  basePrice: string;
+  commission: string;
+  sellingPrice: string;
+  netPrice: string | null;
+  lastMinuteDropPct: string;
+  smartQuote?: SmartNightQuote;
+};
+
 /**
  * The one place a stay is priced (Development Phase 02).
  *
@@ -232,8 +242,16 @@ export class ReservationPricer {
         issues: smart.issues,
         line: input.lineIndex,
       });
-    const priceRows = smart
-      ? smart.nights.map((night) => ({ ...night, lastMinuteDropPct: '0' }))
+    const priceRows: PriceRow[] = smart
+      ? smart.nights.map((night) => ({
+          date: night.date,
+          basePrice: night.basePrice,
+          commission: night.commission,
+          sellingPrice: night.sellingPrice,
+          netPrice: money((night.economics.guestTotalMinor - night.economics.taxesMinor) / 100),
+          lastMinuteDropPct: '0',
+          smartQuote: night.quote,
+        }))
       : await tx
           .select()
           .from(rateCalendar)
@@ -253,7 +271,15 @@ export class ReservationPricer {
     // India and Malaysia: taxes charged on top of a pre-tax price (tax engine v2).
     if (occ.taxMode === 'exclusive_forward') {
       const f = await this.forwardNights(tx, input, mode, occ, nights, byDate, label);
-      return this.summarise(input, occ, audience, f.priced, f.totals, input.policy ?? {});
+      return this.summarise(
+        input,
+        occ,
+        audience,
+        f.priced,
+        f.totals,
+        input.policy ?? {},
+        smart?.policyVersion,
+      );
     }
 
     // Untaxed properties resolve to zero rates, so taxes = 0.
@@ -323,7 +349,7 @@ export class ReservationPricer {
         night = { ...night, selling: exempt.selling, tax: exempt.tax };
         lines = exempt.lines;
       }
-      const smartQuote = smart?.nights[i]?.quote;
+      const smartQuote = p.smartQuote;
       if (smartQuote) {
         const actualCore = Math.round(Number(night.base) * 100) - smartQuote.bedNetMinor;
         if (actualCore < smartQuote.minimumNetMinor) {
@@ -363,6 +389,7 @@ export class ReservationPricer {
       priced,
       { amount, totalBase, taxes, listAmount },
       policy,
+      smart?.policyVersion,
     );
   }
 
@@ -385,6 +412,7 @@ export class ReservationPricer {
     priced: PricedNight[],
     totals: { amount: number; totalBase: number; taxes: number; listAmount: number },
     policy: PricingPolicy,
+    policyVersion?: number,
   ): PricedLine {
     const { amount, totalBase, taxes, listAmount } = totals;
     const commissionable = amount - taxes;
@@ -422,7 +450,7 @@ export class ReservationPricer {
       discountPct: discountPercent(roundMoney(listAmount), roundMoney(amount)),
       rateSource,
       raw: { amount, taxes, commissionable },
-      ...(smart ? { policyVersion: smart.policyVersion } : {}),
+      ...(policyVersion !== undefined ? { policyVersion } : {}),
     };
   }
 
@@ -440,7 +468,7 @@ export class ReservationPricer {
     mode: DistributionModeLike,
     occ: { propertyId: string; ratePlanId: string },
     nights: string[],
-    byDate: Map<string, typeof rateCalendar.$inferSelect>,
+    byDate: Map<string, PriceRow>,
     label: string,
   ): Promise<{
     priced: PricedNight[];
@@ -514,6 +542,21 @@ export class ReservationPricer {
         night = { ...night, selling: exempt.selling, tax: exempt.tax, lines: exempt.lines };
       }
 
+      const smartQuote = p.smartQuote;
+      if (smartQuote) {
+        const actualCore = Math.round(Number(base) * 100) - smartQuote.bedNetMinor;
+        if (actualCore < smartQuote.minimumNetMinor) {
+          if (!input.minimumException?.authorized || !input.minimumException.reason.trim())
+            throw new BadRequestException({
+              reason: 'minimum_net_rate',
+              message: `${label}${d}: room and meals are below the hotel minimum. An authorized exception and reason are required.`,
+              line: input.lineIndex,
+            });
+          smartQuote.belowMinimum = true;
+          smartQuote.exceptionReason = input.minimumException.reason.trim();
+        }
+      }
+
       amount = roundMoney(amount + night.selling * input.rooms);
       totalBase = roundMoney(totalBase + Number(base) * input.rooms);
       taxes = roundMoney(taxes + night.tax * input.rooms);
@@ -528,6 +571,7 @@ export class ReservationPricer {
         listSellingPrice: money(listNight.selling),
         rateSource: source,
         taxLines: night.lines,
+        ...(smartQuote ? { smartQuote } : {}),
       });
     }
     return { priced, totals: { amount, totalBase, taxes, listAmount } };
