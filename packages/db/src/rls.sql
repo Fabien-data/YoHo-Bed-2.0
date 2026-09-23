@@ -23,6 +23,22 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO yoho_app;
 
 -- 2. Tenant isolation policy on tenant-owned tables.
+ALTER TABLE hotel_roles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON hotel_roles;
+CREATE POLICY tenant_isolation ON hotel_roles USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+ALTER TABLE hotel_role_properties ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON hotel_role_properties;
+CREATE POLICY tenant_isolation ON hotel_role_properties USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+ALTER TABLE hotel_role_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON hotel_role_assignments;
+CREATE POLICY tenant_isolation ON hotel_role_assignments USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE smart_property_policies ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON smart_property_policies;
+CREATE POLICY tenant_isolation ON smart_property_policies
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 --    `current_setting('app.tenant_id', true)` returns NULL when unset (missing_ok=true),
 --    and nullif(...,'') guards the empty-string case — so an unset context sees NOTHING.
 ALTER TABLE floor_layouts ENABLE ROW LEVEL SECURITY;

@@ -23,6 +23,10 @@ export interface LineDraft {
   roomUnitId: string;
   adults: number;
   children: number;
+  childAges?: number[];
+  extraBeds?: number;
+  cots?: number;
+  minimumExceptionReason?: string;
   /** A typed stay total, tax-inclusive, as the desk typed it. '' = the rate calendar's price. */
   rate: string;
 }
@@ -75,6 +79,9 @@ export function emptyLine(from?: LineDraft): LineDraft {
     roomUnitId: '',
     adults: from?.adults ?? 2,
     children: from?.children ?? 0,
+    childAges: [...(from?.childAges ?? [])],
+    extraBeds: from?.extraBeds ?? 0,
+    cots: from?.cots ?? 0,
     rate: '',
   };
 }
@@ -121,6 +128,12 @@ export function stayBody(propertyId: string, d: Draft): ReservationStayInput | n
         ...(l.roomUnitId ? { roomUnitId: l.roomUnitId } : {}),
         adults: l.adults,
         children: l.children,
+        childAges: (l.childAges ?? []).slice(0, l.children),
+        extraBeds: l.extraBeds ?? 0,
+        cots: l.cots ?? 0,
+        ...(l.minimumExceptionReason?.trim()
+          ? { minimumExceptionReason: l.minimumExceptionReason.trim() }
+          : {}),
         ...(rate !== null ? { rate: { mode: 'total' as const, amount: rate } } : {}),
       };
     }),

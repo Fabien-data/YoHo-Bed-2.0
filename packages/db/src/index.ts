@@ -6,6 +6,7 @@ export * from './outbox';
 export * from './heartbeat';
 export * from './fx';
 export * from './tax';
+export * from './smart-pricing';
 export * from './default-templates';
 export * from './default-plans';
 export * from './masters';

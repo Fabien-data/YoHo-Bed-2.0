@@ -59,7 +59,14 @@ export interface StayBar {
 export class StayViewService {
   constructor(private readonly dbs: DatabaseService) {}
 
-  async get(tenantId: string, propertyId: string, from: string, to: string, ratePlanId?: string) {
+  async get(
+    tenantId: string,
+    propertyId: string,
+    from: string,
+    to: string,
+    ratePlanId?: string,
+    showFinancial = true,
+  ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       // `to` is exclusive, matching the half-open convention used for stays everywhere else.
       const dates = eachNight(from, to);
@@ -81,6 +88,7 @@ export class StayViewService {
           id: roomUnits.id,
           roomId: roomUnits.roomId,
           code: roomUnits.code,
+          displayName: roomUnits.displayName,
           floor: roomUnits.floor,
           status: roomUnits.status,
           displayOrder: roomUnits.displayOrder,
@@ -109,14 +117,13 @@ export class StayViewService {
                 ),
               )
           : Promise.resolve([]),
-        this.ratesInWindow(tx, roomIds, from, to, ratePlanId),
+        showFinancial ? this.ratesInWindow(tx, roomIds, from, to, ratePlanId) : Promise.resolve([]),
       ]);
 
       // The Dirty chip counts rooms dirty AS OF the picked date: a room left dirty yesterday is
       // still dirty today until someone cleans it (UX-1a).
-      const dirty = [...(await housekeepingAsOf(tx, propertyId, from)).values()].filter(
-        (h) => h.status === 'dirty',
-      ).length;
+      const housekeepingByUnit = await housekeepingAsOf(tx, propertyId, from);
+      const dirty = [...housekeepingByUnit.values()].filter((h) => h.status === 'dirty').length;
 
       // Due-out cannot come from the drawn legs: a stay ending exactly on `from` is excluded by
       // the window overlap (checkout is exclusive), so counting it there always returned 0 for
@@ -154,7 +161,7 @@ export class StayViewService {
           source: l.source,
           channel: l.channel,
           groupId: l.groupId,
-          balanceDue: Number(l.amount) > Number(l.paid ?? 0),
+          balanceDue: showFinancial ? Number(l.amount) > Number(l.paid ?? 0) : undefined,
           reservationKind: l.reservationKind,
           holdUntil: l.holdUntil?.toISOString() ?? null,
           sourceCode: l.sourceCode,
@@ -202,7 +209,11 @@ export class StayViewService {
         }),
         units: unitRows
           .filter((u) => u.roomId === r.id)
-          .map((u) => ({ ...u, bars: barsByUnit.get(u.id) ?? [] })),
+          .map((u) => ({
+            ...u,
+            housekeeping: housekeepingByUnit.get(u.id) ?? 'clean',
+            bars: barsByUnit.get(u.id) ?? [],
+          })),
       }));
 
       // --- footers -----------------------------------------------------------

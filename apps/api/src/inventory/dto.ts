@@ -81,6 +81,7 @@ export const createRoomUnitSchema = z.object({
   roomId: z.string().uuid(),
   /** What the tape chart shows. Free-form so "01", "1A" and "Villa 3" all work. */
   code: z.string().min(1).max(32),
+  displayName: z.string().trim().max(120).nullable().optional(),
   displayOrder: z.number().int().min(0).optional(),
   floor: z.string().max(32).optional(),
   notes: z.string().max(500).optional(),
@@ -89,10 +90,15 @@ export const createRoomUnitSchema = z.object({
   connectedRoomUnitId: z.string().uuid().nullable().optional(),
 });
 export type CreateRoomUnitDto = z.infer<typeof createRoomUnitSchema>;
+export const bulkRoomUnitsSchema = z
+  .object({ units: z.array(createRoomUnitSchema).min(1).max(200) })
+  .strict();
+export type BulkRoomUnitsDto = z.infer<typeof bulkRoomUnitsSchema>;
 
 export const updateRoomUnitSchema = z
   .object({
     code: z.string().min(1).max(32).optional(),
+    displayName: z.string().trim().max(120).nullable().optional(),
     displayOrder: z.number().int().min(0).optional(),
     floor: z.string().max(32).nullable().optional(),
     notes: z.string().max(500).nullable().optional(),
@@ -113,6 +119,7 @@ export const assignRoomsSchema = z.object({
       z.object({
         legId: z.string().uuid(),
         roomUnitId: z.string().uuid().nullable(),
+        expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
       }),
     )
     .min(1),
@@ -122,6 +129,7 @@ export type AssignRoomsDto = z.infer<typeof assignRoomsSchema>;
 export const moveRoomSchema = z.object({
   legId: z.string().uuid(),
   toRoomUnitId: z.string().uuid(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
   /** Today or omitted applies immediately; a later date creates a stoppable planned move. */
   effectiveDate: isoDate.optional(),
 });

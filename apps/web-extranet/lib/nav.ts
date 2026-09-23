@@ -71,6 +71,12 @@ export const NAV: NavGroup[] = [
         docsUrl: 'PLACEHOLDER',
         feature: 'room_view',
       },
+      {
+        href: '/app/housekeeping',
+        label: 'Housekeeping tasks',
+        icon: ClipboardText,
+        docsUrl: 'PLACEHOLDER',
+      },
       // Two screens on purpose: this one searches, groups and prints; the next one is where a
       // booking is actually created and moved through its lifecycle.
       {

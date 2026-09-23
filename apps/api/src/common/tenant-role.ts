@@ -17,7 +17,7 @@ import type { TenantRequest } from '../tenancy/tenant.guard';
  * price authority belong to the owner, so those routes say `@TenantRoles('OWNER')`.
  */
 export type TenantRole =
-  'OWNER' | 'OWNER_STAFF' | 'HOUSEKEEPING_ATTENDANT' | 'HOUSEKEEPING_SUPERVISOR';
+  'OWNER' | 'OWNER_STAFF' | 'HOUSEKEEPING_ATTENDANT' | 'HOUSEKEEPING_SUPERVISOR' | 'CUSTOM';
 
 export const TENANT_ROLES_KEY = 'tenantRoles';
 
@@ -36,6 +36,8 @@ export class TenantRoleGuard implements CanActivate {
     ]);
     if (!required || required.length === 0) return true;
     const role = context.switchToHttp().getRequest<TenantRequest>().role;
+    if (role === 'CUSTOM' && context.switchToHttp().getRequest<TenantRequest>().hotelActionAllowed)
+      return true;
     if (!role || !required.includes(role as TenantRole)) {
       throw new ForbiddenException('Only the property owner can do this');
     }

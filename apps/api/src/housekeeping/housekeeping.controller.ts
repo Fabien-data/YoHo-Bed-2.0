@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Sse,
   UseGuards,
   type MessageEvent,
@@ -40,6 +41,7 @@ import {
   type RoomSignalsDto,
 } from './dto';
 import type { AuthPrincipal } from '../auth/dto';
+import type { TenantRequest } from '../tenancy/tenant.guard';
 
 /**
  * Room View, House Status and Work Orders.
@@ -60,6 +62,7 @@ export class HousekeepingController {
   @Get('room-view')
   async roomView(
     @TenantId() tenantId: string,
+    @Req() request: TenantRequest,
     @CurrentTenantRole() role: string | undefined,
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ) {
@@ -70,7 +73,11 @@ export class HousekeepingController {
       date,
       role === 'OWNER' || role === 'OWNER_STAFF',
     );
-    if (role === 'HOUSEKEEPING_ATTENDANT' || role === 'HOUSEKEEPING_SUPERVISOR') {
+    if (
+      role === 'HOUSEKEEPING_ATTENDANT' ||
+      role === 'HOUSEKEEPING_SUPERVISOR' ||
+      (role === 'CUSTOM' && !request.hotelPermissions?.includes('reservation_read'))
+    ) {
       return cards.map((card) => ({
         ...card,
         guestEmail: null,
@@ -81,6 +88,8 @@ export class HousekeepingController {
         source: null,
       }));
     }
+    if (role === 'CUSTOM' && !request.hotelPermissions?.includes('financial_read'))
+      return cards.map((card) => ({ ...card, balanceDue: false }));
     return cards;
   }
 

@@ -11,6 +11,7 @@ import {
   ratePlans,
   roomUnits,
   rooms,
+  smartPropertyPolicies,
 } from '@yohobed/db';
 import { applyLastMinuteDrop, audienceAllows, sumMoney, type RateAudience } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
@@ -38,6 +39,13 @@ export class RoomAvailabilityService {
         .from(properties)
         .where(eq(properties.id, propertyId));
       if (!property) throw new NotFoundException('Property not found');
+      const [smart] = await tx
+        .select({
+          document: smartPropertyPolicies.published,
+          version: smartPropertyPolicies.publishedVersion,
+        })
+        .from(smartPropertyPolicies)
+        .where(eq(smartPropertyPolicies.propertyId, propertyId));
 
       const nights = eachNight(q.checkin, q.checkout);
       const roomRows = await tx
@@ -97,6 +105,7 @@ export class RoomAvailabilityService {
             id: roomUnits.id,
             roomId: roomUnits.roomId,
             code: roomUnits.code,
+            displayName: roomUnits.displayName,
             floor: roomUnits.floor,
             status: roomUnits.status,
           })
@@ -128,7 +137,11 @@ export class RoomAvailabilityService {
           ),
       ]);
 
-      const occupancyIds = plans.map((p) => p.occupancyId);
+      const occupancyIds = [
+        ...new Set(
+          plans.map((p) => smart?.document?.rates[p.occupancyId]?.baseOccupancyId ?? p.occupancyId),
+        ),
+      ];
       const prices = occupancyIds.length
         ? await tx
             .select({
@@ -171,12 +184,13 @@ export class RoomAvailabilityService {
           audienceAllows(p.audience as RateAudience, q.residency ?? null),
         );
         const rateTypes = offered.map((p) => {
+          const smartRule = smart?.document?.rates[p.occupancyId];
           const nightly = nights.map((d) => ({
             date: d,
-            price: priceOf.get(`${p.occupancyId}|${d}`),
+            price: priceOf.get(`${smartRule?.baseOccupancyId ?? p.occupancyId}|${d}`),
           }));
           const priced = nightly.every((n) => n.price !== undefined);
-          const total = priced ? sumMoney(nightly.map((n) => n.price!)) : null;
+          const total = priced && !smartRule ? sumMoney(nightly.map((n) => n.price!)) : null;
           return {
             ratePlanId: p.ratePlanId,
             occupancyId: p.occupancyId,
@@ -187,7 +201,12 @@ export class RoomAvailabilityService {
             audience: p.audience,
             marketSegmentId: p.marketSegmentId,
             priced,
-            nightly: nightly.map((n) => ({ date: n.date, price: n.price?.toFixed(2) ?? null })),
+            requiresGuestQuote: !!smartRule,
+            policyVersion: smart?.version ?? null,
+            nightly: nightly.map((n) => ({
+              date: n.date,
+              price: smartRule ? null : (n.price?.toFixed(2) ?? null),
+            })),
             total: total?.toFixed(2) ?? null,
             average: total !== null ? (total / nights.length).toFixed(2) : null,
           };
@@ -209,6 +228,7 @@ export class RoomAvailabilityService {
             .map((u) => ({
               id: u.id,
               code: u.code,
+              displayName: u.displayName,
               floor: u.floor,
               free: u.status === 'active' && !busyUnits.has(u.id) && !blockedUnits.has(u.id),
               outOfService: u.status !== 'active',

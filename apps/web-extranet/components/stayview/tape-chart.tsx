@@ -89,12 +89,14 @@ function StackedLane({
   bars,
   dates,
   onSelect,
+  onResize,
   tone,
 }: {
   label: string;
   bars: StayBar[];
   dates: string[];
   onSelect: (bar: StayBar) => void;
+  onResize?: (bar: StayBar, checkout: string) => void;
   tone: 'low' | 'info';
 }) {
   const rows = stackBars(bars);
@@ -122,7 +124,7 @@ function StackedLane({
             style={{ ...gridBackground(dates), height: ROW_H }}
           >
             {row.map((b) => (
-              <Bar key={b.id} bar={b} dates={dates} onSelect={onSelect} />
+              <Bar key={b.id} bar={b} dates={dates} onSelect={onSelect} onResize={onResize} />
             ))}
           </div>
         ))}
@@ -135,12 +137,27 @@ function Bar({
   bar,
   dates,
   onSelect,
+  onResize,
 }: {
   bar: StayBar;
   dates: string[];
   onSelect: (bar: StayBar) => void;
+  onResize?: (bar: StayBar, checkout: string) => void;
 }) {
   const g = barGeometry(dates, bar);
+  const resizeStart = React.useRef<{ x: number; checkout: string } | null>(null);
+  const canResize =
+    bar.kind === 'booking' &&
+    bar.source !== 'OTA' &&
+    bar.status !== 'CheckedOut' &&
+    bar.status !== 'Cancelled';
+  const resizeBy = (days: number) => {
+    if (!onResize || !days) return;
+    const checkout = new Date(`${bar.to}T00:00:00Z`);
+    checkout.setUTCDate(checkout.getUTCDate() + days);
+    const proposed = checkout.toISOString().slice(0, 10);
+    if (proposed > bar.from) onResize(bar, proposed);
+  };
 
   if (bar.kind === 'block') {
     return (
@@ -198,26 +215,65 @@ function Bar({
         </div>
       }
     >
-      <button
-        type="button"
-        onClick={() => onSelect(bar)}
+      <div
+        draggable={bar.status !== 'CheckedOut' && bar.status !== 'Cancelled'}
+        onDragStart={(event) => event.dataTransfer.setData('application/x-yohobed-leg', bar.id)}
         onDoubleClick={(e) => e.stopPropagation()}
         className={cn(
-          'absolute top-1 flex h-[calc(100%-8px)] items-center gap-1.5 overflow-hidden px-2',
-          'text-left text-xs font-semibold shadow-sm transition hover:brightness-110',
-          barTone(bar),
+          'absolute top-1 h-[calc(100%-8px)] text-xs font-semibold shadow-sm',
           bar.holdUntil && 'ring-2 ring-inset ring-brass',
           g.startsBefore ? 'rounded-l-none' : 'rounded-l',
           g.endsAfter ? 'rounded-r-none' : 'rounded-r',
         )}
         style={{ left: g.left + 2, width: g.width }}
       >
-        <span className="shrink-0 rounded bg-black/25 px-1 text-[10px] uppercase leading-4">
-          {SOURCE_LABEL[bar.source ?? ''] ?? bar.source}
-        </span>
-        <span className="truncate">{bar.guestName}</span>
-        {bar.balanceDue && <span className="ml-auto shrink-0 text-[11px] opacity-90">$</span>}
-      </button>
+        <button
+          type="button"
+          onClick={() => onSelect(bar)}
+          className={cn(
+            'absolute inset-0 flex items-center gap-1.5 overflow-hidden px-2 text-left transition hover:brightness-110',
+            barTone(bar),
+            g.startsBefore ? 'rounded-l-none' : 'rounded-l',
+            g.endsAfter ? 'rounded-r-none' : 'rounded-r',
+          )}
+        >
+          <span className="shrink-0 rounded bg-black/25 px-1 text-[10px] uppercase leading-4">
+            {SOURCE_LABEL[bar.source ?? ''] ?? bar.source}
+          </span>
+          <span className="truncate">{bar.guestName}</span>
+          {bar.balanceDue && <span className="ml-auto shrink-0 text-[11px] opacity-90">$</span>}
+        </button>
+        {canResize && onResize && !g.endsAfter && (
+          <button
+            type="button"
+            aria-label={`Resize ${bar.reference ?? 'reservation'} checkout`}
+            title="Drag to change departure. Use Left or Right arrow for one day."
+            className="absolute inset-y-0 right-0 z-10 w-3 cursor-ew-resize rounded-r border-l border-white/40 bg-black/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+            onClick={(event) => event.stopPropagation()}
+            onDragStart={(event) => event.preventDefault()}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              resizeStart.current = { x: event.clientX, checkout: bar.to };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerUp={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const start = resizeStart.current;
+              resizeStart.current = null;
+              if (!start) return;
+              resizeBy(Math.round((event.clientX - start.x) / COL_W));
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              event.stopPropagation();
+              resizeBy(event.key === 'ArrowRight' ? 1 : -1);
+            }}
+          />
+        )}
+      </div>
     </Tooltip>
   );
 }
@@ -230,38 +286,59 @@ function gridBackground(dates: string[]): React.CSSProperties {
   };
 }
 
-function RoomTypeRow({ rt, dates }: { rt: StayRoomType; dates: string[] }) {
+function RoomTypeRow({
+  rt,
+  dates,
+  onToggle,
+  collapsed,
+  showRates,
+}: {
+  rt: StayRoomType;
+  dates: string[];
+  onToggle: () => void;
+  collapsed: boolean;
+  showRates: boolean;
+}) {
   return (
     <div className="flex border-b border-line bg-surface-2">
       <div
         className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r border-line bg-surface-2 px-3 py-2"
         style={{ width: LABEL_W }}
       >
-        <span className="truncate text-sm font-bold text-ink">{rt.name}</span>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          className="truncate rounded text-left text-sm font-bold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+          title={collapsed ? 'Expand group' : 'Collapse group'}
+        >
+          {collapsed ? '▸' : '▾'} {rt.name}
+        </button>
         <span className="rounded bg-surface px-1.5 text-[11px] font-semibold text-ink-3">
           {rt.quantity}
         </span>
       </div>
       <div className="flex shrink-0" style={{ width: dates.length * COL_W }}>
-        {rt.perDate.map((d) => (
-          <div
-            key={d.date}
-            className="flex shrink-0 flex-col items-center justify-center border-r border-line py-1"
-            style={{ width: COL_W }}
-          >
-            <span
-              className={cn(
-                'text-xs font-bold tabular-nums',
-                d.closed || d.available === 0 ? 'text-closed-ink' : 'text-ink-2',
-              )}
+        {showRates &&
+          rt.perDate.map((d) => (
+            <div
+              key={d.date}
+              className="flex shrink-0 flex-col items-center justify-center border-r border-line py-1"
+              style={{ width: COL_W }}
             >
-              {d.closed ? 'Closed' : (d.available ?? '—')}
-            </span>
-            <span className="font-mono text-[11px] tabular-nums text-ink-3">
-              {d.rate ? Number(d.rate).toFixed(2) : '—'}
-            </span>
-          </div>
-        ))}
+              <span
+                className={cn(
+                  'text-xs font-bold tabular-nums',
+                  d.closed || d.available === 0 ? 'text-closed-ink' : 'text-ink-2',
+                )}
+              >
+                {d.closed ? 'Closed' : (d.available ?? '—')}
+              </span>
+              <span className="font-mono text-[11px] tabular-nums text-ink-3">
+                {d.rate ? Number(d.rate).toFixed(2) : '—'}
+              </span>
+            </div>
+          ))}
       </div>
     </div>
   );
@@ -271,18 +348,71 @@ export function TapeChart({
   data,
   onSelectBar,
   onSelectEmpty,
+  onSelectEmptyRange,
+  onProposeMove,
+  onProposeResize,
+  groupBy = 'category',
+  density = 'comfortable',
 }: {
   data: StayView;
   onSelectBar: (bar: StayBar) => void;
   onSelectEmpty?: (unitId: string, date: string) => void;
+  onSelectEmptyRange?: (unitId: string, from: string, to: string) => void;
+  onProposeMove?: (bar: StayBar, toRoomUnitId: string) => void;
+  onProposeResize?: (bar: StayBar, checkout: string) => void;
+  groupBy?: 'category' | 'floor';
+  density?: 'comfortable' | 'compact';
 }) {
   const { dates } = data;
+  const rowHeight = density === 'compact' ? 32 : ROW_H;
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
+  const [range, setRange] = React.useState<{ unitId: string; start: number; end: number } | null>(
+    null,
+  );
+  const rangeStart = React.useRef<{ unitId: string; index: number } | null>(null);
+  const indexAt = (event: React.PointerEvent<HTMLDivElement>) =>
+    Math.max(
+      0,
+      Math.min(
+        dates.length - 1,
+        Math.floor((event.clientX - event.currentTarget.getBoundingClientRect().left) / COL_W),
+      ),
+    );
+  const groups = React.useMemo(() => {
+    if (groupBy === 'category') return data.roomTypes;
+    const byFloor = new Map<string, StayRoomType>();
+    for (const category of data.roomTypes)
+      for (const unit of category.units) {
+        const floor = unit.floor?.trim() || 'Unassigned floor';
+        let group = byFloor.get(floor);
+        if (!group) {
+          group = {
+            roomId: `floor:${floor}`,
+            name: floor === 'Unassigned floor' ? floor : `Floor ${floor}`,
+            quantity: 0,
+            perDate: [],
+            units: [],
+          };
+          byFloor.set(floor, group);
+        }
+        group.units.push(unit);
+        group.quantity++;
+      }
+    return [...byFloor.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true }),
+    );
+  }, [data.roomTypes, groupBy]);
 
   return (
-    <div className="overflow-x-auto">
+    <div
+      className="max-h-[72vh] overflow-auto"
+      role="region"
+      aria-label="Stay calendar"
+      tabIndex={0}
+    >
       <div style={{ width: LABEL_W + dates.length * COL_W }}>
         {/* Date header */}
-        <div className="flex border-b border-line bg-surface">
+        <div className="sticky top-0 z-20 flex border-b border-line bg-surface shadow-sm">
           <div
             className="sticky left-0 z-20 shrink-0 border-r border-line bg-surface"
             style={{ width: LABEL_W }}
@@ -315,46 +445,155 @@ export function TapeChart({
         </div>
 
         {/* Room types and their rooms */}
-        {data.roomTypes.map((rt) => (
+        {groups.map((rt) => (
           <div key={rt.roomId}>
-            <RoomTypeRow rt={rt} dates={dates} />
-            {rt.units.map((u) => (
-              <div key={u.id} className="flex border-b border-line">
+            <RoomTypeRow
+              rt={rt}
+              dates={dates}
+              showRates={groupBy === 'category'}
+              collapsed={collapsed.has(rt.roomId)}
+              onToggle={() =>
+                setCollapsed((previous) => {
+                  const next = new Set(previous);
+                  if (next.has(rt.roomId)) next.delete(rt.roomId);
+                  else next.add(rt.roomId);
+                  return next;
+                })
+              }
+            />
+            {!collapsed.has(rt.roomId) &&
+              rt.units.map((u) => (
                 <div
-                  className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r border-line bg-surface px-3"
-                  style={{ width: LABEL_W, height: ROW_H }}
+                  key={u.id}
+                  className="flex border-b border-line"
+                  style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${rowHeight}px` }}
                 >
-                  <span className="font-mono text-sm font-semibold text-ink">{u.code}</span>
-                  {u.floor && <span className="text-[11px] text-ink-3">fl {u.floor}</span>}
-                  {u.status === 'inactive' && (
-                    <Tooltip label="Out of service">
-                      <Prohibit size={13} className="ml-auto text-closed-ink" />
-                    </Tooltip>
-                  )}
-                </div>
-                {/* One relatively-positioned strip per room, with the grid drawn as a background
+                  <div
+                    className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r border-line bg-surface px-3"
+                    style={{ width: LABEL_W, height: rowHeight }}
+                  >
+                    <span className="font-mono text-sm font-semibold text-ink">{u.code}</span>
+                    {u.displayName && (
+                      <span className="min-w-0 truncate text-xs text-ink-2" title={u.displayName}>
+                        {u.displayName}
+                      </span>
+                    )}
+                    {u.floor && <span className="text-[11px] text-ink-3">fl {u.floor}</span>}
+                    {u.housekeeping === 'dirty' && (
+                      <span
+                        className="ml-auto h-2 w-2 shrink-0 rounded-full bg-closed"
+                        title="Dirty — clean before check-in"
+                        aria-label="Dirty room"
+                      />
+                    )}
+                    {u.housekeeping === 'clean' && (
+                      <span
+                        className="ml-auto h-2 w-2 shrink-0 rounded-full bg-avail"
+                        title="Clean"
+                        aria-label="Clean room"
+                      />
+                    )}
+                    {u.housekeeping === 'inspected' && (
+                      <span
+                        className="ml-auto text-xs text-avail-ink"
+                        title="Inspected"
+                        aria-label="Inspected room"
+                      >
+                        ✓
+                      </span>
+                    )}
+                    {u.status === 'inactive' && (
+                      <Tooltip label="Out of service">
+                        <Prohibit size={13} className="ml-auto text-closed-ink" />
+                      </Tooltip>
+                    )}
+                  </div>
+                  {/* One relatively-positioned strip per room, with the grid drawn as a background
                     and bars placed absolutely. 40 rooms x 90 days would be 3,600 cell elements
                     if each day were a node; this way it is 40. */}
-                <div
-                  className="relative shrink-0"
-                  style={{ ...gridBackground(dates), height: ROW_H }}
-                  data-unit-id={u.id}
-                  data-unit-code={u.code}
-                  title="Double-click an empty night to reserve this room"
-                  onDoubleClick={(e) => {
-                    if (!onSelectEmpty) return;
-                    const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-                    const idx = Math.floor(x / COL_W);
-                    const date = dates[idx];
-                    if (date) onSelectEmpty(u.id, date);
-                  }}
-                >
-                  {u.bars.map((b) => (
-                    <Bar key={`${b.kind}-${b.id}`} bar={b} dates={dates} onSelect={onSelectBar} />
-                  ))}
+                  <div
+                    className="relative shrink-0"
+                    style={{ ...gridBackground(dates), height: rowHeight }}
+                    data-unit-id={u.id}
+                    data-unit-code={u.code}
+                    title="Double-click an empty night to reserve this room"
+                    onDoubleClick={(e) => {
+                      if (!onSelectEmpty) return;
+                      const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+                      const idx = Math.floor(x / COL_W);
+                      const date = dates[idx];
+                      if (date) onSelectEmpty(u.id, date);
+                    }}
+                    onPointerDown={(event) => {
+                      if (
+                        !onSelectEmptyRange ||
+                        event.button !== 0 ||
+                        event.target !== event.currentTarget
+                      )
+                        return;
+                      const index = indexAt(event);
+                      rangeStart.current = { unitId: u.id, index };
+                      setRange({ unitId: u.id, start: index, end: index });
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    }}
+                    onPointerMove={(event) => {
+                      if (rangeStart.current?.unitId === u.id)
+                        setRange({
+                          unitId: u.id,
+                          start: rangeStart.current.index,
+                          end: indexAt(event),
+                        });
+                    }}
+                    onPointerUp={(event) => {
+                      const start = rangeStart.current;
+                      rangeStart.current = null;
+                      setRange(null);
+                      if (!start || start.unitId !== u.id || !onSelectEmptyRange) return;
+                      const end = indexAt(event);
+                      if (end === start.index) return;
+                      const first = Math.min(start.index, end);
+                      const last = Math.max(start.index, end);
+                      const from = dates[first]!;
+                      const to = dates[last + 1] ?? data.to;
+                      if (u.bars.some((bar) => bar.from < to && from < bar.to)) return;
+                      onSelectEmptyRange(u.id, from, to);
+                    }}
+                    onDragOver={(event) => {
+                      if (event.dataTransfer.types.includes('application/x-yohobed-leg'))
+                        event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const legId = event.dataTransfer.getData('application/x-yohobed-leg');
+                      const bar =
+                        data.roomTypes
+                          .flatMap((group) => group.units.flatMap((unit) => unit.bars))
+                          .find((item) => item.kind === 'booking' && item.id === legId) ??
+                        data.unassigned.find((item) => item.id === legId);
+                      if (bar && onProposeMove) onProposeMove(bar, u.id);
+                    }}
+                  >
+                    {range?.unitId === u.id && (
+                      <div
+                        className="pointer-events-none absolute inset-y-0 bg-brand/20"
+                        style={{
+                          left: Math.min(range.start, range.end) * COL_W,
+                          width: (Math.abs(range.end - range.start) + 1) * COL_W,
+                        }}
+                      />
+                    )}
+                    {u.bars.map((b) => (
+                      <Bar
+                        key={`${b.kind}-${b.id}`}
+                        bar={b}
+                        dates={dates}
+                        onSelect={onSelectBar}
+                        onResize={onProposeResize}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         ))}
 
@@ -365,6 +604,7 @@ export function TapeChart({
             bars={data.unassigned}
             dates={dates}
             onSelect={onSelectBar}
+            onResize={onProposeResize}
             tone="low"
           />
         )}
@@ -376,6 +616,7 @@ export function TapeChart({
             bars={data.tentative!}
             dates={dates}
             onSelect={onSelectBar}
+            onResize={onProposeResize}
             tone="info"
           />
         )}

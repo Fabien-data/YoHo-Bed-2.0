@@ -6,15 +6,27 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { eq } from 'drizzle-orm';
-import { tenants } from '@yohobed/db';
+import { and, eq } from 'drizzle-orm';
+import {
+  hotelRoleAssignments,
+  hotelRoleProperties,
+  hotelRoles,
+  memberships,
+  tenants,
+  type HotelPermission,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import type { AuthPrincipal } from '../auth/dto';
+import { accessRule, propertyForAccess } from './hotel-access';
 
 export interface TenantRequest extends Request {
   user?: AuthPrincipal;
   tenantId?: string;
   role?: string;
+  hotelRoleId?: string;
+  hotelPermissions?: HotelPermission[];
+  grantedPropertyIds?: string[];
+  hotelActionAllowed?: boolean;
 }
 
 /**
@@ -58,12 +70,66 @@ export class TenantGuard implements CanActivate {
       throw new ForbiddenException('This account is suspended. Contact YoHoBed support.');
     }
 
+    const [current] = await this.dbs.db
+      .select({ id: memberships.id, role: memberships.role })
+      .from(memberships)
+      .where(and(eq(memberships.tenantId, active as string), eq(memberships.userId, user.sub)));
+    if (!current) throw new ForbiddenException('Hotel membership was removed. Sign in again.');
     req.tenantId = active as string;
-    req.role = membership.role;
+    req.role = current.role;
+    membership.role = current.role; // Update the request principal as well as the route guard.
+    const assignment = await this.dbs.withTenant(active as string, async (tx) => {
+      const [assigned] = await tx
+        .select({ roleId: hotelRoleAssignments.roleId, permissions: hotelRoles.permissions })
+        .from(hotelRoleAssignments)
+        .leftJoin(hotelRoles, eq(hotelRoles.id, hotelRoleAssignments.roleId))
+        .where(eq(hotelRoleAssignments.membershipId, current.id));
+      if (!assigned) return null;
+      const grants = assigned.roleId
+        ? await tx
+            .select({ propertyId: hotelRoleProperties.propertyId })
+            .from(hotelRoleProperties)
+            .where(eq(hotelRoleProperties.roleId, assigned.roleId))
+        : [];
+      const target = await propertyForAccess(
+        tx,
+        req,
+        accessRule(req.method, req.path)?.resource ?? 'none',
+      );
+      return {
+        ...assigned,
+        permissions: assigned.permissions ?? [],
+        grants: grants.map((grant) => grant.propertyId),
+        target,
+      };
+    });
+    if (assignment) {
+      if (current.role === 'OWNER')
+        throw new ForbiddenException('Owner access cannot be replaced by a hotel role.');
+      const policy = accessRule(req.method, req.path);
+      if (!policy) throw new ForbiddenException('This action is not available to this hotel role.');
+      if (
+        !policy.any.some((permission) => assignment.permissions.includes(permission)) ||
+        policy.all?.some((permission) => !assignment.permissions.includes(permission))
+      )
+        throw new ForbiddenException('Your hotel role does not permit this action.');
+      if (
+        policy.listProperties
+          ? assignment.grants.length === 0
+          : policy.resource !== 'none' &&
+            (!assignment.target || !assignment.grants.includes(assignment.target))
+      )
+        throw new ForbiddenException('This property is not granted to your hotel role.');
+      req.role = 'CUSTOM';
+      req.hotelRoleId = assignment.roleId ?? undefined;
+      req.hotelPermissions = assignment.permissions;
+      req.grantedPropertyIds = assignment.grants;
+      req.hotelActionAllowed = true;
+      return true;
+    }
     if (
-      (membership.role === 'HOUSEKEEPING_ATTENDANT' ||
-        membership.role === 'HOUSEKEEPING_SUPERVISOR') &&
-      !this.housekeepingRouteAllowed(req.method, req.path, membership.role)
+      (current.role === 'HOUSEKEEPING_ATTENDANT' || current.role === 'HOUSEKEEPING_SUPERVISOR') &&
+      !this.housekeepingRouteAllowed(req.method, req.path, current.role)
     ) {
       throw new ForbiddenException('This housekeeping account only has access to room operations');
     }

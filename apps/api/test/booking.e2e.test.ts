@@ -1,5 +1,14 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { makeTenant, openAndPrice, book, hotelToday, payInFull, request, stopApp } from './harness';
+import {
+  makeTenant,
+  addUnits,
+  openAndPrice,
+  book,
+  hotelToday,
+  payInFull,
+  request,
+  stopApp,
+} from './harness';
 
 afterAll(stopApp);
 
@@ -88,6 +97,7 @@ describe('booking lifecycle', () => {
     // in full so check-out's balance guard has nothing to refuse.
     const b = await book(fx, { checkin: hotelToday(), checkout: hotelToday(2) });
     await payInFull(fx, b.body.id);
+    await addUnits(fx, fx.roomId, ['101']);
 
     // Cannot check in before approval.
     expect(
@@ -97,6 +107,9 @@ describe('booking lifecycle', () => {
     expect(
       (await request('POST', `/bookings/${b.body.id}/approve`, { token: fx.token })).body.status,
     ).toBe('Approved');
+    expect(
+      (await request('POST', `/bookings/${b.body.id}/auto-assign`, { token: fx.token })).status,
+    ).toBe(200);
     expect(
       (await request('POST', `/bookings/${b.body.id}/check-in`, { token: fx.token })).body.status,
     ).toBe('CheckedIn');

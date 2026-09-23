@@ -281,6 +281,13 @@
       "when": 1790074114300,
       "tag": "0039_safe_front_desk",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790137351197,
+      "tag": "0040_little_red_ghost",
+      "breakpoints": true
     }
   ]
 }

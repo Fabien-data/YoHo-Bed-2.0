@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import {
+  addUnits,
   makeTenant,
   request,
   openAndPrice,
@@ -19,7 +20,10 @@ function reservations(fx: TenantFixture, date: string, extra = '') {
 
 async function checkIn(fx: TenantFixture, bookingId: string) {
   await request('POST', `/bookings/${bookingId}/approve`, { token: fx.token });
-  await request('POST', `/bookings/${bookingId}/check-in`, { token: fx.token });
+  await addUnits(fx, fx.roomId, [`IN-${bookingId.slice(0, 8)}`]);
+  await request('POST', `/bookings/${bookingId}/auto-assign`, { token: fx.token });
+  const checkedIn = await request('POST', `/bookings/${bookingId}/check-in`, { token: fx.token });
+  expect(checkedIn.status, JSON.stringify(checkedIn.body)).toBe(200);
 }
 
 describe('reservations list', () => {

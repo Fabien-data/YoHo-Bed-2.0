@@ -9,6 +9,13 @@ import { test, expect } from '@playwright/test';
 
 const OWNER_EMAIL = 'owner@demo.yohobed.test';
 const PASSWORD = 'password123';
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+function addDays(iso: string, days: number) {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -54,6 +61,24 @@ test('filters the chart down to vacant rooms', async ({ page }) => {
   );
 });
 
+test('keeps the calendar usable on tablet and narrow screens', async ({ page }) => {
+  for (const viewport of [
+    { width: 1024, height: 768 },
+    { width: 480, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.reload();
+    const navigation = page.getByRole('button', { name: 'Open navigation' });
+    if ((await navigation.getAttribute('aria-expanded')) === 'true') await navigation.click();
+    await expect(page.getByRole('region', { name: 'Stay calendar' })).toBeVisible();
+    await expect(page.getByLabel('Calendar days')).toHaveValue('14');
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+  }
+});
+
 test('keeps the room column pinned while the dates scroll', async ({ page }) => {
   const roomLabel = page.getByText('01', { exact: true }).first();
   await expect(roomLabel).toBeVisible();
@@ -82,4 +107,71 @@ test('opens the reservation slide-over from a bar', async ({ page }) => {
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(/rooms/i).first()).toBeVisible();
   await expect(dialog.getByRole('button', { name: /auto-assign/i })).toBeVisible();
+});
+
+test('reviews a keyboard resize before saving and respects reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const token = await page.evaluate(() => localStorage.getItem('yoho_token'));
+  const headers = { Authorization: `Bearer ${token}` };
+  const [property] = await (await page.request.get(`${API}/properties`, { headers })).json();
+  const config = await (
+    await page.request.get(`${API}/properties/${property.id}/reservation-config`, { headers })
+  ).json();
+  const checkin = addDays(config.today, 6);
+  const checkout = addDays(checkin, 2);
+  const availability = await (
+    await page.request.get(
+      `${API}/properties/${property.id}/room-availability?checkin=${checkin}&checkout=${addDays(checkout, 1)}`,
+      { headers },
+    )
+  ).json();
+  const room = availability.roomTypes.find(
+    (candidate: any) =>
+      candidate.units.some((unit: any) => unit.free) &&
+      candidate.rateTypes.some((rate: any) => rate.priced),
+  );
+  expect(room).toBeTruthy();
+  const unit = room.units.find((candidate: any) => candidate.free);
+  const rate = room.rateTypes.find((candidate: any) => candidate.priced);
+  const createdResponse = await page.request.post(`${API}/reservations`, {
+    headers,
+    data: {
+      propertyId: property.id,
+      checkin,
+      checkout,
+      kind: 'confirm',
+      guest: { name: 'Resize Review Guest' },
+      lines: [
+        {
+          roomId: room.roomId,
+          occupancyId: rate.occupancyId,
+          roomUnitId: unit.id,
+          adults: 2,
+          children: 0,
+        },
+      ],
+    },
+  });
+  const created = await createdResponse.json();
+  expect(createdResponse.status(), JSON.stringify(created)).toBe(201);
+  const booking = created.bookings[0];
+
+  try {
+    await page.getByLabel(/window start date/i).fill(checkin);
+    await page.waitForLoadState('networkidle');
+    const handle = page.getByRole('button', {
+      name: `Resize ${booking.reference} checkout`,
+      exact: true,
+    });
+    await expect(handle).toBeVisible();
+    await handle.press('ArrowRight');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/Departure moved on the calendar/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Auto-assign rooms' })).toBeDisabled();
+    await expect(dialog.getByLabel('Review stay change')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Save reviewed change' })).toBeVisible();
+  } finally {
+    await page.request.post(`${API}/bookings/${booking.id}/cancel`, { headers });
+  }
 });

@@ -786,7 +786,7 @@ describe('price authority', () => {
     expect(b.pricing.taxExempt.exemptionId).toBe('DIP-2028-114');
   });
 
-  it('keeps a typed rate through an amendment', async () => {
+  it('keeps agreed nights and prices added nights at the current rate', async () => {
     const fx = await ready();
     const res = await reserve(fx, {
       ...stay,
@@ -800,9 +800,13 @@ describe('price authority', () => {
       body: { checkout: '2028-03-06' },
     });
     expect(amended.status).toBe(200);
-    expect(amended.body.amount).toBe('80000.00');
     const row = await detail(fx, id);
-    expect(row.days.map((d: any) => d.sellingPrice)).toEqual(Array(4).fill('20000.00'));
+    expect(row.days.slice(0, 3).map((d: any) => d.sellingPrice)).toEqual(Array(3).fill('20000.00'));
+    expect(row.days[3].rateSource).toBe('calendar');
+    expect(row.days[3].sellingPrice).not.toBe('20000.00');
+    expect(amended.body.amount).toBe(
+      row.days.reduce((total: number, day: any) => total + Number(day.sellingPrice), 0).toFixed(2),
+    );
   });
 });
 

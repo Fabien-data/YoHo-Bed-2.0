@@ -48,6 +48,7 @@ export type RoomState = 'OutOfOrder' | 'Occupied' | 'PendingCheckout' | 'Arrivin
 export interface RoomCard {
   unitId: string;
   code: string;
+  displayName: string | null;
   roomId: string;
   roomName: string;
   floor: string | null;
@@ -136,6 +137,7 @@ export class HousekeepingService {
         .select({
           unitId: roomUnits.id,
           code: roomUnits.code,
+          displayName: roomUnits.displayName,
           roomId: roomUnits.roomId,
           roomName: rooms.name,
           floor: roomUnits.floor,
@@ -475,6 +477,8 @@ export class HousekeepingService {
       if (dto.status === 'inspected' && current !== 'clean') {
         throw new ConflictException('A room must be submitted as clean before inspection');
       }
+      if (dto.status === 'inspected' && role === 'HOUSEKEEPING_ATTENDANT')
+        throw new ForbiddenException('A supervisor must inspect the room.');
       if (role === 'HOUSEKEEPING_ATTENDANT') {
         const [assigned] = await tx
           .select({ id: housekeepingTasks.id })
@@ -576,15 +580,28 @@ export class HousekeepingService {
           id: housekeepingTasks.id,
           roomUnitId: housekeepingTasks.roomUnitId,
           code: roomUnits.code,
+          displayName: roomUnits.displayName,
+          floor: roomUnits.floor,
+          date: housekeepingTasks.date,
+          roomReadiness: housekeepingStatus.status,
           kind: housekeepingTasks.kind,
           status: housekeepingTasks.status,
           rush: housekeepingTasks.rush,
           assignedToUserId: housekeepingTasks.assignedToUserId,
+          assignedToName: users.name,
           notes: housekeepingTasks.notes,
           guestName: customers.name,
         })
         .from(housekeepingTasks)
         .innerJoin(roomUnits, eq(roomUnits.id, housekeepingTasks.roomUnitId))
+        .leftJoin(
+          housekeepingStatus,
+          and(
+            eq(housekeepingStatus.roomUnitId, housekeepingTasks.roomUnitId),
+            eq(housekeepingStatus.date, housekeepingTasks.date),
+          ),
+        )
+        .leftJoin(users, eq(users.id, housekeepingTasks.assignedToUserId))
         .leftJoin(bookings, eq(bookings.id, housekeepingTasks.bookingId))
         .leftJoin(customers, eq(customers.id, bookings.customerId))
         .where(
@@ -608,7 +625,7 @@ export class HousekeepingService {
         .where(eq(housekeepingTasks.id, id))
         .for('update');
       if (!task) throw new NotFoundException('Cleaning task not found');
-      const manager = role === 'OWNER' || role === 'HOUSEKEEPING_SUPERVISOR';
+      const manager = role === 'OWNER' || role === 'HOUSEKEEPING_SUPERVISOR' || role === 'CUSTOM';
       if (
         !manager &&
         (role !== 'HOUSEKEEPING_ATTENDANT' ||

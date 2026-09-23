@@ -63,7 +63,9 @@ test.describe('Add Reservation', () => {
     await signIn(page);
   });
 
-  test('books two rooms, each for its own guest, with a remark on room 1', async ({ page }) => {
+  test('books two rooms and turns a guest occasion into a remark, task and extra', async ({
+    page,
+  }) => {
     const { checkin } = await findStay(page, 2, 2);
     await page.goto(`/app/reservations/new?checkin=${checkin}&nights=2`);
     await expect(page.getByRole('heading', { name: 'Add Reservation' })).toBeVisible();
@@ -78,14 +80,17 @@ test.describe('Add Reservation', () => {
     await rooms.press('Tab');
     await expect(page.getByTestId('room-line-2')).toBeVisible();
 
-    // Room 1's own remark, from its menu.
+    // The occasion shortcut reuses the current remark, task and inclusion records.
     await page.getByRole('button', { name: 'More for room 1' }).click();
-    await page.getByRole('menuitem', { name: 'Remarks' }).click();
-    const remarks = page.getByRole('dialog', { name: 'Remarks · room 1' });
-    await remarks.locator('#remark-text').fill('Honeymoon: flowers on arrival');
-    await remarks.getByRole('button', { name: 'Add remark' }).click();
-    await remarks.getByRole('button', { name: 'Done' }).click();
-    await expect(remarks).toBeHidden();
+    await page.getByRole('menuitem', { name: 'Guest occasion' }).click();
+    const occasion = page.getByRole('dialog', { name: /Guest occasion.*room 1/ });
+    await occasion.getByRole('combobox', { name: 'Occasion' }).click();
+    await page.getByRole('option', { name: 'Honeymoon' }).click();
+    await occasion.getByLabel('Guest preferences or preparation notes').fill('Flowers on arrival');
+    await occasion.getByLabel('Extra').fill('Welcome flowers');
+    await occasion.getByLabel(/Price/).fill('2500');
+    await occasion.getByRole('button', { name: 'Add occasion' }).click();
+    await expect(occasion).toBeHidden();
 
     await page.locator('#ar-guest-name').fill('Playwright Owner');
     await page.getByRole('checkbox', { name: 'Guest list: a guest for each room' }).click();
@@ -109,7 +114,19 @@ test.describe('Add Reservation', () => {
       const room1 = await (
         await page.request.get(`${API}/bookings/${created.bookings[0].id}/remarks`, { headers })
       ).json();
-      expect(room1.map((r: { text: string }) => r.text)).toEqual(['Honeymoon: flowers on arrival']);
+      expect(room1.map((r: { text: string }) => r.text)).toEqual([
+        'Honeymoon · Flowers on arrival',
+      ]);
+      const tasks = await (
+        await page.request.get(`${API}/bookings/${created.bookings[0].id}/tasks`, { headers })
+      ).json();
+      expect(tasks).toMatchObject([{ title: 'Prepare for honeymoon', trigger: 'checkin' }]);
+      const inclusions = await (
+        await page.request.get(`${API}/bookings/${created.bookings[0].id}/inclusions`, { headers })
+      ).json();
+      expect(inclusions).toMatchObject([
+        { name: 'Welcome flowers', rhythm: 'once', unitPrice: '2500.00' },
+      ]);
       // The list lands on the new reservation: both rooms, found by the master reference.
       await expect(page.getByText(`${created.reference}-2`)).toBeVisible();
     } finally {

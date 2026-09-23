@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Ip, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Ip,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
@@ -10,6 +21,7 @@ import {
   TenantRoles,
   type TenantRole,
 } from '../common/tenant-role';
+import type { TenantRequest } from '../tenancy/tenant.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { BookingService, type TransitionContext } from './booking.service';
 import {
@@ -22,6 +34,8 @@ import {
   createBookingSchema,
   reasonRequiredSchema,
   rejectSchema,
+  stayChangePreviewSchema,
+  stayChangeCommitSchema,
   type AmendBookingDto,
   type CancelDto,
   type CheckInDto,
@@ -29,6 +43,8 @@ import {
   type CreateBookingDto,
   type ReasonRequiredDto,
   type RejectDto,
+  type StayChangePreviewDto,
+  type StayChangeCommitDto,
 } from './dto';
 
 /** Who is acting and from where: every lifecycle action is on the record (UX-1a). */
@@ -42,8 +58,8 @@ export class BookingsController {
   constructor(private readonly bookings: BookingService) {}
 
   @Get()
-  list(@TenantId() tenantId: string) {
-    return this.bookings.list(tenantId);
+  list(@TenantId() tenantId: string, @Req() request: TenantRequest) {
+    return this.bookings.list(tenantId, request.grantedPropertyIds);
   }
 
   @Get(':id')
@@ -260,5 +276,29 @@ export class BookingsController {
     @Body(new ZodValidationPipe(amendBookingSchema)) dto: AmendBookingDto,
   ) {
     return this.bookings.amend(tenantId, id, dto);
+  }
+
+  @Post(':id/stay-change/preview')
+  previewStayChange(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(stayChangePreviewSchema)) dto: StayChangePreviewDto,
+  ) {
+    return this.bookings.previewStayChange(tenantId, id, dto.checkin, dto.checkout);
+  }
+
+  @Post(':id/stay-change')
+  commitStayChange(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(stayChangeCommitSchema)) dto: StayChangeCommitDto,
+  ) {
+    return this.bookings.amendWithReview(
+      tenantId,
+      id,
+      { checkin: dto.checkin, checkout: dto.checkout },
+      dto.expectedUpdatedAt,
+      dto.expectedAmount,
+    );
   }
 }

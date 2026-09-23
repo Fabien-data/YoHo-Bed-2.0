@@ -8,6 +8,7 @@ import {
   date,
   timestamp,
   jsonb,
+  boolean,
   unique,
 } from 'drizzle-orm/pg-core';
 import { tenants, properties } from './identity';
@@ -83,6 +84,9 @@ export const otaReservations = pgTable(
     payload: jsonb('payload').notNull(),
     status: otaReservationStatus('status').notNull().default('received'),
     error: text('error'),
+    /** Contract amount/policy differences never block an already-confirmed OTA stay. */
+    reviewRequired: boolean('review_required').notNull().default(false),
+    reviewReason: text('review_reason'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp('processed_at', { withTimezone: true }),
   },

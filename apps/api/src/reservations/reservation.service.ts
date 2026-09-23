@@ -43,6 +43,7 @@ import {
   transportModes,
   workOrders,
   type Tx,
+  type HotelPermission,
 } from '@yohobed/db';
 import {
   couponDiscount,
@@ -72,6 +73,7 @@ import { ReservationPricer, type PricedLine, type PricingPolicy } from './pricer
 import type { PricingSnapshot } from './pricing-snapshot';
 import { resolveGuest, type ResolvedGuest } from './guest-resolver';
 import { BookingService } from '../bookings/booking.service';
+import { assertRoomsReadyForCheckIn } from '../housekeeping/readiness';
 import { ensureWindow } from '../folio/windows';
 import { buildVoucher, queueVoucher } from '../vouchers/voucher';
 import {
@@ -88,6 +90,7 @@ export interface Actor {
   tenantId: string;
   userId: string;
   role: string | undefined;
+  permissions?: HotelPermission[];
 }
 
 /** The owner approvals a price decision can need (StepUpService actions). */
@@ -191,6 +194,7 @@ export class ReservationService {
           listAmount: l.priced.listAmount,
           discountPct: l.priced.discountPct,
           rateSource: l.priced.rateSource,
+          policyVersion: l.priced.policyVersion,
           couponDiscount: money(l.discount),
           nights: l.priced.nights.map((n) => ({
             date: n.date,
@@ -198,6 +202,7 @@ export class ReservationService {
             listSellingPrice: n.listSellingPrice,
             tax: n.tax,
             rateSource: n.rateSource,
+            smartQuote: n.smartQuote,
           })),
           free: free.get(l.dto.roomId) ?? 0,
           // Enough rooms of this type for every line asking for one — only matters for a
@@ -404,6 +409,12 @@ export class ReservationService {
         if (asOf.get(unit.id)?.status === 'dirty')
           warnings.push(`Room ${unit.code} is marked dirty.`);
       }
+      await assertRoomsReadyForCheckIn(
+        tx,
+        p.property.id,
+        [...walkInUnits.values()].map((unit) => unit.id),
+        dto.checkin,
+      );
     }
 
     // 2. The guest, and each room's own guest when the Guest List is used. The reservation's
@@ -451,6 +462,23 @@ export class ReservationService {
     for (const l of p.lines) {
       const reference = multi ? `${master}-${l.index + 1}` : master;
       const snapshot: PricingSnapshot = {
+        ...(l.priced.policyVersion
+          ? {
+              smart: {
+                policyVersion: l.priced.policyVersion,
+                guests: {
+                  adults: l.dto.adults,
+                  childAges: l.dto.childAges ?? [],
+                  extraBeds: l.dto.extraBeds,
+                  cots: l.dto.cots ?? 0,
+                },
+                nights: l.priced.nights.map((night) => ({
+                  date: night.date,
+                  quote: night.smartQuote,
+                })),
+              },
+            }
+          : {}),
         ...(l.dto.rate && l.priced.rateSource === 'override' && { override: l.dto.rate }),
         ...(dto.useContractRates && p.ledgerAccountId && { contractAccountId: p.ledgerAccountId }),
         ...(dto.complimentary && { complimentary: true }),
@@ -506,6 +534,20 @@ export class ReservationService {
         .returning();
 
       // The leg: who sleeps in the room, and which room. A booking that takes rooms is assigned
+      const exceptions = l.priced.nights.filter((night) => night.smartQuote?.belowMinimum);
+      if (exceptions.length)
+        await tx.insert(auditLog).values({
+          tenantId,
+          actorUserId: actor.userId,
+          action: 'minimum_rate.exception',
+          entity: 'booking',
+          entityId: booking!.id,
+          detail: {
+            reason: l.dto.minimumExceptionReason,
+            nights: exceptions.map((night) => ({ date: night.date, quote: night.smartQuote })),
+            policyVersion: l.priced.policyVersion,
+          },
+        });
       // the room asked for; an inquiry only notes it as a preference.
       const leg = {
         tenantId,
@@ -1014,6 +1056,14 @@ export class ReservationService {
     const lines: PreparedLine[] = [];
     for (let i = 0; i < dto.lines.length; i++) {
       const line = dto.lines[i]!;
+      if (actor.permissions && line.rate && !actor.permissions.includes('price_change'))
+        throw new ForbiddenException('Your role cannot change reservation prices.');
+      if (line.childAges && line.childAges.length !== line.children)
+        throw new BadRequestException({
+          message: `Room ${i + 1}: enter an age for every child.`,
+          field: 'childAges',
+          line: i,
+        });
       const priced = await this.pricer.priceLine(
         tx,
         {
@@ -1022,6 +1072,22 @@ export class ReservationService {
           checkin: dto.checkin,
           checkout: dto.checkout,
           rooms: 1,
+          guests:
+            line.children === (line.childAges?.length ?? 0)
+              ? {
+                  adults: line.adults,
+                  childAges: line.childAges ?? [],
+                  extraBeds: line.extraBeds,
+                  cots: line.cots ?? 0,
+                }
+              : undefined,
+          minimumException: line.minimumExceptionReason
+            ? {
+                authorized:
+                  actor.role === 'OWNER' || !!actor.permissions?.includes('minimum_exception'),
+                reason: line.minimumExceptionReason,
+              }
+            : undefined,
           policy: policyOf(line),
           residency: dto.residency ?? null,
           checkAudience: true,
@@ -1075,6 +1141,33 @@ export class ReservationService {
             );
       lines.forEach((l, i) => (l.discount = shares[i]!));
       coupon = { id: c.id, discount };
+    }
+    // Apply a coupon to every affected night before checking the protected net amount.
+    for (const line of lines.filter((item) => item.priced.policyVersion && item.discount > 0)) {
+      const discounts = splitProportional(
+        line.discount,
+        line.priced.nights.map((night) => Number(night.sellingPrice)),
+      );
+      line.priced.nights.forEach((night, index) => {
+        const quote = night.smartQuote!;
+        const selling = Number(night.sellingPrice);
+        const netAfterDiscount = Math.round(
+          Number(night.basePrice) * 100 * (selling ? (selling - discounts[index]!) / selling : 0),
+        );
+        if (netAfterDiscount - quote.bedNetMinor < quote.minimumNetMinor) {
+          if (
+            !(actor.role === 'OWNER' || actor.permissions?.includes('minimum_exception')) ||
+            !line.dto.minimumExceptionReason?.trim()
+          )
+            throw new BadRequestException({
+              reason: 'minimum_net_rate',
+              message: `${night.date}: the coupon would put room and meals below the hotel minimum.`,
+              line: line.index,
+            });
+          quote.belowMinimum = true;
+          quote.exceptionReason = line.dto.minimumExceptionReason.trim();
+        }
+      });
     }
     let referral: Prepared['referral'] = null;
     if (dto.referralCode) {
@@ -1243,8 +1336,29 @@ export class ReservationService {
         ),
       )
       .orderBy(asc(roomUnits.displayOrder));
-    const unit = free.find((u) => !taken.has(u.id));
+    let firstNotReady: { id: string; code: string } | undefined;
+    let unit: { id: string; code: string } | undefined;
+    for (const candidate of free) {
+      if (taken.has(candidate.id)) continue;
+      try {
+        await assertRoomsReadyForCheckIn(tx, line.priced.propertyId, [candidate.id], checkin);
+        unit = candidate;
+        break;
+      } catch (error) {
+        if (
+          error instanceof ConflictException &&
+          (error.getResponse() as { reason?: string }).reason === 'room_not_ready'
+        ) {
+          firstNotReady ??= candidate;
+          continue;
+        }
+        throw error;
+      }
+    }
     if (!unit) {
+      if (firstNotReady) {
+        await assertRoomsReadyForCheckIn(tx, line.priced.propertyId, [firstNotReady.id], checkin);
+      }
       throw new ConflictException({
         reason: 'no_room_free',
         message: `No ${line.priced.roomName} room is free to check room ${line.index + 1} into.`,

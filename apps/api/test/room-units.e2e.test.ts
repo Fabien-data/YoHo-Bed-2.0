@@ -255,7 +255,7 @@ describe('room assignment', () => {
     expect(res.body.message).toMatch(/reservations/i);
   });
 
-  it('re-shapes and frees the legs when a booking is amended', async () => {
+  it('preserves existing room assignments and leaves added rooms unassigned when amended', async () => {
     const fx = await makeTenant({ roomQuantity: 5 });
     const [u1] = await makeUnits(fx, 3);
     await openAndPrice(fx, '2027-09-01', '2027-09-20');
@@ -276,7 +276,7 @@ describe('room assignment', () => {
     const after = await request('GET', `/bookings/${created.body.id}/rooms`, { token: fx.token });
     expect(after.body).toHaveLength(2);
     expect(after.body.every((l: any) => l.checkin === '2027-09-05')).toBe(true);
-    // Rooms are released by an amendment; the desk (or auto-assign) places the guest again.
-    expect(after.body.every((l: any) => l.roomUnitId === null)).toBe(true);
+    expect(after.body.find((l: any) => l.legIndex === 0).roomUnitId).toBe(u1);
+    expect(after.body.find((l: any) => l.legIndex === 1).roomUnitId).toBeNull();
   });
 });

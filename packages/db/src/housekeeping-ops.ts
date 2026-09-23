@@ -194,7 +194,7 @@ export async function enqueueDepartureCleaning(
     .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)));
   for (const leg of legs) {
     if (!leg.roomUnitId) continue;
-    await tx
+    const [inserted] = await tx
       .insert(housekeepingTasks)
       .values({
         tenantId,
@@ -204,7 +204,27 @@ export async function enqueueDepartureCleaning(
         kind: 'departure',
         bookingId,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: housekeepingTasks.id });
+    if (!inserted) {
+      const [current] = await tx
+        .select({ id: housekeepingTasks.id, bookingId: housekeepingTasks.bookingId })
+        .from(housekeepingTasks)
+        .where(
+          and(
+            eq(housekeepingTasks.roomUnitId, leg.roomUnitId),
+            eq(housekeepingTasks.date, date),
+            eq(housekeepingTasks.kind, 'departure'),
+          ),
+        )
+        .for('update');
+      if (current?.bookingId === bookingId) continue;
+      if (current)
+        await tx
+          .update(housekeepingTasks)
+          .set({ bookingId, status: 'queued', completedAt: null, updatedAt: new Date() })
+          .where(eq(housekeepingTasks.id, current.id));
+    }
     await tx
       .insert(housekeepingStatus)
       .values({ tenantId, propertyId, roomUnitId: leg.roomUnitId, date, status: 'dirty' })

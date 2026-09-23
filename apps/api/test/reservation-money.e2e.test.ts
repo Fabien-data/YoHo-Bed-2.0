@@ -414,7 +414,7 @@ describe('Bill To', () => {
 });
 
 describe('walk-in check-in', () => {
-  it('checks the guest into the lowest free room, and says when it is dirty', async () => {
+  it('checks the guest into the lowest free room that satisfies readiness', async () => {
     const fx = await ready();
     const [u101] = await addUnits(fx, fx.roomId, ['101', '102', '103']);
     await request('POST', `/properties/${fx.propertyId}/housekeeping`, {
@@ -430,8 +430,8 @@ describe('walk-in check-in', () => {
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({ status: 'CheckedIn', checkedIn: true });
-    expect(res.body.bookings[0].roomCode).toBe('101');
-    expect(res.body.warnings).toEqual(['Room 101 is marked dirty.']);
+    expect(res.body.bookings[0].roomCode).toBe('102');
+    expect(res.body.warnings).toEqual([]);
     const [b] = await admin()
       .select()
       .from(bookings)
