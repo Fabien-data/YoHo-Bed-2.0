@@ -10,11 +10,12 @@ import {
   Post,
   Query,
   Res,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { TenantGuard } from '../tenancy/tenant.guard';
+import { TenantGuard, type TenantRequest } from '../tenancy/tenant.guard';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
 import { CurrentTenantRole, TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -62,12 +63,16 @@ export class ReservationEngineController {
   @Post('reservations/quote')
   @HttpCode(200)
   quote(
+    @Req() request: TenantRequest,
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthPrincipal,
     @CurrentTenantRole() role: string | undefined,
     @Body(new ZodValidationPipe(quoteReservationSchema)) dto: QuoteReservationDto,
   ) {
-    return this.reservations.quote(actorOf(tenantId, user, role), dto);
+    return this.reservations.quote(
+      { ...actorOf(tenantId, user, role), permissions: request.hotelPermissions },
+      dto,
+    );
   }
 
   /**
@@ -77,6 +82,7 @@ export class ReservationEngineController {
   @Post('reservations')
   @HttpCode(201)
   async create(
+    @Req() request: TenantRequest,
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthPrincipal,
     @CurrentTenantRole() role: string | undefined,
@@ -85,7 +91,11 @@ export class ReservationEngineController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const key = idempotencyKey?.trim().slice(0, 200) || undefined;
-    const result = await this.reservations.create(actorOf(tenantId, user, role), dto, key);
+    const result = await this.reservations.create(
+      { ...actorOf(tenantId, user, role), permissions: request.hotelPermissions },
+      dto,
+      key,
+    );
     if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
     return result.body;
   }

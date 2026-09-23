@@ -84,6 +84,7 @@ export const roomUnits = pgTable(
       .references(() => rooms.id, { onDelete: 'cascade' }),
     /** What the tape chart shows, e.g. "01". */
     code: text('code').notNull(),
+    displayName: text('display_name'),
     /** Sort position within the property. Defaults to the numeric part of the code. */
     displayOrder: integer('display_order').notNull().default(0),
     floor: text('floor'),

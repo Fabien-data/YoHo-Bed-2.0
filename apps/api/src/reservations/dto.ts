@@ -156,6 +156,8 @@ export const reservationLineSchema = z
     children: z.number().int().min(0).max(20).default(0),
     childAges: z.array(z.number().int().min(0).max(17)).max(20).optional(),
     extraBeds: z.number().int().min(0).max(10).default(0),
+    cots: z.number().int().min(0).max(10).optional(),
+    minimumExceptionReason: z.string().trim().min(3).max(500).optional(),
     /** A typed rate for this room; omit to sell at the rate calendar's price. */
     rate: rateOverrideSchema.optional(),
     /** Guest List: this room's own guest. Omitted: the reservation's guest. */

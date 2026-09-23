@@ -26,3 +26,4 @@ export * from './rate-policy';
 export * from './residency';
 export * from './reservation-options';
 export * from './invoice-rules';
+export * from './smart-property';

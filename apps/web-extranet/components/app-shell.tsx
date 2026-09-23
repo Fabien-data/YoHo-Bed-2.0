@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -36,7 +37,7 @@ import {
   Tooltip,
   cn,
 } from '@yohobed/ui';
-import { clearSession, type SessionUser } from '@/lib/api';
+import { clearSession, getHotelAccess, type HotelPermission, type SessionUser } from '@/lib/api';
 import { NAV, QUICK_MENU, activeNavItem } from '@/lib/nav';
 import { useEntitlements } from '@/lib/queries';
 import { useActiveProperty } from '@/components/active-property';
@@ -89,11 +90,32 @@ export function AppShell({
   // must re-scope every screen, not just this header's label.
   const { property, properties, switchProperty } = useActiveProperty();
   const { data: entitlements } = useEntitlements();
+  const { data: hotelAccess } = useQuery({
+    queryKey: ['hotel-access'],
+    queryFn: getHotelAccess,
+    enabled: !!user && !pending,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
   const active = activeNavItem(pathname);
   const { openComposer } = useReservationComposer();
   const tenantRole = user?.memberships.find((membership) => membership.tenantId !== null)?.role;
   const housekeepingUser =
     tenantRole === 'HOUSEKEEPING_ATTENDANT' || tenantRole === 'HOUSEKEEPING_SUPERVISOR';
+  const customPermissions = hotelAccess?.permissions;
+  const can = (...permissions: HotelPermission[]) =>
+    !customPermissions || permissions.some((permission) => customPermissions.includes(permission));
+  const customRouteVisible = (href: string) => {
+    if (!customPermissions) return true;
+    if (href === '/app/profile') return true;
+    if (href === '/app/stayview' || href === '/app/reservations') return can('reservation_read');
+    if (href === '/app/bookings')
+      return can('reservation_read', 'reservation_change', 'check_in_out');
+    if (href === '/app/roomview') return can('reservation_read', 'housekeeping');
+    if (href === '/app/housekeeping') return can('housekeeping');
+    if (href === '/app/setup') return can('setup');
+    return false;
+  };
 
   // Restore persisted UI state after mount (SSR renders the default).
   React.useEffect(() => {
@@ -149,7 +171,11 @@ export function AppShell({
     ...group,
     items: group.items.filter(
       (i) =>
-        (!housekeepingUser || i.href === '/app/roomview' || i.href === '/app/profile') &&
+        (!housekeepingUser ||
+          i.href === '/app/roomview' ||
+          i.href === '/app/housekeeping' ||
+          i.href === '/app/profile') &&
+        customRouteVisible(i.href) &&
         (!i.feature || entitlements?.features[i.feature] !== false),
     ),
   })).filter((g) => g.items.length > 0);
@@ -226,7 +252,7 @@ export function AppShell({
         </button>
 
         <div className="ml-auto flex items-center gap-0.5">
-          {!housekeepingUser && (
+          {!housekeepingUser && !customPermissions && (
             <Button
               variant="ghost"
               size="icon"
@@ -239,7 +265,7 @@ export function AppShell({
           )}
 
           {/* Quick actions — the Yanolja icon strip, entitlement-filtered like the sidebar. */}
-          {!housekeepingUser && (
+          {!housekeepingUser && !customPermissions && (
             <div className="hidden items-center gap-0.5 lg:flex">
               <Tooltip label="New reservation (Alt+N)">
                 <Button
@@ -267,7 +293,7 @@ export function AppShell({
           )}
 
           {/* Quick Menu grid */}
-          {!housekeepingUser && (
+          {!housekeepingUser && !customPermissions && (
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label="Quick menu">
@@ -430,7 +456,9 @@ export function AppShell({
         </main>
       </div>
 
-      {!housekeepingUser && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
+      {!housekeepingUser && !customPermissions && (
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      )}
     </div>
   );
 }

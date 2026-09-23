@@ -26,3 +26,5 @@ export * from './configuration';
 export * from './cashiering';
 export * from './nightaudit';
 export * from './ux';
+export * from './smart-setup';
+export * from './hotel-roles';

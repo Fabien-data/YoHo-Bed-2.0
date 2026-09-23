@@ -127,7 +127,13 @@ export function RoomLine({
               key={t.occupancyId}
               value={t.occupancyId}
               disabled={!t.priced}
-              hint={t.priced ? `${money(t.average!)}/night` : 'No price'}
+              hint={
+                t.requiresGuestQuote
+                  ? 'Calculated from guests'
+                  : t.priced
+                    ? `${money(t.average!)}/night`
+                    : 'No price'
+              }
             >
               {t.rateCode} · {t.label}
               {t.audience !== 'all' ? (t.audience === 'local' ? ' · Resident' : ' · Foreign') : ''}
@@ -155,6 +161,7 @@ export function RoomLine({
           {units.map((u) => (
             <SelectItem key={u.id} value={u.id} hint={u.floor ? `fl ${u.floor}` : undefined}>
               {u.code}
+              {u.displayName ? ` · ${u.displayName}` : ''}
             </SelectItem>
           ))}
         </SelectContent>
@@ -176,7 +183,9 @@ export function RoomLine({
 
       <Select
         value={String(line.children)}
-        onValueChange={(v) => onChange({ children: Number(v) })}
+        onValueChange={(v) =>
+          onChange({ children: Number(v), childAges: (line.childAges ?? []).slice(0, Number(v)) })
+        }
       >
         <SelectTrigger aria-label={`Children, room ${n}`}>
           <SelectValue />
@@ -263,6 +272,88 @@ export function RoomLine({
           </button>
         )}
       </div>
+      {line.children > 0 && (
+        <label className="col-span-full text-xs text-ink-2">
+          Child ages for room {n}, separated by commas
+          <input
+            aria-label={`Child ages, room ${n}`}
+            className="mt-1 block w-full rounded-lg border border-line bg-surface p-2 text-sm"
+            inputMode="numeric"
+            defaultValue={(line.childAges ?? []).join(', ')}
+            key={`${line.key}-${line.children}`}
+            placeholder="For example: 4, 11"
+            onBlur={(event) =>
+              onChange({
+                childAges: event.target.value
+                  .split(',')
+                  .map((value) => value.trim())
+                  .filter(Boolean)
+                  .map(Number),
+              })
+            }
+          />
+          {(line.childAges?.length ?? 0) !== line.children && (
+            <span className="mt-1 block text-closed-ink">
+              Enter one age from 0 to 17 for each child.
+            </span>
+          )}
+        </label>
+      )}
+      <details className="col-span-full rounded-lg border border-line p-2 text-xs text-ink-2">
+        <summary className="cursor-pointer">Beds, cots and minimum-rate exception</summary>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {(['extraBeds', 'cots'] as const).map((key) => (
+            <label key={key}>
+              {key === 'extraBeds' ? 'Extra beds' : 'Cots'}
+              <input
+                type="number"
+                min="0"
+                max="10"
+                aria-label={`${key === 'extraBeds' ? 'Extra beds' : 'Cots'}, room ${n}`}
+                className="mt-1 block w-full rounded-lg border border-line bg-surface p-2"
+                value={line[key] ?? 0}
+                onChange={(event) => onChange({ [key]: Number(event.target.value) })}
+              />
+            </label>
+          ))}
+          <label className="sm:col-span-2">
+            Minimum-rate exception reason
+            <input
+              className="mt-1 block w-full rounded-lg border border-line bg-surface p-2"
+              value={line.minimumExceptionReason ?? ''}
+              onChange={(event) => onChange({ minimumExceptionReason: event.target.value })}
+              placeholder="Only an authorized role may use an exception"
+            />
+          </label>
+        </div>
+      </details>
+      {quote?.policyVersion && (
+        <details className="col-span-full rounded-lg border border-line p-2 text-xs text-ink-2">
+          <summary className="cursor-pointer">
+            Nightly calculation · policy {quote.policyVersion}
+          </summary>
+          {quote.nights.map((night) => (
+            <div key={night.date} className="mt-2 border-t border-line pt-2">
+              <strong>{night.date}</strong>
+              {night.smartQuote?.lines.map((item, i) => (
+                <div key={i} className="flex justify-between gap-3">
+                  <span>{item.label}</span>
+                  <span>{money(item.amountMinor / 100)}</span>
+                </div>
+              ))}
+              <p>Room and meal minimum: {money((night.smartQuote?.minimumNetMinor ?? 0) / 100)}</p>
+              <p>
+                Taxes: {money(night.tax)} · Guest total: {money(night.sellingPrice)}
+              </p>
+              {night.smartQuote?.belowMinimum && (
+                <p className="text-low-ink">
+                  Minimum-rate exception: {night.smartQuote.exceptionReason}
+                </p>
+              )}
+            </div>
+          ))}
+        </details>
+      )}
       {error && <p className="col-span-full -mt-1 text-xs font-medium text-closed-ink">{error}</p>}
     </div>
   );

@@ -4,6 +4,7 @@ import { bookings, customers, guestDocuments, payments } from '@yohobed/db';
 import {
   addDeskUser,
   addRoomType,
+  addUnits,
   admin,
   hotelToday,
   makeTenant,
@@ -317,6 +318,18 @@ describe('group cards', () => {
 
     const third = await make('Arrived Abeywickrama');
     const id = third.body.bookings[0].id;
+    const [unitId] = await addUnits(fx, fx.roomId, ['G-ARRIVED']);
+    const [leg] = (await request('GET', `/bookings/${id}/rooms`, { token: fx.token })).body;
+    expect(
+      (
+        await request('POST', `/bookings/${id}/assign`, {
+          token: fx.token,
+          body: {
+            assignments: [{ legId: leg.id, roomUnitId: unitId, expectedUpdatedAt: leg.updatedAt }],
+          },
+        })
+      ).status,
+    ).toBe(200);
     const arrived = await request('POST', `/bookings/${id}/check-in`, { token: fx.token });
     expect(arrived.status, JSON.stringify(arrived.body)).toBe(200);
     const refused = await request('POST', '/reservation-groups/merge', {
@@ -333,6 +346,7 @@ describe('the full reservation: room guests, remarks and tasks', () => {
     const fx = await ready();
     // Arriving today, so the check-in task can really be released by a check-in.
     await openAndPrice(fx, hotelToday(), hotelToday(10), { roomsToSell: 10, base: 18000 });
+    const [roomUnitId] = await addUnits(fx, fx.roomId, ['OCCASION-101']);
     const created = await reserve(fx, {
       checkin: hotelToday(),
       checkout: hotelToday(2),
@@ -340,6 +354,7 @@ describe('the full reservation: room guests, remarks and tasks', () => {
       remarks: [{ type: 'front_desk', text: 'Late arrival, around 11pm' }],
       lines: [
         line(fx, {
+          roomUnitId,
           tasks: [{ title: 'Flowers in the room', department: 'housekeeping', trigger: 'checkin' }],
         }),
         line(fx, {

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import type { SmartPropertyDocument } from '@yohobed/domain';
 import { makeTenant, openAndPrice, request, stopApp, type TenantFixture } from './harness';
 
 afterAll(stopApp);
@@ -76,6 +77,9 @@ describe('OTA reservation inbox', () => {
     const b = bookings.body.find((x: any) => x.reference === res.body.reference);
     expect(b.source).toBe('OTA');
     expect(b.status).toBe('Approved'); // the guest already paid the OTA
+    expect(Number(b.amount)).toBe(52000); // contracted provider amount, not today's calendar
+    const inbox = await request('GET', '/ota/reservations', { token: fx.token });
+    expect(inbox.body.find((row: any) => row.bookingId === b.id).reviewRequired).toBe(false);
 
     const avail = await request(
       'GET',
@@ -85,6 +89,91 @@ describe('OTA reservation inbox', () => {
       },
     );
     expect(avail.body[0].roomsToSell).toBe(2);
+  });
+
+  it('keeps a below-floor OTA contract and flags it for policy review', async () => {
+    const fx = await makeTenant({ roomQuantity: 2, distributionMode: 'standalone' });
+    await openAndPrice(fx, '2028-02-10', '2028-02-20', { roomsToSell: 2, base: 10000 });
+    const document: SmartPropertyDocument = {
+      schemaVersion: 1,
+      readiness: 'clean',
+      defaults: {
+        capacity: {
+          maxAdults: 2,
+          maxChildren: 1,
+          normalGuests: 2,
+          absoluteGuests: 3,
+          maxExtraBeds: 1,
+          maxCots: 1,
+        },
+        includedAdults: 2,
+        includedChildren: 0,
+        childUsesAdultPlace: false,
+        extraAdultMinor: 0,
+        extraBedMinor: 0,
+        cotMinor: 0,
+        childBands: [
+          {
+            id: 'child',
+            label: 'Child',
+            minAge: 0,
+            maxAge: 17,
+            accommodation: { mode: 'fixed', amountMinor: 0 },
+          },
+        ],
+      },
+      roomOverrides: {},
+      rates: {
+        [fx.occupancyId]: {
+          roomId: fx.roomId,
+          baseOccupancyId: fx.occupancyId,
+          includedAdults: 2,
+          includedChildren: 0,
+          meal: {
+            code: 'BB',
+            mode: 'independent',
+            adultMealMinor: 0,
+            childMeals: { child: { mode: 'fixed', amountMinor: 0 } },
+            minimumNetMinor: 900000,
+          },
+        },
+      },
+    };
+    const path = `/properties/${fx.propertyId}/smart-setup`;
+    const draft = await request('PUT', `${path}/draft`, {
+      token: fx.token,
+      body: { expectedVersion: 0, document },
+    });
+    expect(draft.status, JSON.stringify(draft.body)).toBe(200);
+    expect(draft.body.issues).toEqual([]);
+    const published = await request('POST', `${path}/publish`, {
+      token: fx.token,
+      body: { expectedVersion: 1, acknowledgeChannelLimit: true },
+    });
+    expect(published.status, JSON.stringify(published.body)).toBe(201);
+
+    const code = await mapRoom(fx);
+    const res = await push({
+      channel: 'booking.com',
+      externalRef: `BELOW-FLOOR-${Date.now()}`,
+      roomCode: code,
+      guest: { name: 'Contract Review' },
+      checkin: '2028-02-12',
+      checkout: '2028-02-14',
+      rooms: 1,
+      amount: 12000,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('imported');
+
+    const bookings = await request('GET', '/bookings', { token: fx.token });
+    const booking = bookings.body.find((item: any) => item.reference === res.body.reference);
+    expect(Number(booking.amount)).toBe(12000);
+    const inbox = await request('GET', '/ota/reservations', { token: fx.token });
+    const imported = inbox.body.find((item: any) => item.bookingId === booking.id);
+    expect(imported.reviewRequired).toBe(true);
+    expect(imported.reviewReason).toContain('Guest ages and adult/child composition');
+    expect(imported.reviewReason).toContain('below published minimum policy 1');
   });
 
   it('is idempotent on (channel, externalRef)', async () => {

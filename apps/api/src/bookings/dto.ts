@@ -12,6 +12,15 @@ export const createBookingSchema = z
     checkin: isoDate,
     checkout: isoDate,
     rooms: z.number().int().positive().default(1),
+    guests: z
+      .object({
+        adults: z.number().int().min(0).max(100),
+        childAges: z.array(z.number().int().min(0).max(17)).max(100),
+        extraBeds: z.number().int().min(0).max(100),
+        cots: z.number().int().min(0).max(100),
+      })
+      .strict()
+      .optional(),
     couponCode: z.string().max(40).optional(),
     referralCode: z.string().max(40).optional(),
   })
@@ -83,6 +92,41 @@ export const amendBookingSchema = z
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to amend' });
 export type AmendBookingDto = z.infer<typeof amendBookingSchema>;
+
+export const stayChangePreviewSchema = z
+  .object({
+    checkin: isoDate,
+    checkout: isoDate,
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.checkout > value.checkin &&
+      Date.parse(value.checkout) - Date.parse(value.checkin) <= 366 * 86_400_000,
+    {
+      path: ['checkout'],
+      message: 'Choose a stay from 1 to 366 nights',
+    },
+  );
+export const stayChangeCommitSchema = z
+  .object({
+    checkin: isoDate,
+    checkout: isoDate,
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    expectedAmount: z.string().regex(/^\d+\.\d{2}$/),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.checkout > value.checkin &&
+      Date.parse(value.checkout) - Date.parse(value.checkin) <= 366 * 86_400_000,
+    {
+      path: ['checkout'],
+      message: 'Choose a stay from 1 to 366 nights',
+    },
+  );
+export type StayChangePreviewDto = z.infer<typeof stayChangePreviewSchema>;
+export type StayChangeCommitDto = z.infer<typeof stayChangeCommitSchema>;
 
 // --- Reservations screen -----------------------------------------------------
 

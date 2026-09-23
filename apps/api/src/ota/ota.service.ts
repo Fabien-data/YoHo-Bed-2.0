@@ -7,7 +7,15 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
-import { cmRoomMappings, otaReservations, occupancies, ratePlans, rooms } from '@yohobed/db';
+import {
+  bookings,
+  cmRoomMappings,
+  otaReservations,
+  occupancies,
+  ratePlans,
+  rooms,
+  smartPropertyPolicies,
+} from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { BookingService } from '../bookings/booking.service';
 import { MailerService } from '../email/mailer.service';
@@ -187,12 +195,64 @@ export class OtaService {
             checkout: row.checkout,
             rooms: row.rooms,
           },
-          { source: 'OTA', autoApprove: true, channelLabel: row.channel },
+          {
+            source: 'OTA',
+            autoApprove: true,
+            channelLabel: row.channel,
+            contractedAmount: row.otaAmount === null ? undefined : Number(row.otaAmount),
+          },
         );
+        const [smart] = await tx
+          .select({
+            published: smartPropertyPolicies.published,
+            version: smartPropertyPolicies.publishedVersion,
+          })
+          .from(smartPropertyPolicies)
+          .where(eq(smartPropertyPolicies.propertyId, row.propertyId!));
+        const minimum = smart?.published?.rates[occ.id]?.meal.minimumNetMinor;
+        const reasons: string[] = [];
+        if (smart?.published)
+          reasons.push(
+            'Guest ages and adult/child composition were not supplied by the channel; review policy eligibility.',
+          );
+        if (row.otaAmount === null)
+          reasons.push(
+            'The channel did not supply its contracted amount; the current calendar price was used.',
+          );
+        if (
+          minimum !== undefined &&
+          Math.round(Number(b!.totalBasePrice) * 100) < minimum * b!.nights * b!.rooms
+        )
+          reasons.push(
+            `The contracted hotel base is below published minimum policy ${smart!.version}.`,
+          );
+        const reviewRequired = reasons.length > 0;
         await tx
           .update(otaReservations)
-          .set({ status: 'imported', bookingId: b!.id, error: null, processedAt: new Date() })
+          .set({
+            status: 'imported',
+            bookingId: b!.id,
+            error: null,
+            reviewRequired,
+            reviewReason: reasons.join(' ') || null,
+            processedAt: new Date(),
+          })
           .where(eq(otaReservations.id, row.id));
+        if (reviewRequired)
+          await tx
+            .update(bookings)
+            .set({
+              pricing: {
+                ...((b!.pricing as Record<string, unknown> | null) ?? {}),
+                otaContract: {
+                  channel: row.channel,
+                  amount: row.otaAmount,
+                  reviewRequired: true,
+                  reviewReason: reasons.join(' '),
+                },
+              },
+            })
+            .where(eq(bookings.id, b!.id));
         return b!;
       });
       this.mailer.deliverQueuedSafe(row.tenantId); // after commit: send the queued confirmation

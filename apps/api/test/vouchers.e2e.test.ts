@@ -3,6 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { messages, voucherTokens } from '@yohobed/db';
 import {
   admin,
+  addUnits,
   book,
   makeTenant,
   openAndPrice,
@@ -204,6 +205,10 @@ describe('check-out and the registration card', () => {
     });
     const id = res.body.bookings[0].id;
     // Straight to checked in, as the desk would at arrival.
+    await addUnits(fx, fx.roomId, ['CHECKOUT-101']);
+    expect((await request('POST', `/bookings/${id}/auto-assign`, { token: fx.token })).status).toBe(
+      200,
+    );
     expect((await request('POST', `/bookings/${id}/check-in`, { token: fx.token })).status).toBe(
       200,
     );

@@ -274,6 +274,10 @@ export function fullStayBody(propertyId: string, d: FullDraft): ReservationStayI
         children: l.children,
         ...(l.childAges.length ? { childAges: l.childAges.slice(0, l.children) } : {}),
         ...(l.extraBeds ? { extraBeds: l.extraBeds } : {}),
+        cots: l.cots ?? 0,
+        ...(l.minimumExceptionReason?.trim()
+          ? { minimumExceptionReason: l.minimumExceptionReason.trim() }
+          : {}),
         ...(rate !== null ? { rate: { mode: 'total' as const, amount: rate } } : {}),
       };
     }),

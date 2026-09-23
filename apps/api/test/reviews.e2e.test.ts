@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  addUnits,
   makeTenant,
   openAndPrice,
   book,
@@ -26,6 +27,8 @@ async function checkOutGuest(fx: TenantFixture, email: string) {
     customerEmail: email,
   });
   await request('POST', `/bookings/${b.body.id}/approve`, { token: fx.token });
+  await addUnits(fx, fx.roomId, [`REVIEW-${b.body.id.slice(0, 8)}`]);
+  await request('POST', `/bookings/${b.body.id}/auto-assign`, { token: fx.token });
   await payInFull(fx, b.body.id);
   const inRes = await request('POST', `/bookings/${b.body.id}/check-in`, { token: fx.token });
   expect(inRes.status, JSON.stringify(inRes.body)).toBe(200);

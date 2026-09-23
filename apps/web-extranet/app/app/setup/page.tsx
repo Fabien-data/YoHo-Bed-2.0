@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   listProperties,
@@ -193,6 +194,15 @@ export default function SetupPage() {
         title="Property setup"
         description="Build the structure the calendar prices against: property → rooms → rate plans (meal plans) → occupancies (guest configurations)."
       />
+      {role === 'OWNER' && (
+        <div className="mb-4 rounded-xl border border-line bg-surface p-4 text-sm text-ink-2">
+          <strong className="text-ink">Smart setup</strong> guides capacity, child rules, meals,
+          minimum rates and a booking preview.{' '}
+          <Link href="/app/setup/smart" className="font-semibold text-brand underline">
+            Open smart property setup
+          </Link>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Properties */}

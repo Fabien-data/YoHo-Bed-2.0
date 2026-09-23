@@ -50,6 +50,30 @@ describe('stay view', () => {
     expect(res.body.roomTypes[0].units.map((u: any) => u.code)).toEqual(['01', '02', '03']);
   });
 
+  it('returns a populated 200-room calendar without losing units', async () => {
+    const fx = await makeTenant({ roomQuantity: 200 });
+    const units = Array.from({ length: 200 }, (_, index) => ({
+      roomId: fx.roomId,
+      code: String(index + 1).padStart(3, '0'),
+      displayName: index % 25 === 0 ? `Named room ${index + 1}` : undefined,
+      floor: String(Math.floor(index / 20) + 1),
+      displayOrder: index,
+    }));
+    const created = await request('POST', `/properties/${fx.propertyId}/room-units/bulk`, {
+      token: fx.token,
+      body: { units },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body).toHaveLength(200);
+
+    const res = await stayview(fx, '2028-01-01', '2028-01-31');
+    expect(res.status).toBe(200);
+    expect(res.body.dates).toHaveLength(30);
+    expect(res.body.roomTypes[0].units).toHaveLength(200);
+    expect(res.body.roomTypes[0].units[0]).toMatchObject({ code: '001', floor: '1' });
+    expect(res.body.roomTypes[0].units[199]).toMatchObject({ code: '200', floor: '10' });
+  });
+
   it('draws an assigned booking as a bar on its room', async () => {
     const fx = await makeTenant({ roomQuantity: 3 });
     const [u1] = await makeUnits(fx, 2);

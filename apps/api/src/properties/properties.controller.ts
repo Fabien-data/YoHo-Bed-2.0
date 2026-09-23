@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { TenantRequest } from '../tenancy/tenant.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
@@ -17,8 +28,26 @@ export class PropertiesController {
   constructor(private readonly properties: PropertyService) {}
 
   @Get()
-  list(@TenantId() tenantId: string) {
-    return this.properties.list(tenantId);
+  async list(@TenantId() tenantId: string, @Req() request: TenantRequest) {
+    const values = await this.properties.list(tenantId);
+    const granted = request.grantedPropertyIds
+      ? values.filter((value) => request.grantedPropertyIds!.includes(value.id))
+      : values;
+    if (
+      request.hotelPermissions &&
+      !request.hotelPermissions.includes('financial_read') &&
+      !request.hotelPermissions.includes('setup')
+    ) {
+      return granted.map(({ id, name, code, currency, timezone, countryCode }) => ({
+        id,
+        name,
+        code,
+        currency,
+        timezone,
+        countryCode,
+      }));
+    }
+    return granted;
   }
 
   @Get(':id')

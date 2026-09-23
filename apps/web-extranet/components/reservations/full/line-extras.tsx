@@ -9,6 +9,7 @@ import {
   ChatText,
   ClipboardText,
   ForkKnife,
+  Gift,
   Lock,
   Trash,
 } from '@phosphor-icons/react';
@@ -99,7 +100,7 @@ const INCLUSION_PRESETS: Array<{ name: string; rhythm: InclusionRhythm }> = [
   { name: 'Early check-in', rhythm: 'once' },
 ];
 
-type Panel = 'remarks' | 'task' | 'children' | 'inclusion' | 'transfer' | null;
+type Panel = 'occasion' | 'remarks' | 'task' | 'children' | 'inclusion' | 'transfer' | null;
 
 /**
  * The ⌄ menu at the end of a room line — Yanolja's Inclusion, Remarks, Create Task and Pick Up /
@@ -141,6 +142,9 @@ export function LineExtras({
           </button>
         </MenuTrigger>
         <MenuContent align="end" className="w-56">
+          <MenuItem onSelect={() => setPanel('occasion')}>
+            <Gift size={15} /> Guest occasion
+          </MenuItem>
           <MenuItem onSelect={() => setPanel('inclusion')}>
             <ForkKnife size={15} /> Inclusion
           </MenuItem>
@@ -159,6 +163,17 @@ export function LineExtras({
           </MenuItem>
         </MenuContent>
       </Menu>
+
+      <OccasionDialog
+        open={panel === 'occasion'}
+        onOpenChange={(o) => setPanel(o ? 'occasion' : null)}
+        roomNumber={n}
+        line={line}
+        canTask={canTask}
+        currency={currency}
+        stayDates={stayDates}
+        onChange={onChange}
+      />
 
       <RemarksDialog
         open={panel === 'remarks'}
@@ -202,6 +217,192 @@ export function LineExtras({
         onChange={(transfers) => onChange({ transfers })}
       />
     </>
+  );
+}
+
+const OCCASION_LABEL = {
+  birthday: 'Birthday',
+  honeymoon: 'Honeymoon',
+  anniversary: 'Anniversary',
+  preference: 'Guest preference',
+  other: 'Other occasion',
+} as const;
+
+type OccasionType = keyof typeof OCCASION_LABEL;
+
+/**
+ * An occasion is a guided shortcut over the records the hotel already operates: a visible guest
+ * remark, an optional preparation work order, and an optional once-per-stay charge.
+ */
+function OccasionDialog({
+  open,
+  onOpenChange,
+  roomNumber,
+  line,
+  canTask,
+  currency,
+  stayDates,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  roomNumber: number;
+  line: FullLineDraft;
+  canTask: boolean;
+  currency: string;
+  stayDates: { checkin: string; checkout: string; today: string };
+  onChange: (patch: Partial<FullLineDraft>) => void;
+}) {
+  const [occasion, setOccasion] = React.useState<OccasionType>('birthday');
+  const [date, setDate] = React.useState('');
+  const [details, setDetails] = React.useState('');
+  const [createTask, setCreateTask] = React.useState(canTask);
+  const [extraName, setExtraName] = React.useState('');
+  const [extraPrice, setExtraPrice] = React.useState('');
+  const extraValid =
+    (!extraName.trim() && !extraPrice) || Boolean(extraName.trim() && Number(extraPrice) > 0);
+  const apply = () => {
+    const label = OCCASION_LABEL[occasion];
+    const context = [date ? `on ${date}` : '', details.trim()].filter(Boolean).join(' · ');
+    const note = `${label}${context ? ` · ${context}` : ''}`;
+    const task: TaskInput = {
+      title: `Prepare for ${label.toLocaleLowerCase()}`,
+      description: details.trim() || undefined,
+      department: occasion === 'birthday' ? 'food_beverage' : 'housekeeping',
+      trigger: 'checkin',
+      deadline: stayDates.checkin,
+      priority: 'medium',
+    };
+    const inclusion: InclusionInput = {
+      name: extraName.trim(),
+      rhythm: 'once',
+      unitPrice: Number(extraPrice),
+    };
+    onChange({
+      remarks: [
+        ...line.remarks,
+        { type: occasion === 'preference' ? 'preference' : 'general', text: note },
+      ],
+      tasks: createTask && canTask ? [...line.tasks, task] : line.tasks,
+      inclusions: extraName.trim() ? [...line.inclusions, inclusion] : line.inclusions,
+    });
+    setDate('');
+    setDetails('');
+    setExtraName('');
+    setExtraPrice('');
+    onOpenChange(false);
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title={`Guest occasion · room ${roomNumber}`} className="max-w-lg">
+        <form
+          className="flex flex-col gap-4 px-5 py-4"
+          onSubmit={(event) => {
+            stop(event);
+            if (extraValid) apply();
+          }}
+        >
+          <p className="text-sm text-ink-2">
+            Record the guest context, prepare the room, and add an optional charge in one step.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Occasion" htmlFor={`occasion-${roomNumber}`} required>
+              <Select
+                value={occasion}
+                onValueChange={(value) => setOccasion(value as OccasionType)}
+              >
+                <SelectTrigger id={`occasion-${roomNumber}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(OCCASION_LABEL) as OccasionType[]).map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {OCCASION_LABEL[key]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Occasion date" htmlFor={`occasion-date-${roomNumber}`} hint="Optional">
+              <DatePicker
+                id={`occasion-date-${roomNumber}`}
+                aria-label="Occasion date"
+                value={date || null}
+                today={stayDates.today}
+                onChange={setDate}
+              />
+            </Field>
+          </div>
+          <Field
+            label="Guest preferences or preparation notes"
+            htmlFor={`occasion-details-${roomNumber}`}
+          >
+            <Textarea
+              id={`occasion-details-${roomNumber}`}
+              rows={3}
+              maxLength={1000}
+              value={details}
+              placeholder="Cake message, flowers, dietary needs, room preparation…"
+              onChange={(event) => setDetails(event.target.value)}
+            />
+          </Field>
+          <label className="flex items-start gap-2 text-sm text-ink-2">
+            <Checkbox
+              checked={createTask && canTask}
+              disabled={!canTask}
+              onCheckedChange={(checked) => setCreateTask(checked === true)}
+              aria-label="Create preparation task"
+              className="mt-0.5"
+            />
+            <span>
+              Create a preparation task due at check-in
+              {!canTask ? ' · task permission required' : ''}
+            </span>
+          </label>
+          <div className="rounded-lg border border-line p-3">
+            <p className="mb-2 text-sm font-semibold text-ink">Optional chargeable extra</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                label="Extra"
+                htmlFor={`occasion-extra-${roomNumber}`}
+                hint="Leave blank for no charge"
+              >
+                <Input
+                  id={`occasion-extra-${roomNumber}`}
+                  value={extraName}
+                  placeholder="Cake, flowers, decoration"
+                  onChange={(event) => setExtraName(event.target.value)}
+                />
+              </Field>
+              <Field label={`Price (${currency})`} htmlFor={`occasion-price-${roomNumber}`}>
+                <Input
+                  id={`occasion-price-${roomNumber}`}
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  value={extraPrice}
+                  onChange={(event) => setExtraPrice(event.target.value)}
+                />
+              </Field>
+            </div>
+            {!extraValid && (
+              <p className="mt-2 text-xs text-closed-ink">
+                Enter both an extra name and a price greater than zero.
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!extraValid}>
+              Add occasion
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

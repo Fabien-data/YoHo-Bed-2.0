@@ -19,12 +19,14 @@ import {
 import { DatabaseService } from '../database/database.service';
 import type {
   AssignRoomsDto,
+  BulkRoomUnitsDto,
   CreateRoomUnitDto,
   UpdateRoomUnitDto,
   MoveRoomDto,
   ExchangeRoomsDto,
 } from './dto';
 import { localToday } from '../common/local-date';
+import { assertRoomsReadyForCheckIn } from '../housekeeping/readiness';
 
 /** Postgres raises this when the anti-double-booking exclusion constraint refuses a row. */
 const EXCLUSION_VIOLATION = '23P01';
@@ -47,6 +49,7 @@ export class RoomUnitsService {
           roomId: roomUnits.roomId,
           roomName: rooms.name,
           code: roomUnits.code,
+          displayName: roomUnits.displayName,
           displayOrder: roomUnits.displayOrder,
           floor: roomUnits.floor,
           notes: roomUnits.notes,
@@ -66,9 +69,35 @@ export class RoomUnitsService {
 
   async create(tenantId: string, propertyId: string, dto: CreateRoomUnitDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
+      const [property] = await tx
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, propertyId))
+        .for('update');
+      if (!property) throw new NotFoundException('Property not found');
       const [room] = await tx.select().from(rooms).where(eq(rooms.id, dto.roomId));
       if (!room || room.propertyId !== propertyId) {
         throw new NotFoundException('Room not found in this property');
+      }
+      const [duplicate] = await tx
+        .select({ id: roomUnits.id })
+        .from(roomUnits)
+        .where(
+          and(
+            eq(roomUnits.propertyId, propertyId),
+            sql`lower(trim(${roomUnits.code})) = lower(trim(${dto.code}))`,
+          ),
+        );
+      if (duplicate)
+        throw new ConflictException(`Room "${dto.code}" already exists in this property`);
+      if (dto.connectedRoomUnitId) {
+        const [connected] = await tx
+          .select({ id: roomUnits.id })
+          .from(roomUnits)
+          .where(
+            and(eq(roomUnits.id, dto.connectedRoomUnitId), eq(roomUnits.propertyId, propertyId)),
+          );
+        if (!connected) throw new BadRequestException('Connected room must be in this property');
       }
 
       // Default the sort position to the numeric part of the code, so "07" lands between 06 and
@@ -83,7 +112,8 @@ export class RoomUnitsService {
             tenantId,
             propertyId,
             roomId: dto.roomId,
-            code: dto.code,
+            code: dto.code.trim(),
+            displayName: dto.displayName?.trim() || null,
             displayOrder,
             floor: dto.floor ?? null,
             notes: dto.notes ?? null,
@@ -102,10 +132,131 @@ export class RoomUnitsService {
     });
   }
 
+  /** Review and save use the same checks; save repeats them under a property row lock. */
+  private async bulkIssues(tx: Tx, propertyId: string, dto: BulkRoomUnitsDto) {
+    const categoryRows = await tx
+      .select({ id: rooms.id })
+      .from(rooms)
+      .where(eq(rooms.propertyId, propertyId));
+    const categories = new Set(categoryRows.map((row) => row.id));
+    const existingRows = await tx
+      .select({ code: roomUnits.code })
+      .from(roomUnits)
+      .where(eq(roomUnits.propertyId, propertyId));
+    const connectedIds = [
+      ...new Set(
+        dto.units.map((unit) => unit.connectedRoomUnitId).filter((id): id is string => !!id),
+      ),
+    ];
+    const validConnected = new Set(
+      connectedIds.length
+        ? (
+            await tx
+              .select({ id: roomUnits.id })
+              .from(roomUnits)
+              .where(and(eq(roomUnits.propertyId, propertyId), inArray(roomUnits.id, connectedIds)))
+          ).map((row) => row.id)
+        : [],
+    );
+    const seen = new Set(existingRows.map((row) => row.code.trim().toLocaleLowerCase()));
+    const issues: { index: number; field: string; message: string }[] = [];
+    dto.units.forEach((unit, index) => {
+      if (!categories.has(unit.roomId))
+        issues.push({ index, field: 'roomId', message: 'Choose a category in this property.' });
+      if (unit.connectedRoomUnitId && !validConnected.has(unit.connectedRoomUnitId))
+        issues.push({
+          index,
+          field: 'connectedRoomUnitId',
+          message: 'Connected room must already exist in this property.',
+        });
+      const code = unit.code.trim().toLocaleLowerCase();
+      if (seen.has(code))
+        issues.push({
+          index,
+          field: 'code',
+          message: 'This room code already exists in the property or batch.',
+        });
+      if (!code) issues.push({ index, field: 'code', message: 'Enter a room code.' });
+      seen.add(code);
+    });
+    return issues;
+  }
+
+  async previewBulk(tenantId: string, propertyId: string, dto: BulkRoomUnitsDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [property] = await tx
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, propertyId));
+      if (!property) throw new NotFoundException('Property not found');
+      const issues = await this.bulkIssues(tx, propertyId, dto);
+      return { valid: issues.length === 0, issues, count: dto.units.length };
+    });
+  }
+
+  async createBulk(tenantId: string, propertyId: string, dto: BulkRoomUnitsDto) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      // Every bulk writer locks the property so two concurrent batches cannot pass review together.
+      const [property] = await tx
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, propertyId))
+        .for('update');
+      if (!property) throw new NotFoundException('Property not found');
+      const issues = await this.bulkIssues(tx, propertyId, dto);
+      if (issues.length)
+        throw new BadRequestException({ message: 'Resolve room issues before saving.', issues });
+      try {
+        return await tx
+          .insert(roomUnits)
+          .values(
+            dto.units.map((unit) => ({
+              tenantId,
+              propertyId,
+              roomId: unit.roomId,
+              code: unit.code.trim(),
+              displayName: unit.displayName?.trim() || null,
+              displayOrder:
+                unit.displayOrder ?? (Number.parseInt(unit.code.replace(/\D/g, ''), 10) || 0),
+              floor: unit.floor?.trim() || null,
+              notes: unit.notes?.trim() || null,
+              smokingPolicy: unit.smokingPolicy ?? 'unspecified',
+              wheelchairAccessible: unit.wheelchairAccessible ?? false,
+              connectedRoomUnitId: unit.connectedRoomUnitId ?? null,
+            })),
+          )
+          .returning();
+      } catch (error) {
+        if ((error as { code?: string }).code === '23505')
+          throw new ConflictException('A room code was created concurrently. Review and retry.');
+        throw error;
+      }
+    });
+  }
+
   async update(tenantId: string, id: string, dto: UpdateRoomUnitDto) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [unit] = await tx.select().from(roomUnits).where(eq(roomUnits.id, id));
       if (!unit) throw new NotFoundException('Room not found');
+      await tx
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, unit.propertyId))
+        .for('update');
+      if (dto.code) {
+        const [duplicate] = await tx
+          .select({ id: roomUnits.id })
+          .from(roomUnits)
+          .where(
+            and(
+              eq(roomUnits.propertyId, unit.propertyId),
+              sql`${roomUnits.id} <> ${id}`,
+              sql`lower(trim(${roomUnits.code})) = lower(trim(${dto.code}))`,
+            ),
+          );
+        if (duplicate)
+          throw new ConflictException(`Room "${dto.code}" already exists in this property`);
+      }
 
       // Taking a unit out of service must not silently strand a guest who is in it.
       if (dto.status === 'inactive' && unit.status === 'active') {
@@ -139,7 +290,7 @@ export class RoomUnitsService {
       try {
         const [updated] = await tx
           .update(roomUnits)
-          .set({ ...dto, updatedAt: new Date() })
+          .set({ ...dto, code: dto.code?.trim(), updatedAt: new Date() })
           .where(eq(roomUnits.id, id))
           .returning();
         return updated;
@@ -164,10 +315,12 @@ export class RoomUnitsService {
         legIndex: bookingRooms.legIndex,
         roomUnitId: bookingRooms.roomUnitId,
         code: roomUnits.code,
+        displayName: roomUnits.displayName,
         checkin: bookingRooms.checkin,
         checkout: bookingRooms.checkout,
         adults: bookingRooms.adults,
         children: bookingRooms.children,
+        updatedAt: bookingRooms.updatedAt,
         releasedAt: bookingRooms.releasedAt,
       })
       .from(bookingRooms)
@@ -192,13 +345,19 @@ export class RoomUnitsService {
         const [leg] = await tx
           .select()
           .from(bookingRooms)
-          .where(and(eq(bookingRooms.id, a.legId), eq(bookingRooms.bookingId, bookingId)));
+          .where(and(eq(bookingRooms.id, a.legId), eq(bookingRooms.bookingId, bookingId)))
+          .for('update');
         if (!leg) throw new NotFoundException(`Leg ${a.legId} is not part of this booking`);
+        if (a.expectedUpdatedAt && leg.updatedAt.toISOString() !== a.expectedUpdatedAt)
+          throw new ConflictException(
+            'The room assignment changed. Refresh the review before saving.',
+          );
+        if (booking.status === 'CheckedIn' && leg.roomUnitId && leg.roomUnitId !== a.roomUnitId)
+          throw new ConflictException('Use the room-move workflow for an in-house guest.');
 
         if (a.roomUnitId === null) {
           if (
             booking.status === 'CheckedIn' ||
-            booking.status === 'CheckedOut' ||
             leg.checkin <=
               localToday(
                 (
@@ -284,6 +443,10 @@ export class RoomUnitsService {
         .for('update');
       if (!leg?.roomUnitId)
         throw new ConflictException('This reservation has no assigned room to move');
+      if (dto.expectedUpdatedAt && leg.updatedAt.toISOString() !== dto.expectedUpdatedAt)
+        throw new ConflictException(
+          'The room assignment changed. Refresh the review before saving.',
+        );
       const [from] = await tx.select().from(roomUnits).where(eq(roomUnits.id, leg.roomUnitId));
       const [to] = await tx.select().from(roomUnits).where(eq(roomUnits.id, dto.toRoomUnitId));
       if (
@@ -303,6 +466,8 @@ export class RoomUnitsService {
       const effectiveDate = dto.effectiveDate ?? (leg.checkin > today ? leg.checkin : today);
       if (effectiveDate < today || effectiveDate < leg.checkin || effectiveDate >= leg.checkout)
         throw new ConflictException('Move date must be an affected stay date');
+      if (booking.status === 'CheckedIn' && effectiveDate === today)
+        await assertRoomsReadyForCheckIn(tx, booking.propertyId, [to.id], today);
       await this.assertNotBlocked(tx, to.id, effectiveDate, leg.checkout, to.code);
       await this.assertDestinationFree(tx, to.id, effectiveDate, leg.checkout, leg.id, to.code);
       if (dto.effectiveDate && effectiveDate > today) {
@@ -581,7 +746,12 @@ export class RoomUnitsService {
   private async loadAssignable(tx: Tx, bookingId: string) {
     const [b] = await tx.select().from(bookings).where(eq(bookings.id, bookingId));
     if (!b) throw new NotFoundException('Booking not found');
-    if (b.status === 'Cancelled' || b.status === 'Rejected') {
+    if (
+      b.status === 'Cancelled' ||
+      b.status === 'Rejected' ||
+      b.status === 'CheckedOut' ||
+      b.status === 'NoShow'
+    ) {
       throw new BadRequestException(`Cannot assign a room to a ${b.status} booking`);
     }
     // An inquiry has taken no room out of inventory, so it cannot occupy a physical one either:

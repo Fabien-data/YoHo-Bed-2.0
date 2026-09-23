@@ -515,7 +515,11 @@ export function QuickGroupPanel({
                           <SelectItem
                             key={t.occupancyId}
                             value={t.occupancyId}
-                            hint={`${money(t.average!)}/night`}
+                            hint={
+                              t.requiresGuestQuote
+                                ? 'Calculated from guests'
+                                : `${money(t.average!)}/night`
+                            }
                           >
                             {`${t.rateCode} · ${t.label}`}
                           </SelectItem>

@@ -22,6 +22,7 @@ import {
   reclaimReleasedNights,
   roomUnits,
   properties,
+  roomMoves,
   tenants,
   releaseStay,
   reserveStay,
@@ -71,7 +72,8 @@ import {
 import { eachNight } from '../common/dates';
 import { localToday, propertyBusinessDate } from '../common/local-date';
 import { resolveFxRateToLkr } from '../common/fx-rate';
-import { ReservationPricer } from '../reservations/pricer';
+import { ReservationPricer, type PricedNight } from '../reservations/pricer';
+import { assertRoomsReadyForCheckIn } from '../housekeeping/readiness';
 import { policyForAmend, readPricingSnapshot } from '../reservations/pricing-snapshot';
 import type { Env } from '../config/env';
 import type { AmendBookingDto, CreateBookingDto } from './dto';
@@ -116,7 +118,7 @@ export class BookingService {
     private readonly stepUp: StepUpService,
   ) {}
 
-  list(tenantId: string) {
+  list(tenantId: string, grantedPropertyIds?: string[]) {
     return this.dbs.withTenant(tenantId, (tx) =>
       tx
         .select({
@@ -138,6 +140,13 @@ export class BookingService {
         })
         .from(bookings)
         .innerJoin(customers, eq(customers.id, bookings.customerId))
+        .where(
+          grantedPropertyIds
+            ? grantedPropertyIds.length
+              ? inArray(bookings.propertyId, grantedPropertyIds)
+              : sql`false`
+            : undefined,
+        )
         .orderBy(desc(bookings.createdAt)),
     );
   }
@@ -177,7 +186,12 @@ export class BookingService {
     tx: Tx,
     tenantId: string,
     dto: CreateBookingDto,
-    opts: { source?: 'Extranet' | 'OTA'; autoApprove?: boolean; channelLabel?: string } = {},
+    opts: {
+      source?: 'Extranet' | 'OTA';
+      autoApprove?: boolean;
+      channelLabel?: string;
+      contractedAmount?: number;
+    } = {},
   ) {
     const line = await this.pricer.priceLine(
       tx,
@@ -187,6 +201,12 @@ export class BookingService {
         checkin: dto.checkin,
         checkout: dto.checkout,
         rooms: dto.rooms,
+        guests: dto.guests,
+        externalContract: opts.source === 'OTA',
+        policy:
+          opts.contractedAmount !== undefined
+            ? { override: { mode: 'total', amount: opts.contractedAmount / dto.rooms } }
+            : undefined,
         checkRestrictions: true,
       },
       // Only a pricing policy reads the distribution mode; the calendar path never does.
@@ -202,6 +222,10 @@ export class BookingService {
     let discount = 0;
     let couponId: string | null = null;
     if (dto.couponCode) {
+      if (line.policyVersion)
+        throw new BadRequestException(
+          'Use the reservation composer to review coupons against smart nightly minimums.',
+        );
       const code = dto.couponCode.trim().toUpperCase();
       const [c] = await tx.select().from(coupons).where(eq(coupons.code, code));
       if (!c || !c.active) throw new BadRequestException('Invalid coupon code');
@@ -277,6 +301,29 @@ export class BookingService {
     // so the cross-property consolidated (LKR) view never drifts as live rates move.
     const currency = line.currency;
     const fxRateToLkr = await resolveFxRateToLkr(tx, currency);
+    const pricing = {
+      ...(opts.source === 'OTA'
+        ? {
+            otaContract: {
+              channel: opts.channelLabel ?? null,
+              amount: opts.contractedAmount ?? null,
+              reviewRequired: false,
+            },
+          }
+        : {}),
+      ...(line.policyVersion && dto.guests
+        ? {
+            smart: {
+              policyVersion: line.policyVersion,
+              guests: dto.guests,
+              nights: line.nights.map((night) => ({
+                date: night.date,
+                quote: night.smartQuote,
+              })),
+            },
+          }
+        : {}),
+    };
 
     const [booking] = await tx
       .insert(bookings)
@@ -303,6 +350,7 @@ export class BookingService {
         discount: discount.toFixed(2),
         currency,
         fxRateToLkr,
+        ...(Object.keys(pricing).length ? { pricing } : {}),
       })
       .returning();
 
@@ -314,8 +362,17 @@ export class BookingService {
       rooms: dto.rooms,
       checkin: dto.checkin,
       checkout: dto.checkout,
-      adults: line.accommodates ?? 1,
+      adults: dto.guests?.adults ?? line.accommodates ?? 1,
     });
+    if (dto.guests)
+      await tx
+        .update(bookingRooms)
+        .set({
+          children: dto.guests.childAges.length,
+          childAges: dto.guests.childAges,
+          extraBeds: dto.guests.extraBeds,
+        })
+        .where(eq(bookingRooms.bookingId, booking!.id));
 
     await tx.insert(bookingDays).values(
       line.nights.map((n) => ({
@@ -1118,6 +1175,24 @@ export class BookingService {
         throw new BadRequestException(`Cannot check in a ${b.status} booking`);
       }
       await this.assertReadyForCheckIn(tx, b, reason, ctx);
+      const [checkInProperty] = await tx
+        .select({ timezone: properties.timezone })
+        .from(properties)
+        .where(eq(properties.id, b.propertyId));
+      const activeLegs = await tx
+        .select({ roomUnitId: bookingRooms.roomUnitId })
+        .from(bookingRooms)
+        .where(and(eq(bookingRooms.bookingId, b.id), isNull(bookingRooms.releasedAt)));
+      const assignedUnitIds = activeLegs.flatMap((leg) => (leg.roomUnitId ? [leg.roomUnitId] : []));
+      // Hotels that have not configured physical rooms retain the legacy category-only workflow.
+      // Once numbered rooms exist, assertReadyForCheckIn assigns every leg before this point.
+      if (assignedUnitIds.length && !(ctx.overrideDirty && reason?.trim()))
+        await assertRoomsReadyForCheckIn(
+          tx,
+          b.propertyId,
+          assignedUnitIds,
+          localToday(checkInProperty?.timezone),
+        );
       status = 'CheckedIn';
       action = 'checked_in';
       set.checkedInAt = new Date();
@@ -1593,89 +1668,306 @@ export class BookingService {
    * — a typed rate, a contract, a complimentary room, a tax exemption), and a booking that holds
    * no rooms (an inquiry) is re-priced without touching inventory.
    */
-  amend(tenantId: string, id: string, dto: AmendBookingDto) {
-    return this.dbs.withTenant(tenantId, async (tx) => {
-      const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
-      if (!b) throw new NotFoundException('Booking not found');
-      if (b.status === 'Rejected' || b.status === 'Cancelled' || b.status === 'NoShow') {
-        throw new BadRequestException(`Cannot amend a ${b.status} booking`);
+  private async quoteAmendedNights(
+    tx: Tx,
+    tenantId: string,
+    booking: typeof bookings.$inferSelect,
+    checkin: string,
+    checkout: string,
+    count: number,
+  ) {
+    const snapshot = readPricingSnapshot(booking.pricing);
+    const currentDays = await tx
+      .select()
+      .from(bookingDays)
+      .where(eq(bookingDays.bookingId, booking.id));
+    const [tenant] = await tx
+      .select({ mode: tenants.distributionMode })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId));
+    const oldByDate = new Map(currentDays.map((day) => [day.date, day]));
+    const nights: PricedNight[] = [];
+    for (const date of eachNight(checkin, checkout)) {
+      const old = oldByDate.get(date);
+      if (old) {
+        nights.push({
+          date,
+          basePrice: old.basePrice,
+          commission: old.commission,
+          sellingPrice: old.sellingPrice,
+          tax: old.tax,
+          listSellingPrice: old.listSellingPrice ?? old.sellingPrice,
+          rateSource: old.rateSource as PricedNight['rateSource'],
+          taxLines: old.taxLines ?? [],
+        });
+        continue;
       }
-
-      const changes: string[] = [];
-
-      // Guest details live on the customer record (legacy `save-email`, generalized).
-      if (dto.customerName || dto.customerEmail !== undefined || dto.customerPhone !== undefined) {
-        const patch: Record<string, unknown> = { updatedAt: new Date() };
-        if (dto.customerName) patch.name = dto.customerName;
-        if (dto.customerEmail !== undefined) patch.email = dto.customerEmail || null;
-        if (dto.customerPhone !== undefined) patch.phone = dto.customerPhone || null;
-        await tx.update(customers).set(patch).where(eq(customers.id, b.customerId));
-        changes.push('guest details');
-      }
-
-      const newCheckin = dto.checkin ?? b.checkin;
-      const newCheckout = dto.checkout ?? b.checkout;
-      const newRooms = dto.rooms ?? b.rooms;
-      const stayChanged =
-        newCheckin !== b.checkin || newCheckout !== b.checkout || newRooms !== b.rooms;
-
-      if (stayChanged) {
-        if (b.status !== 'Pending' && b.status !== 'Approved') {
-          throw new BadRequestException(`Cannot change the stay of a ${b.status} booking`);
-        }
-        if (newCheckout <= newCheckin)
-          throw new BadRequestException('checkout must be after checkin');
-
-        const oldNights = eachNight(b.checkin, b.checkout);
-        const newNights = eachNight(newCheckin, newCheckout);
-
-        // Re-price the new stay on the SAME occupancy key (BUG #2 discipline), under the same
-        // terms it was sold on.
-        const snapshot = readPricingSnapshot(b.pricing);
-        const currentDays = await tx
-          .select({ sellingPrice: bookingDays.sellingPrice })
-          .from(bookingDays)
-          .where(eq(bookingDays.bookingId, id));
-        const [tenant] = await tx
-          .select({ mode: tenants.distributionMode })
-          .from(tenants)
-          .where(eq(tenants.id, tenantId));
-        const line = await this.pricer.priceLine(
-          tx,
-          {
-            roomId: b.roomId,
-            occupancyId: b.occupancyId,
-            checkin: newCheckin,
-            checkout: newCheckout,
-            rooms: newRooms,
-            policy: policyForAmend(
-              snapshot,
-              currentDays.map((d) => Number(d.sellingPrice)),
-            ),
-            unpricedMessage: 'Prices are not set for all nights of the new stay',
+      const next = new Date(Date.parse(date + 'T00:00:00Z') + 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const fresh = await this.pricer.priceLine(
+        tx,
+        {
+          roomId: booking.roomId,
+          occupancyId: booking.occupancyId,
+          checkin: date,
+          checkout: next,
+          rooms: count,
+          policy: {
+            contractAccountId: snapshot.contractAccountId,
+            taxExempt: Boolean(snapshot.taxExempt),
           },
-          tenant?.mode ?? 'yoho',
+          guests: snapshot.smart?.guests,
+          unpricedMessage: 'Prices are not set for all new nights of the stay',
+        },
+        tenant?.mode ?? 'yoho',
+      );
+      nights.push(fresh.nights[0]!);
+    }
+    const sum = (field: 'basePrice' | 'sellingPrice' | 'tax' | 'listSellingPrice') =>
+      nights.reduce((total, night) => total + Number(night[field]) * count, 0);
+    const amount = sum('sellingPrice');
+    const taxes = sum('tax');
+    return {
+      nights,
+      amount: amount.toFixed(2),
+      totalBase: sum('basePrice').toFixed(2),
+      taxes: taxes.toFixed(2),
+      commissionable: (amount - taxes).toFixed(2),
+      listAmount: sum('listSellingPrice').toFixed(2),
+    };
+  }
+
+  async previewStayChange(tenantId: string, id: string, checkin: string, checkout: string) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const [booking] = await tx.select().from(bookings).where(eq(bookings.id, id));
+      if (!booking) throw new NotFoundException('Booking not found');
+      if (booking.source === 'OTA')
+        throw new BadRequestException(
+          'The connected provider does not support OTA date modification from Stay View.',
         );
-        const nightSelling = new Map(line.nights.map((n) => [n.date, Number(n.sellingPrice)]));
-        const nightTax = new Map(line.nights.map((n) => [n.date, Number(n.tax)]));
+      if (
+        booking.status !== 'Pending' &&
+        booking.status !== 'Approved' &&
+        booking.status !== 'CheckedIn'
+      )
+        throw new BadRequestException('This stay cannot be changed here.');
+      if (
+        booking.status === 'CheckedIn' &&
+        (checkin !== booking.checkin || checkout <= booking.checkout)
+      )
+        throw new BadRequestException('An in-house stay can only extend its departure date.');
+      if (checkin >= checkout) throw new BadRequestException('Departure must be after arrival.');
+      const line = await this.quoteAmendedNights(
+        tx,
+        tenantId,
+        booking,
+        checkin,
+        checkout,
+        booking.rooms,
+      );
+      const legs = await tx
+        .select({ id: bookingRooms.id, roomUnitId: bookingRooms.roomUnitId })
+        .from(bookingRooms)
+        .where(and(eq(bookingRooms.bookingId, id), isNull(bookingRooms.releasedAt)));
+      if (booking.status === 'CheckedIn' && (legs.length !== 1 || !legs[0]?.roomUnitId))
+        throw new ConflictException(
+          'This in-house stay needs a single assigned room before extending.',
+        );
+      const conflicts: string[] = [];
+      for (const leg of legs) {
+        if (!leg.roomUnitId) continue;
+        const [other] = await tx
+          .select({ id: bookingRooms.id })
+          .from(bookingRooms)
+          .where(
+            and(
+              eq(bookingRooms.roomUnitId, leg.roomUnitId),
+              isNull(bookingRooms.releasedAt),
+              sql`${bookingRooms.bookingId} <> ${id} and daterange(${bookingRooms.checkin}, ${bookingRooms.checkout}, '[)') && daterange(${checkin}::date, ${checkout}::date, '[)')`,
+            ),
+          )
+          .limit(1);
+        const [block] = await tx
+          .select({ id: maintenanceBlocks.id })
+          .from(maintenanceBlocks)
+          .where(
+            and(
+              eq(maintenanceBlocks.roomUnitId, leg.roomUnitId),
+              isNull(maintenanceBlocks.releasedAt),
+              sql`daterange(${maintenanceBlocks.blockFrom}, ${maintenanceBlocks.blockTo}, '[)') && daterange(${checkin}::date, ${checkout}::date, '[)')`,
+            ),
+          )
+          .limit(1);
+        if (other || block) conflicts.push(leg.roomUnitId);
+      }
+      return {
+        bookingId: id,
+        expectedUpdatedAt: booking.updatedAt.toISOString(),
+        old: { checkin: booking.checkin, checkout: booking.checkout, amount: booking.amount },
+        proposed: {
+          checkin,
+          checkout,
+          amount: line.amount,
+          difference: (Number(line.amount) - Number(booking.amount)).toFixed(2),
+        },
+        nights: line.nights.map((night) => ({
+          date: night.date,
+          amount: night.sellingPrice,
+          retained: booking.checkin <= night.date && night.date < booking.checkout,
+        })),
+        conflicts,
+      };
+    });
+  }
 
-        if (b.inventoryHeld) {
-          // Swap inventory atomically: release the old stay, reserve the new one. On insufficient
-          // availability the whole transaction rolls back, so the release is undone too.
-          await releaseStay(tx, b.roomId, oldNights, b.rooms);
-          try {
-            await reserveStay(tx, b.roomId, newNights, newRooms);
-          } catch (e) {
-            if (e instanceof InsufficientAvailabilityError) {
-              throw new ConflictException({ reason: 'insufficient_availability', date: e.date });
-            }
-            throw e;
+  amend(tenantId: string, id: string, dto: AmendBookingDto) {
+    return this.dbs.withTenant(tenantId, (tx) => this.amendWithin(tx, tenantId, id, dto));
+  }
+
+  /** Review and save are priced by the same helper; the booking version is checked under lock. */
+  amendWithReview(
+    tenantId: string,
+    id: string,
+    dto: AmendBookingDto,
+    expectedUpdatedAt: string,
+    expectedAmount: string,
+  ) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      this.amendWithin(tx, tenantId, id, dto, expectedUpdatedAt, expectedAmount),
+    );
+  }
+
+  private async amendWithin(
+    tx: Tx,
+    tenantId: string,
+    id: string,
+    dto: AmendBookingDto,
+    expectedUpdatedAt?: string,
+    expectedAmount?: string,
+  ) {
+    const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
+    if (!b) throw new NotFoundException('Booking not found');
+    if (expectedUpdatedAt && b.updatedAt.toISOString() !== expectedUpdatedAt)
+      throw new ConflictException(
+        'This reservation changed after the review. Refresh the proposal.',
+      );
+    if (b.status === 'Rejected' || b.status === 'Cancelled' || b.status === 'NoShow') {
+      throw new BadRequestException(`Cannot amend a ${b.status} booking`);
+    }
+
+    const changes: string[] = [];
+
+    // Guest details live on the customer record (legacy `save-email`, generalized).
+    if (dto.customerName || dto.customerEmail !== undefined || dto.customerPhone !== undefined) {
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      if (dto.customerName) patch.name = dto.customerName;
+      if (dto.customerEmail !== undefined) patch.email = dto.customerEmail || null;
+      if (dto.customerPhone !== undefined) patch.phone = dto.customerPhone || null;
+      await tx.update(customers).set(patch).where(eq(customers.id, b.customerId));
+      changes.push('guest details');
+    }
+
+    const newCheckin = dto.checkin ?? b.checkin;
+    const newCheckout = dto.checkout ?? b.checkout;
+    const newRooms = dto.rooms ?? b.rooms;
+    const stayChanged =
+      newCheckin !== b.checkin || newCheckout !== b.checkout || newRooms !== b.rooms;
+
+    if (stayChanged) {
+      if (b.source === 'OTA')
+        throw new BadRequestException(
+          'OTA date changes require a provider modification workflow; internal room allocation remains available.',
+        );
+      if (b.status !== 'Pending' && b.status !== 'Approved' && b.status !== 'CheckedIn') {
+        throw new BadRequestException(`Cannot change the stay of a ${b.status} booking`);
+      }
+      const inHouseExtension = b.status === 'CheckedIn';
+      if (
+        inHouseExtension &&
+        (newCheckin !== b.checkin || newCheckout <= b.checkout || newRooms !== b.rooms)
+      )
+        throw new BadRequestException(
+          'An in-house stay can only extend its departure date without changing rooms.',
+        );
+      if (newCheckout <= newCheckin)
+        throw new BadRequestException('checkout must be after checkin');
+
+      const oldNights = eachNight(b.checkin, b.checkout);
+      const newNights = eachNight(newCheckin, newCheckout);
+
+      const line = await this.quoteAmendedNights(
+        tx,
+        tenantId,
+        b,
+        newCheckin,
+        newCheckout,
+        newRooms,
+      );
+      if (expectedAmount && line.amount !== expectedAmount)
+        throw new ConflictException('Rates changed after the review. Refresh the proposal.');
+      const nightSelling = new Map(line.nights.map((n) => [n.date, Number(n.sellingPrice)]));
+      const nightTax = new Map(line.nights.map((n) => [n.date, Number(n.tax)]));
+
+      if (b.inventoryHeld) {
+        // Swap inventory atomically: release the old stay, reserve the new one. On insufficient
+        // availability the whole transaction rolls back, so the release is undone too.
+        await releaseStay(tx, b.roomId, oldNights, b.rooms);
+        try {
+          await reserveStay(tx, b.roomId, newNights, newRooms);
+        } catch (e) {
+          if (e instanceof InsufficientAvailabilityError) {
+            throw new ConflictException({ reason: 'insufficient_availability', date: e.date });
           }
+          throw e;
         }
+      }
 
-        // Stretch the legs to the new dates. If the room the guest was in is not free for the
-        // new range, the exclusion constraint rejects it — so rather than fail the amendment,
-        // unassign first and let the desk (or auto-assign) place them again.
+      // Preserve room assignments across the new dates. Conflicts roll back the amendment.
+      const existingLegs = await tx
+        .select({
+          id: bookingRooms.id,
+          legIndex: bookingRooms.legIndex,
+          roomUnitId: bookingRooms.roomUnitId,
+        })
+        .from(bookingRooms)
+        .where(and(eq(bookingRooms.bookingId, b.id), isNull(bookingRooms.releasedAt)));
+      if (inHouseExtension) {
+        if (existingLegs.length !== 1 || !existingLegs[0]?.roomUnitId)
+          throw new ConflictException(
+            'This in-house stay needs a single assigned room before extending.',
+          );
+        const [planned] = await tx
+          .select({ id: roomMoves.id })
+          .from(roomMoves)
+          .where(and(eq(roomMoves.bookingId, b.id), eq(roomMoves.status, 'planned')));
+        if (planned)
+          throw new ConflictException('Resolve the planned room move before extending this stay.');
+        const [blocked] = await tx
+          .select({ id: maintenanceBlocks.id })
+          .from(maintenanceBlocks)
+          .where(
+            and(
+              eq(maintenanceBlocks.roomUnitId, existingLegs[0].roomUnitId),
+              isNull(maintenanceBlocks.releasedAt),
+              sql`daterange(${maintenanceBlocks.blockFrom}, ${maintenanceBlocks.blockTo}, '[)') && daterange(${b.checkout}::date, ${newCheckout}::date, '[)')`,
+            ),
+          );
+        if (blocked)
+          throw new ConflictException('The assigned room is blocked during the extension.');
+        try {
+          await tx.transaction((sp) =>
+            sp
+              .update(bookingRooms)
+              .set({ checkout: newCheckout, updatedAt: new Date() })
+              .where(eq(bookingRooms.id, existingLegs[0]!.id)),
+          );
+        } catch (error) {
+          if ((error as { code?: string }).code === '23P01')
+            throw new ConflictException('The assigned room has another stay during the extension.');
+          throw error;
+        }
+      } else {
         await unassignLegs(tx, b.id);
         await resizeLegs(tx, {
           tenantId,
@@ -1685,122 +1977,165 @@ export class BookingService {
           checkout: newCheckout,
         });
 
-        if (b.inventoryHeld) {
-          await enqueueOutbox(tx, {
-            tenantId,
-            aggregate: 'availability',
-            aggregateId: b.roomId,
-            eventType: 'ari.availability',
-            payload: {
-              propertyId: b.propertyId,
-              roomId: b.roomId,
-              action: 'amend',
-              origin: 'booking',
-              // Every date the amend touched (old ∪ new) — an amend moves inventory on both the
-              // freed and the newly-taken nights, and the channel must re-sync all of them.
-              nights: [...new Set([...oldNights, ...newNights])].sort(),
-              released: { nights: oldNights, rooms: b.rooms },
-              reserved: { nights: newNights, rooms: newRooms },
-            },
-          });
-        }
-
-        // Fresh day-wise snapshot for the new stay.
-        await tx.delete(bookingDays).where(eq(bookingDays.bookingId, id));
-        await tx.insert(bookingDays).values(
-          line.nights.map((n) => ({
-            tenantId,
-            bookingId: id,
-            date: n.date,
-            basePrice: n.basePrice,
-            sellingPrice: n.sellingPrice,
-            commission: n.commission,
-            tax: n.tax,
-            listSellingPrice: n.listSellingPrice,
-            rateSource: n.rateSource,
-            taxLines: n.taxLines,
-          })),
-        );
-
-        await tx
-          .update(bookings)
-          .set({
-            checkin: newCheckin,
-            checkout: newCheckout,
-            nights: newNights.length,
-            rooms: newRooms,
-            amount: line.amount,
-            totalBasePrice: line.totalBase,
-            taxes: line.taxes,
-            commissionableAmount: line.commissionable,
-            updatedAt: new Date(),
-          })
-          .where(eq(bookings.id, id));
-
-        // Reconcile any room charges the night audit already posted. An Approved booking can
-        // carry posted nights, and leaving them untouched breaks the load-bearing invariant that
-        // the folio's room lines sum to `bookings.amount`: a removed night stays billed, a
-        // re-priced night keeps its old price. Removed nights are voided; re-priced nights are
-        // voided and re-posted at the new price on the same window.
-        const liveRoomCharges = await tx
-          .select({
-            id: folioCharges.id,
-            folioId: folioCharges.folioId,
-            bookingDate: folioCharges.bookingDate,
-            total: folioCharges.total,
-          })
-          .from(folioCharges)
-          .innerJoin(folios, eq(folios.id, folioCharges.folioId))
-          .where(
-            and(
-              eq(folios.bookingId, id),
-              eq(folioCharges.source, 'room'),
-              isNull(folioCharges.voidedAt),
-            ),
-          );
-        for (const c of liveRoomCharges) {
-          const d = c.bookingDate!;
-          const stillInStay = nightSelling.has(d);
-          const newTotal = stillInStay ? Number((nightSelling.get(d)! * newRooms).toFixed(2)) : 0;
-          if (stillInStay && Number(c.total) === newTotal) continue;
-          await tx
-            .update(folioCharges)
-            .set({ voidedAt: new Date(), voidReason: 'stay amended', updatedAt: new Date() })
-            .where(eq(folioCharges.id, c.id));
-          if (stillInStay) {
-            const t = Number((nightTax.get(d)! * newRooms).toFixed(2));
-            await tx.insert(folioCharges).values({
-              tenantId,
-              folioId: c.folioId,
-              source: 'room',
-              description:
-                newRooms > 1 ? `Room charge — ${d} (${newRooms} rooms)` : `Room charge — ${d}`,
-              postedFor: d,
-              bookingDate: d,
-              quantity: newRooms.toFixed(2),
-              unitPrice: nightSelling.get(d)!.toFixed(2),
-              net: (newTotal - t).toFixed(2),
-              tax: t.toFixed(2),
-              total: newTotal.toFixed(2),
-            });
+        const reshaped = await tx
+          .select({ id: bookingRooms.id, legIndex: bookingRooms.legIndex })
+          .from(bookingRooms)
+          .where(and(eq(bookingRooms.bookingId, b.id), isNull(bookingRooms.releasedAt)));
+        for (const leg of reshaped) {
+          const original = existingLegs.find((item) => item.legIndex === leg.legIndex);
+          if (!original?.roomUnitId) continue;
+          const [unit] = await tx
+            .select({ code: roomUnits.code, status: roomUnits.status })
+            .from(roomUnits)
+            .where(eq(roomUnits.id, original.roomUnitId));
+          if (!unit || unit.status !== 'active')
+            throw new ConflictException(
+              'An assigned room is no longer active. Review room allocation.',
+            );
+          const [blocked] = await tx
+            .select({ id: maintenanceBlocks.id })
+            .from(maintenanceBlocks)
+            .where(
+              and(
+                eq(maintenanceBlocks.roomUnitId, original.roomUnitId),
+                isNull(maintenanceBlocks.releasedAt),
+                sql`daterange(${maintenanceBlocks.blockFrom}, ${maintenanceBlocks.blockTo}, '[)') && daterange(${newCheckin}::date, ${newCheckout}::date, '[)')`,
+              ),
+            );
+          if (blocked)
+            throw new ConflictException(`Room ${unit.code} is blocked during the proposed stay.`);
+          try {
+            await tx.transaction((sp) =>
+              sp
+                .update(bookingRooms)
+                .set({ roomUnitId: original.roomUnitId, updatedAt: new Date() })
+                .where(eq(bookingRooms.id, leg.id)),
+            );
+          } catch (error) {
+            if ((error as { code?: string }).code === '23P01')
+              throw new ConflictException(
+                `Room ${unit.code} is occupied during the proposed stay. Review another room.`,
+              );
+            throw error;
           }
         }
-
-        changes.push(
-          `stay ${b.checkin}→${b.checkout} ×${b.rooms} to ${newCheckin}→${newCheckout} ×${newRooms}`,
-        );
       }
 
-      if (changes.length === 0) throw new BadRequestException('Nothing to amend');
-      await tx.insert(bookingApprovals).values({
-        tenantId,
-        bookingId: id,
-        action: 'amended',
-        reason: changes.join('; '),
-      });
+      if (b.inventoryHeld) {
+        await enqueueOutbox(tx, {
+          tenantId,
+          aggregate: 'availability',
+          aggregateId: b.roomId,
+          eventType: 'ari.availability',
+          payload: {
+            propertyId: b.propertyId,
+            roomId: b.roomId,
+            action: 'amend',
+            origin: 'booking',
+            // Every date the amend touched (old ∪ new) — an amend moves inventory on both the
+            // freed and the newly-taken nights, and the channel must re-sync all of them.
+            nights: [...new Set([...oldNights, ...newNights])].sort(),
+            released: { nights: oldNights, rooms: b.rooms },
+            reserved: { nights: newNights, rooms: newRooms },
+          },
+        });
+      }
 
-      const [updated] = await tx.select().from(bookings).where(eq(bookings.id, id));
-      return updated;
+      // Fresh day-wise snapshot for the new stay.
+      await tx.delete(bookingDays).where(eq(bookingDays.bookingId, id));
+      await tx.insert(bookingDays).values(
+        line.nights.map((n) => ({
+          tenantId,
+          bookingId: id,
+          date: n.date,
+          basePrice: n.basePrice,
+          sellingPrice: n.sellingPrice,
+          commission: n.commission,
+          tax: n.tax,
+          listSellingPrice: n.listSellingPrice,
+          rateSource: n.rateSource,
+          taxLines: n.taxLines,
+        })),
+      );
+
+      await tx
+        .update(bookings)
+        .set({
+          checkin: newCheckin,
+          checkout: newCheckout,
+          nights: newNights.length,
+          rooms: newRooms,
+          amount: line.amount,
+          totalBasePrice: line.totalBase,
+          taxes: line.taxes,
+          commissionableAmount: line.commissionable,
+          updatedAt: new Date(),
+        })
+        .where(eq(bookings.id, id));
+
+      // Reconcile any room charges the night audit already posted. An Approved booking can
+      // carry posted nights, and leaving them untouched breaks the load-bearing invariant that
+      // the folio's room lines sum to `bookings.amount`: a removed night stays billed, a
+      // re-priced night keeps its old price. Removed nights are voided; re-priced nights are
+      // voided and re-posted at the new price on the same window.
+      const liveRoomCharges = await tx
+        .select({
+          id: folioCharges.id,
+          folioId: folioCharges.folioId,
+          bookingDate: folioCharges.bookingDate,
+          total: folioCharges.total,
+        })
+        .from(folioCharges)
+        .innerJoin(folios, eq(folios.id, folioCharges.folioId))
+        .where(
+          and(
+            eq(folios.bookingId, id),
+            eq(folioCharges.source, 'room'),
+            isNull(folioCharges.voidedAt),
+          ),
+        );
+      for (const c of liveRoomCharges) {
+        const d = c.bookingDate!;
+        const stillInStay = nightSelling.has(d);
+        const newTotal = stillInStay ? Number((nightSelling.get(d)! * newRooms).toFixed(2)) : 0;
+        if (stillInStay && Number(c.total) === newTotal) continue;
+        await tx
+          .update(folioCharges)
+          .set({ voidedAt: new Date(), voidReason: 'stay amended', updatedAt: new Date() })
+          .where(eq(folioCharges.id, c.id));
+        if (stillInStay) {
+          const t = Number((nightTax.get(d)! * newRooms).toFixed(2));
+          await tx.insert(folioCharges).values({
+            tenantId,
+            folioId: c.folioId,
+            source: 'room',
+            description:
+              newRooms > 1 ? `Room charge — ${d} (${newRooms} rooms)` : `Room charge — ${d}`,
+            postedFor: d,
+            bookingDate: d,
+            quantity: newRooms.toFixed(2),
+            unitPrice: nightSelling.get(d)!.toFixed(2),
+            net: (newTotal - t).toFixed(2),
+            tax: t.toFixed(2),
+            total: newTotal.toFixed(2),
+          });
+        }
+      }
+
+      changes.push(
+        `stay ${b.checkin}→${b.checkout} ×${b.rooms} to ${newCheckin}→${newCheckout} ×${newRooms}`,
+      );
+    }
+
+    if (changes.length === 0) throw new BadRequestException('Nothing to amend');
+    await tx.insert(bookingApprovals).values({
+      tenantId,
+      bookingId: id,
+      action: 'amended',
+      reason: changes.join('; '),
     });
+
+    const [updated] = await tx.select().from(bookings).where(eq(bookings.id, id));
+    return updated;
   }
 }

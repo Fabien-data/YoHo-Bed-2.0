@@ -10,6 +10,8 @@ import {
   beat,
   outboxHealth,
   pruneUxEvents,
+  assertSmartChannelCapability,
+  withTenant,
   type OutboxRow,
 } from '@yohobed/db';
 import { resolveAdapter } from '@yohobed/cm-adapter';
@@ -126,6 +128,12 @@ const worker = new Worker<OutboxRow>(
     const row = job.data;
     const attempts = job.attemptsMade + 1;
     try {
+      if (row.eventType === 'ari.rate') {
+        const propertyId = (row.payload as { propertyId?: string }).propertyId;
+        if (!propertyId || !row.tenantId)
+          throw new Error('Rate publication requires a tenant and property.');
+        await withTenant(db, row.tenantId, (tx) => assertSmartChannelCapability(tx, propertyId));
+      }
       const result = await adapter.push({
         aggregate: row.aggregate,
         aggregateId: row.aggregateId,

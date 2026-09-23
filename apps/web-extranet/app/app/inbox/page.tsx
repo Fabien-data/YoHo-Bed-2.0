@@ -161,9 +161,15 @@ export default function InboxPage() {
                     <tr key={r.id} className="border-b border-line align-top last:border-0">
                       <td className="px-4 py-3">
                         <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>
+                        {r.reviewRequired && <Badge tone="low">Review</Badge>}
                         {r.error && (
                           <div className="mt-1.5 max-w-[260px] break-words font-mono text-xs text-closed-ink">
                             {r.error}
+                          </div>
+                        )}
+                        {r.reviewReason && (
+                          <div className="mt-1.5 max-w-[260px] text-xs text-low-ink">
+                            {r.reviewReason}
                           </div>
                         )}
                       </td>

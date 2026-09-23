@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Input, PageHeader, toast } from '@yohobed/ui';
 import {
@@ -66,6 +67,12 @@ export default function TeamPage() {
         title="Team"
         description="Invite front desk and housekeeping staff, then control their operational access."
       />
+      <Link
+        href="/app/team/roles"
+        className="inline-flex rounded-lg border border-line px-4 py-2 text-sm font-semibold text-brand"
+      >
+        Manage custom roles and property access
+      </Link>
       <Card className="p-4">
         <h2 className="mb-3 font-semibold text-ink">Invite a team member</h2>
         <div className="grid gap-3 md:grid-cols-[1fr_1fr_15rem_auto]">

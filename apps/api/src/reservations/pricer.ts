@@ -12,6 +12,7 @@ import {
   resolveTaxComponentsForDates,
   resolveTaxRatesForDates,
   rooms,
+  quoteSmartStay,
   type Tx,
 } from '@yohobed/db';
 import {
@@ -31,6 +32,8 @@ import {
   type RateSource,
   type Residency,
   type TaxLine,
+  type SmartGuestMix,
+  type SmartNightQuote,
 } from '@yohobed/domain';
 import { eachNight } from '../common/dates';
 
@@ -51,6 +54,11 @@ export interface PriceLineInput {
   checkin: string;
   checkout: string;
   rooms: number;
+  guests?: SmartGuestMix;
+  /** Trusted server authorization; the reason alone never grants an exception. */
+  minimumException?: { authorized: boolean; reason: string };
+  /** Confirmed external contracts retain their provider amount, independently of current policies. */
+  externalContract?: boolean;
   policy?: PricingPolicy;
   /** The guest's residency; checked against the rate plan's audience when `checkAudience`. */
   residency?: Residency | null;
@@ -75,6 +83,7 @@ export interface PricedNight {
   listSellingPrice: string;
   rateSource: RateSource;
   taxLines: TaxLine[];
+  smartQuote?: SmartNightQuote;
 }
 
 export interface PricedLine {
@@ -109,6 +118,7 @@ export interface PricedLine {
    * referral maths take these, so a calendar-priced booking discounts to the same cent it did.
    */
   raw: { amount: number; taxes: number; commissionable: number };
+  policyVersion?: number;
 }
 
 const money = (n: number) => n.toFixed(2);
@@ -195,12 +205,39 @@ export class ReservationPricer {
     }
 
     // Price snapshot for the correct occupancy.
-    const priceRows = await tx
-      .select()
-      .from(rateCalendar)
-      .where(
-        and(eq(rateCalendar.occupancyId, input.occupancyId), inArray(rateCalendar.date, nights)),
-      );
+    let smart: Awaited<ReturnType<typeof quoteSmartStay>> = null;
+    try {
+      if (!input.externalContract)
+        smart = await quoteSmartStay(tx, {
+          propertyId: occ.propertyId,
+          occupancyId: input.occupancyId,
+          dates: nights,
+          guests: input.guests,
+          minimumException: input.minimumException,
+        });
+    } catch (error) {
+      throw new BadRequestException({
+        message: label + (error as Error).message,
+        line: input.lineIndex,
+      });
+    }
+    if (smart && !smart.eligible)
+      throw new BadRequestException({
+        message: label + smart.issues.map((issue) => issue.message).join(' '),
+        issues: smart.issues,
+        line: input.lineIndex,
+      });
+    const priceRows = smart
+      ? smart.nights.map((night) => ({ ...night, lastMinuteDropPct: '0' }))
+      : await tx
+          .select()
+          .from(rateCalendar)
+          .where(
+            and(
+              eq(rateCalendar.occupancyId, input.occupancyId),
+              inArray(rateCalendar.date, nights),
+            ),
+          );
     if (priceRows.length !== nights.length) {
       throw new BadRequestException(
         `${label}${input.unpricedMessage ?? 'Prices are not set for all nights of this stay'}`,
@@ -275,6 +312,20 @@ export class ReservationPricer {
         night = { ...night, selling: exempt.selling, tax: exempt.tax };
         lines = exempt.lines;
       }
+      const smartQuote = smart?.nights[i]?.quote;
+      if (smartQuote) {
+        const actualCore = Math.round(Number(night.base) * 100) - smartQuote.bedNetMinor;
+        if (actualCore < smartQuote.minimumNetMinor) {
+          if (!input.minimumException?.authorized || !input.minimumException.reason.trim())
+            throw new BadRequestException({
+              reason: 'minimum_net_rate',
+              message: `${label}${d}: room and meals are below the hotel minimum. An authorized exception and reason are required.`,
+              line: input.lineIndex,
+            });
+          smartQuote.belowMinimum = true;
+          smartQuote.exceptionReason = input.minimumException.reason.trim();
+        }
+      }
 
       amount += night.selling * input.rooms;
       totalBase += Number(night.base) * input.rooms;
@@ -291,6 +342,7 @@ export class ReservationPricer {
         listSellingPrice: money(listSelling),
         rateSource: source,
         taxLines: lines,
+        ...(smartQuote ? { smartQuote } : {}),
       });
     }
     const commissionable = amount - taxes;
@@ -327,6 +379,7 @@ export class ReservationPricer {
       discountPct: discountPercent(roundMoney(listAmount), roundMoney(amount)),
       rateSource,
       raw: { amount, taxes, commissionable },
+      ...(smart ? { policyVersion: smart.policyVersion } : {}),
     };
   }
 

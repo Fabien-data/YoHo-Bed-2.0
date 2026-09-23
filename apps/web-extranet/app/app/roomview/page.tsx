@@ -559,6 +559,11 @@ function RoomTile({
       >
         <div className="flex items-center gap-2">
           <span className="font-mono text-lg font-bold text-ink">{card.code}</span>
+          {card.displayName && (
+            <span className="truncate text-sm font-semibold text-ink-2" title={card.displayName}>
+              {card.displayName}
+            </span>
+          )}
           {card.vip && (
             <Tooltip label="VIP guest">
               <Crown size={14} className="text-low-ink" />
@@ -1059,6 +1064,7 @@ function RoomConfiguration({
   const [form, setForm] = React.useState({
     roomId: '',
     code: '',
+    displayName: '',
     floor: '',
     smokingPolicy: 'unspecified' as 'unspecified' | 'smoking' | 'non_smoking',
     wheelchairAccessible: false,
@@ -1076,7 +1082,7 @@ function RoomConfiguration({
     mutationFn: () =>
       createRoomUnit(propertyId, { ...form, floor: form.floor.trim() || undefined }),
     onSuccess: () => {
-      setForm((current) => ({ ...current, code: '' }));
+      setForm((current) => ({ ...current, code: '', displayName: '' }));
       refresh();
       toast.success('Physical room added');
     },
@@ -1097,7 +1103,7 @@ function RoomConfiguration({
         Configure physical rooms
       </summary>
       <div className="border-t border-line p-4">
-        <div className="grid gap-2 lg:grid-cols-[1fr_8rem_8rem_10rem_auto_auto]">
+        <div className="grid gap-2 lg:grid-cols-[1fr_8rem_9rem_8rem_10rem_auto_auto]">
           <select
             aria-label="Room type"
             value={form.roomId}
@@ -1116,6 +1122,12 @@ function RoomConfiguration({
             placeholder="Room 101"
             value={form.code}
             onChange={(e) => setForm({ ...form, code: e.target.value })}
+          />
+          <Input
+            aria-label="Optional room name"
+            placeholder="Lotus (optional)"
+            value={form.displayName}
+            onChange={(e) => setForm({ ...form, displayName: e.target.value })}
           />
           <Input
             aria-label="Floor"
@@ -1156,11 +1168,34 @@ function RoomConfiguration({
             <div key={unit.id} className="rounded-lg border border-line p-2 text-xs">
               <div className="mb-2 flex items-center gap-2">
                 <strong className="text-ink">{unit.code}</strong>
+                {unit.displayName && (
+                  <span className="font-semibold text-ink-2">· {unit.displayName}</span>
+                )}
                 <span className="text-ink-3">
                   {unit.roomName} · {unit.floor ?? 'No floor'}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
+                <Input
+                  aria-label={`Display name for ${unit.code}`}
+                  defaultValue={unit.displayName ?? ''}
+                  placeholder="Optional name"
+                  onBlur={(event) => {
+                    const value = event.target.value.trim();
+                    if (value !== (unit.displayName ?? ''))
+                      update.mutate({ id: unit.id, body: { displayName: value || null } });
+                  }}
+                />
+                <Input
+                  aria-label={`Notes for ${unit.code}`}
+                  defaultValue={unit.notes ?? ''}
+                  placeholder="Room notes"
+                  onBlur={(event) => {
+                    const value = event.target.value.trim();
+                    if (value !== (unit.notes ?? ''))
+                      update.mutate({ id: unit.id, body: { notes: value || null } });
+                  }}
+                />
                 <select
                   aria-label={`Smoking policy for ${unit.code}`}
                   value={unit.smokingPolicy}

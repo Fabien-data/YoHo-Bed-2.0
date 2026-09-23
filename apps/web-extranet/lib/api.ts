@@ -1,4 +1,10 @@
 import type { CurrencyCode } from '@yohobed/domain';
+import type {
+  SmartPropertyDocument,
+  SmartIssue,
+  SmartNightQuote,
+  SmartGuestMix,
+} from '@yohobed/domain';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -232,6 +238,79 @@ export function updateTeamMember(
   body: { role?: OperationalRole; status?: 'active' | 'disabled' },
 ): Promise<TeamMember> {
   return apiFetch(`/auth/staff/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export type HotelPermission =
+  | 'reservation_read'
+  | 'reservation_change'
+  | 'check_in_out'
+  | 'room_assignment'
+  | 'financial_read'
+  | 'price_change'
+  | 'minimum_exception'
+  | 'housekeeping'
+  | 'setup';
+export interface HotelAccess {
+  role: string;
+  permissions: HotelPermission[] | null;
+  propertyIds: string[] | null;
+}
+export interface HotelRole {
+  id: string;
+  name: string;
+  permissions: HotelPermission[];
+  propertyIds: string[];
+  members: Array<{ membershipId: string; userId: string; name: string; email: string }>;
+}
+export interface HotelRoleTemplate {
+  name: string;
+  permissions: HotelPermission[];
+}
+export interface HotelRoleInput {
+  name: string;
+  permissions: HotelPermission[];
+  propertyIds: string[];
+}
+export function getHotelAccess(): Promise<HotelAccess> {
+  return apiFetch('/hotel-access');
+}
+export function publishSmartSetup(
+  propertyId: string,
+  expectedVersion: number,
+): Promise<{
+  policy: SmartSetupConfiguration['policy'];
+  channelPublishing: { supported: boolean; reason: string };
+}> {
+  return apiFetch(`/properties/${propertyId}/smart-setup/publish`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, acknowledgeChannelLimit: true }),
+  });
+}
+export function getBookingStay(
+  id: string,
+): Promise<{ id: string; checkin: string; checkout: string }> {
+  return apiFetch(`/bookings/${id}`);
+}
+export function listHotelRoles(): Promise<HotelRole[]> {
+  return apiFetch('/hotel-roles');
+}
+export function listHotelRoleTemplates(): Promise<HotelRoleTemplate[]> {
+  return apiFetch('/hotel-roles/templates');
+}
+export function createHotelRole(body: HotelRoleInput): Promise<HotelRole> {
+  return apiFetch('/hotel-roles', { method: 'POST', body: JSON.stringify(body) });
+}
+export function updateHotelRole(id: string, body: HotelRoleInput): Promise<HotelRole> {
+  return apiFetch(`/hotel-roles/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function assignHotelRole(id: string, userId: string): Promise<unknown> {
+  return apiFetch(`/hotel-roles/${id}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+export function revokeHotelRole(id: string, userId: string): Promise<unknown> {
+  return apiFetch(`/hotel-roles/${id}/assign/${userId}`, { method: 'DELETE' });
 }
 
 export function changePassword(
@@ -729,6 +808,36 @@ export function amendBooking(
   return apiFetch(`/bookings/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+export interface StayChangeReview {
+  bookingId: string;
+  expectedUpdatedAt: string;
+  old: { checkin: string; checkout: string; amount: string };
+  proposed: { checkin: string; checkout: string; amount: string; difference: string };
+  nights: Array<{ date: string; amount: string; retained: boolean }>;
+  conflicts: string[];
+}
+export function previewStayChange(
+  bookingId: string,
+  checkin: string,
+  checkout: string,
+): Promise<StayChangeReview> {
+  return apiFetch(`/bookings/${bookingId}/stay-change/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ checkin, checkout }),
+  });
+}
+export function commitStayChange(review: StayChangeReview): Promise<Booking> {
+  return apiFetch(`/bookings/${review.bookingId}/stay-change`, {
+    method: 'POST',
+    body: JSON.stringify({
+      checkin: review.proposed.checkin,
+      checkout: review.proposed.checkout,
+      expectedUpdatedAt: review.expectedUpdatedAt,
+      expectedAmount: review.proposed.amount,
+    }),
+  });
+}
+
 // --- Dashboard (Compartment G) ------------------------------------------------
 
 export interface DashboardBooking {
@@ -862,6 +971,8 @@ export interface StayUnit {
   id: string;
   roomId: string;
   code: string;
+  displayName: string | null;
+  housekeeping: 'dirty' | 'clean' | 'inspected' | 'out_of_order';
   floor: string | null;
   status: 'active' | 'inactive';
   bars: StayBar[];
@@ -913,10 +1024,12 @@ export interface BookingLeg {
   legIndex: number;
   roomUnitId: string | null;
   code: string | null;
+  displayName: string | null;
   checkin: string;
   checkout: string;
   adults: number;
   children: number;
+  updatedAt: string;
   releasedAt: string | null;
 }
 
@@ -926,7 +1039,7 @@ export function getBookingLegs(bookingId: string): Promise<BookingLeg[]> {
 
 export function assignRooms(
   bookingId: string,
-  assignments: Array<{ legId: string; roomUnitId: string | null }>,
+  assignments: Array<{ legId: string; roomUnitId: string | null; expectedUpdatedAt?: string }>,
 ): Promise<BookingLeg[]> {
   return apiFetch<BookingLeg[]>(`/bookings/${bookingId}/assign`, {
     method: 'POST',
@@ -957,7 +1070,7 @@ export function listRoomMoves(bookingId: string): Promise<RoomMove[]> {
 
 export function moveRoom(
   bookingId: string,
-  body: { legId: string; toRoomUnitId: string; effectiveDate?: string },
+  body: { legId: string; toRoomUnitId: string; effectiveDate?: string; expectedUpdatedAt?: string },
 ): Promise<RoomMove> {
   return apiFetch(`/bookings/${bookingId}/room-move`, {
     method: 'POST',
@@ -982,6 +1095,7 @@ export interface RoomUnit {
   roomId: string;
   roomName: string;
   code: string;
+  displayName: string | null;
   displayOrder: number;
   floor: string | null;
   notes: string | null;
@@ -997,11 +1111,100 @@ export function listRoomUnits(propertyId: string): Promise<RoomUnit[]> {
   return apiFetch<RoomUnit[]>(`/properties/${propertyId}/room-units`);
 }
 
+export interface SmartSetupConfiguration {
+  property: { id: string; name: string; currency: string };
+  categories: Array<{ id: string; name: string; quantity: number }>;
+  rates: Array<{
+    id: string;
+    label: string;
+    roomId: string;
+    code: string;
+    audience: string;
+    status: string;
+  }>;
+  policy: {
+    draft: SmartPropertyDocument;
+    draftVersion: number;
+    published: SmartPropertyDocument | null;
+    publishedVersion: number | null;
+  } | null;
+  issues: SmartIssue[];
+}
+export function getSmartSetup(propertyId: string): Promise<SmartSetupConfiguration> {
+  return apiFetch(`/properties/${propertyId}/smart-setup`);
+}
+export function saveSmartDraft(
+  propertyId: string,
+  expectedVersion: number,
+  document: SmartPropertyDocument,
+): Promise<{ policy: SmartSetupConfiguration['policy']; issues: SmartIssue[] }> {
+  return apiFetch(`/properties/${propertyId}/smart-setup/draft`, {
+    method: 'PUT',
+    body: JSON.stringify({ expectedVersion, document }),
+  });
+}
+export function previewSmartBooking(
+  propertyId: string,
+  expectedVersion: number,
+  body: { occupancyId: string; checkin: string; checkout: string; guests: SmartGuestMix },
+): Promise<{
+  eligible: boolean;
+  issues: SmartIssue[];
+  nights: Array<{
+    date: string;
+    quote: SmartNightQuote | null;
+    economics: {
+      hotelBaseNetMinor: number;
+      commissionMinor: number;
+      channelMarginMinor: number;
+      taxesMinor: number;
+      guestTotalMinor: number;
+    } | null;
+  }>;
+  currency: string;
+  policyVersion: number;
+  totalNetMinor: number;
+  guestTotalMinor: number;
+}> {
+  return apiFetch(`/properties/${propertyId}/smart-setup/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ ...body, expectedVersion }),
+  });
+}
+export type BulkRoomInput = {
+  roomId: string;
+  code: string;
+  displayName?: string | null;
+  floor?: string;
+  notes?: string;
+  wheelchairAccessible?: boolean;
+};
+export function previewBulkRooms(
+  propertyId: string,
+  units: BulkRoomInput[],
+): Promise<{
+  valid: boolean;
+  count: number;
+  issues: Array<{ index: number; field: string; message: string }>;
+}> {
+  return apiFetch(`/properties/${propertyId}/room-units/bulk-preview`, {
+    method: 'POST',
+    body: JSON.stringify({ units }),
+  });
+}
+export function createBulkRooms(propertyId: string, units: BulkRoomInput[]): Promise<RoomUnit[]> {
+  return apiFetch(`/properties/${propertyId}/room-units/bulk`, {
+    method: 'POST',
+    body: JSON.stringify({ units }),
+  });
+}
+
 export function createRoomUnit(
   propertyId: string,
   body: {
     roomId: string;
     code: string;
+    displayName?: string | null;
     floor?: string;
     smokingPolicy?: RoomUnit['smokingPolicy'];
     wheelchairAccessible?: boolean;
@@ -1020,6 +1223,7 @@ export function updateRoomUnit(
     Pick<
       RoomUnit,
       | 'code'
+      | 'displayName'
       | 'floor'
       | 'notes'
       | 'smokingPolicy'
@@ -1061,6 +1265,7 @@ export type HousekeepingState = 'dirty' | 'clean' | 'inspected' | 'out_of_order'
 export interface RoomCard {
   unitId: string;
   code: string;
+  displayName: string | null;
   roomId: string;
   roomName: string;
   floor: string | null;
@@ -1136,10 +1341,15 @@ export interface CleaningTask {
   id: string;
   roomUnitId: string;
   code: string;
+  displayName: string | null;
+  floor: string | null;
+  date: string;
+  roomReadiness: HousekeepingState | null;
   kind: string;
   status: string;
   rush: boolean;
   assignedToUserId: string | null;
+  assignedToName: string | null;
   notes: string | null;
   guestName: string | null;
 }
@@ -2781,6 +2991,8 @@ export interface OtaReservation {
   otaAmount: string | null;
   status: 'received' | 'imported' | 'failed' | 'cancelled' | 'ignored';
   error: string | null;
+  reviewRequired: boolean;
+  reviewReason: string | null;
   bookingId: string | null;
   roomId: string | null;
   receivedAt: string;
@@ -2934,6 +3146,8 @@ export interface RoomAvailability {
       audience: 'all' | 'local' | 'foreign';
       marketSegmentId: string | null;
       priced: boolean;
+      requiresGuestQuote?: boolean;
+      policyVersion?: number | null;
       nightly: Array<{ date: string; price: string | null }>;
       total: string | null;
       average: string | null;
@@ -2942,6 +3156,7 @@ export interface RoomAvailability {
     units: Array<{
       id: string;
       code: string;
+      displayName?: string | null;
       floor: string | null;
       free: boolean;
       outOfService: boolean;
@@ -2973,6 +3188,8 @@ export interface ReservationLineInput {
   children: number;
   childAges?: number[];
   extraBeds?: number;
+  cots?: number;
+  minimumExceptionReason?: string;
   rate?: RateOverride;
   /** Guest List: this room's own guest. */
   guest?: ReservationGuestInput;
@@ -3056,12 +3273,14 @@ export interface ReservationQuote {
     discountPct: number;
     rateSource: 'calendar' | 'override' | 'contract' | 'complimentary';
     couponDiscount: string;
+    policyVersion?: number;
     nights: Array<{
       date: string;
       sellingPrice: string;
       listSellingPrice: string;
       tax: string;
       rateSource: string;
+      smartQuote?: SmartNightQuote;
     }>;
     free: number;
     available: boolean;

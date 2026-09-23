@@ -1,4 +1,9 @@
-import { roundMoney, type RateOverride } from '@yohobed/domain';
+import {
+  roundMoney,
+  type RateOverride,
+  type SmartGuestMix,
+  type SmartNightQuote,
+} from '@yohobed/domain';
 import type { PricingPolicy } from './pricer';
 
 /**
@@ -9,6 +14,11 @@ import type { PricingPolicy } from './pricer';
  * An empty object is a plain rate-calendar booking.
  */
 export interface PricingSnapshot {
+  smart?: {
+    policyVersion: number;
+    guests: SmartGuestMix;
+    nights: Array<{ date: string; quote?: SmartNightQuote }>;
+  };
   override?: RateOverride;
   contractAccountId?: string;
   complimentary?: boolean;

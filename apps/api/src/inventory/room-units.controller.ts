@@ -8,11 +8,13 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RoomUnitsService } from './room-units.service';
 import {
   assignRoomsSchema,
+  bulkRoomUnitsSchema,
   createRoomUnitSchema,
   exchangeRoomsSchema,
   moveRoomSchema,
   updateRoomUnitSchema,
   type AssignRoomsDto,
+  type BulkRoomUnitsDto,
   type CreateRoomUnitDto,
   type ExchangeRoomsDto,
   type MoveRoomDto,
@@ -21,7 +23,7 @@ import {
 
 /** Physical rooms of a property: /properties/:propertyId/room-units */
 @Controller('properties/:propertyId/room-units')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
 export class PropertyRoomUnitsController {
   constructor(private readonly units: RoomUnitsService) {}
 
@@ -44,6 +46,26 @@ export class PropertyRoomUnitsController {
     @Body(new ZodValidationPipe(createRoomUnitSchema)) dto: CreateRoomUnitDto,
   ) {
     return this.units.create(tenantId, propertyId, dto);
+  }
+
+  @Post('bulk-preview')
+  @TenantRoles('OWNER')
+  previewBulk(
+    @TenantId() tenantId: string,
+    @Param('propertyId') propertyId: string,
+    @Body(new ZodValidationPipe(bulkRoomUnitsSchema)) dto: BulkRoomUnitsDto,
+  ) {
+    return this.units.previewBulk(tenantId, propertyId, dto);
+  }
+
+  @Post('bulk')
+  @TenantRoles('OWNER')
+  createBulk(
+    @TenantId() tenantId: string,
+    @Param('propertyId') propertyId: string,
+    @Body(new ZodValidationPipe(bulkRoomUnitsSchema)) dto: BulkRoomUnitsDto,
+  ) {
+    return this.units.createBulk(tenantId, propertyId, dto);
   }
 }
 

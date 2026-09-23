@@ -1,5 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { makeTenant, request, openAndPrice, book, stopApp, type TenantFixture } from './harness';
+import {
+  addUnits,
+  makeTenant,
+  request,
+  openAndPrice,
+  book,
+  stopApp,
+  type TenantFixture,
+} from './harness';
 
 afterAll(stopApp);
 
@@ -15,6 +23,17 @@ const preview = (fx: TenantFixture) =>
   request('GET', `/properties/${fx.propertyId}/night-audit/preview`, { token: fx.token });
 const run = (fx: TenantFixture) =>
   request('POST', `/properties/${fx.propertyId}/night-audit/run`, { token: fx.token });
+
+async function assignReadyRooms(fx: TenantFixture, bookingId: string, count = 1) {
+  await addUnits(
+    fx,
+    fx.roomId,
+    Array.from({ length: count }, (_, index) => `NA-${bookingId.slice(0, 8)}-${index + 1}`),
+  );
+  const assigned = await request('POST', `/bookings/${bookingId}/auto-assign`, { token: fx.token });
+  expect(assigned.status, JSON.stringify(assigned.body)).toBe(200);
+  expect(assigned.body.unassigned).toBe(0);
+}
 
 /** Move the property's business date to `target` by running audits until it gets there. */
 async function rollTo(fx: TenantFixture, target: string) {
@@ -52,7 +71,10 @@ describe('night audit', () => {
 
     const created = await book(fx, { checkin: today, checkout: day(today, 3) });
     await request('POST', `/bookings/${created.body.id}/approve`, { token: fx.token });
-    await request('POST', `/bookings/${created.body.id}/check-in`, { token: fx.token });
+    await assignReadyRooms(fx, created.body.id);
+    expect(
+      (await request('POST', `/bookings/${created.body.id}/check-in`, { token: fx.token })).status,
+    ).toBe(200);
 
     const p = await preview(fx);
     expect(p.status).toBe(200);
@@ -72,7 +94,10 @@ describe('night audit', () => {
 
     const created = await book(fx, { checkin: today, checkout: day(today, 3) });
     await request('POST', `/bookings/${created.body.id}/approve`, { token: fx.token });
-    await request('POST', `/bookings/${created.body.id}/check-in`, { token: fx.token });
+    await assignReadyRooms(fx, created.body.id);
+    expect(
+      (await request('POST', `/bookings/${created.body.id}/check-in`, { token: fx.token })).status,
+    ).toBe(200);
 
     const res = await run(fx);
     expect(res.status).toBe(201);
@@ -157,7 +182,10 @@ describe('night audit', () => {
 
     const created = await book(fx, { checkin: today, checkout: day(today, 3) });
     await request('POST', `/bookings/${created.body.id}/approve`, { token: fx.token });
-    await request('POST', `/bookings/${created.body.id}/check-in`, { token: fx.token });
+    await assignReadyRooms(fx, created.body.id);
+    expect(
+      (await request('POST', `/bookings/${created.body.id}/check-in`, { token: fx.token })).status,
+    ).toBe(200);
 
     // The desk posted the whole stay up front.
     await request('POST', `/bookings/${created.body.id}/folio/post-room-charges`, {
@@ -198,6 +226,7 @@ describe('seven consecutive audits', () => {
     ];
     for (const s of stays) {
       await request('POST', `/bookings/${s.body.id}/approve`, { token: fx.token });
+      await assignReadyRooms(fx, s.body.id, s.body.rooms);
     }
 
     // Seven day-ends, one after another — each guest checked in on their own arrival day, as a

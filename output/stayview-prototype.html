@@ -1,0 +1,1477 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>YoHoBed · Stay View design preview</title>
+    <style>
+      :root {
+        --ink: #243a3a;
+        --muted: #71817e;
+        --line: #e2e8e2;
+        --green: #1c6b58;
+        --bg: #f6f7f2;
+        --gold: #96742d;
+        font-family: Inter, 'Segoe UI', sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+        font-size: 14px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 12px;
+        background: #fff;
+        color: var(--ink);
+      }
+      button:hover {
+        border-color: #9dafaa;
+        background: #f1f5ef;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 3px solid #91bdb0;
+        outline-offset: 2px;
+      }
+      button[aria-pressed='true'],
+      .primary {
+        background: var(--green);
+        color: #fff;
+        border-color: var(--green);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+      .sidebar {
+        padding: 26px 18px;
+        border-right: 1px solid var(--line);
+        background: #fff;
+      }
+      .brand {
+        font-size: 24px;
+        font-weight: 750;
+        letter-spacing: -1.3px;
+        margin: 0 12px 40px;
+      }
+      .brand small {
+        display: block;
+        font-size: 10px;
+        color: var(--muted);
+        letter-spacing: 3px;
+        margin-top: 5px;
+      }
+      .nav-item {
+        display: block;
+        padding: 12px;
+        margin: 4px 0;
+        color: var(--muted);
+        border-radius: 8px;
+      }
+      .nav-item.active {
+        background: #e9f0e8;
+        color: var(--green);
+        font-weight: 650;
+      }
+      .property {
+        border: 1px solid var(--line);
+        padding: 12px;
+        border-radius: 9px;
+        margin: 30px 0;
+        font-size: 12px;
+        line-height: 1.8;
+      }
+      .property strong {
+        display: block;
+        font-size: 14px;
+      }
+      .main {
+        min-width: 0;
+      }
+      .topbar {
+        height: 65px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 30px;
+        background: #fff;
+      }
+      .preview-tag {
+        font-size: 11px;
+        color: var(--gold);
+        background: #f7efd9;
+        padding: 6px 10px;
+        border-radius: 20px;
+      }
+      .avatar {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #e5ece5;
+        font-size: 11px;
+        margin-left: 12px;
+      }
+      .workspace {
+        padding: 25px 30px;
+      }
+      .eyebrow {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--muted);
+        font-weight: 650;
+      }
+      h1 {
+        font-size: 31px;
+        letter-spacing: -1px;
+        margin: 7px 0 6px;
+      }
+      h2 {
+        font-size: 21px;
+        letter-spacing: -0.4px;
+        margin: 4px 0 8px;
+      }
+      h3 {
+        font-size: 14px;
+        margin: 0 0 12px;
+      }
+      .subtitle {
+        color: var(--muted);
+        margin: 0;
+        font-size: 13px;
+      }
+      .heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 15px;
+      }
+      .metrics {
+        display: flex;
+        gap: 24px;
+        margin: 23px 0;
+        padding: 16px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+      .metric {
+        padding-right: 24px;
+        border-right: 1px solid var(--line);
+      }
+      .metric:last-child {
+        border: 0;
+      }
+      .metric strong {
+        font-size: 23px;
+        font-weight: 600;
+      }
+      .metric span {
+        font-size: 12px;
+        color: var(--muted);
+        margin-left: 8px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px;
+        margin: 16px 0;
+      }
+      .toolbar input {
+        min-width: 240px;
+        flex: 1;
+      }
+      .segmented {
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 10px;
+      }
+      .segmented button {
+        border: 0;
+        padding: 6px 11px;
+        font-size: 12px;
+      }
+      .scenario-box {
+        background: #edf2e9;
+        border: 1px solid #dce6d6;
+        border-radius: 10px;
+        padding: 13px 15px;
+        margin-bottom: 20px;
+      }
+      .scenario-label {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+      .scenarios {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .scenarios button {
+        font-size: 11px;
+        padding: 6px 9px;
+        background: #ffffffa0;
+      }
+      .legend {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: var(--muted);
+        margin: 12px 0;
+      }
+      .dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 5px;
+        background: #72a491;
+      }
+      .dot.reserved {
+        background: #93aaca;
+      }
+      .dot.arrival {
+        background: #d2ac62;
+      }
+      .chart {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        overflow: auto;
+        max-height: 60vh;
+        position: relative;
+        scrollbar-width: thin;
+      }
+      .chart table {
+        border-collapse: separate;
+        border-spacing: 0;
+        table-layout: fixed;
+      }
+      .chart th,
+      .chart td {
+        border-bottom: 1px solid #edf0eb;
+        border-right: 1px solid #edf0eb;
+        padding: 0;
+        height: 55px;
+        min-width: 68px;
+        width: 68px;
+        position: relative;
+      }
+      .chart thead th {
+        position: sticky;
+        top: 0;
+        background: #f8faf5;
+        z-index: 5;
+        text-align: center;
+        font-weight: 500;
+        font-size: 11px;
+        color: var(--muted);
+        height: 49px;
+      }
+      .chart thead th strong {
+        display: block;
+        color: var(--ink);
+        font-size: 17px;
+        line-height: 1.4;
+      }
+      .chart th.room-label {
+        position: sticky;
+        left: 0;
+        min-width: 182px;
+        width: 182px;
+        z-index: 4;
+        text-align: left;
+        background: white;
+        padding: 7px 13px;
+        font-size: 12px;
+      }
+      .chart thead th.room-label {
+        z-index: 6;
+        background: #f8faf5;
+      }
+      .room-label small {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        margin-top: 5px;
+        font-weight: 400;
+      }
+      .room-label .readiness {
+        float: right;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #77a38b;
+        margin-top: 4px;
+      }
+      .room-label .readiness.dirty {
+        background: #d4a345;
+      }
+      .group-row th {
+        background: #eef3ec !important;
+        height: 30px !important;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .group-row button {
+        padding: 3px 0;
+        border: 0;
+        background: none;
+        font-size: 11px;
+      }
+      .empty-cell {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        background: transparent;
+      }
+      .empty-cell:hover {
+        background: #e9f1e6;
+      }
+      .booking {
+        position: absolute;
+        top: 9px;
+        left: 3px;
+        height: 37px;
+        text-align: left;
+        z-index: 2;
+        overflow: hidden;
+        border: 1px solid #bdd7ca;
+        border-left: 3px solid #387c61;
+        border-radius: 7px;
+        background: #e6f1eb;
+        padding: 5px 10px;
+        font-size: 11px;
+        white-space: nowrap;
+        transition:
+          box-shadow 0.2s,
+          transform 0.2s;
+      }
+      .booking:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 3px 8px #20382b15;
+        background: #dcece2;
+      }
+      .booking.reserved {
+        background: #ebf0f9;
+        border-color: #cbd7e7;
+        border-left-color: #6b88ac;
+      }
+      .booking.arrival {
+        background: #faf1dd;
+        border-color: #e8d6aa;
+        border-left-color: #b7903c;
+      }
+      .booking strong {
+        font-size: 11px;
+        display: block;
+      }
+      .booking small {
+        font-size: 9px;
+        color: #596d65;
+      }
+      .resize {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 9px;
+        cursor: ew-resize;
+        background: #ffffff44;
+      }
+      .today-col {
+        background: #f5f8ef;
+      }
+      .agenda {
+        display: none;
+      }
+      .drawer {
+        position: fixed;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 410px;
+        max-width: 100vw;
+        background: #fff;
+        border-left: 1px solid var(--line);
+        box-shadow: -12px 0 50px #243a3a12;
+        z-index: 30;
+        padding: 27px;
+        overflow: auto;
+        animation: drawer-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .drawer[hidden] {
+        display: none;
+      }
+      .drawer-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 20px;
+      }
+      .close {
+        padding: 5px 9px;
+        font-size: 19px;
+        border: 0;
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 15px;
+        margin: 15px 0;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 9px 0;
+        font-size: 12px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 20px;
+        font-size: 10px;
+        background: #e9f1e8;
+        padding: 4px 7px;
+        color: #3d745f;
+      }
+      .pill.amber {
+        color: #896925;
+        background: #f9eed6;
+      }
+      .drawer label {
+        display: block;
+        font-size: 12px;
+        margin: 15px 0 6px;
+      }
+      .drawer input,
+      .drawer select,
+      .drawer textarea {
+        width: 100%;
+      }
+      .dates {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .notice {
+        font-size: 12px;
+        line-height: 1.6;
+        padding: 12px;
+        border-radius: 9px;
+        background: #f7f0dd;
+        color: #806226;
+        margin: 14px 0;
+      }
+      .notice.success {
+        background: #e9f3e9;
+        color: #3e6d50;
+      }
+      .drawer .primary {
+        width: 100%;
+        margin-top: 12px;
+      }
+      .drawer-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .drawer-actions button {
+        font-size: 12px;
+        flex: 1;
+      }
+      .tasks label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .tasks input {
+        width: auto;
+      }
+      .toast {
+        position: fixed;
+        bottom: 22px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #244c3e;
+        color: #fff;
+        padding: 13px 20px;
+        border-radius: 10px;
+        z-index: 60;
+        box-shadow: 0 5px 20px #0002;
+      }
+      .toast[hidden] {
+        display: none;
+      }
+      .compact .chart td,
+      .compact .chart th.room-label {
+        height: 43px;
+      }
+      .compact .booking {
+        height: 31px;
+        top: 5px;
+      }
+      .footer-note {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 12px;
+        line-height: 1.7;
+      }
+      .focus-row {
+        outline: 2px solid #99b7a0;
+        outline-offset: -2px;
+      }
+      @keyframes drawer-in {
+        from {
+          transform: translateX(35px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 155px minmax(0, 1fr);
+        }
+        .workspace {
+          padding: 20px;
+        }
+        .topbar {
+          padding: 0 20px;
+        }
+        .metrics {
+          gap: 14px;
+        }
+        .metric {
+          padding-right: 14px;
+        }
+        .metric span {
+          display: block;
+          margin: 4px 0 0;
+        }
+        .heading {
+          align-items: flex-start;
+        }
+        .drawer {
+          width: 380px;
+        }
+      }
+      @media (max-width: 760px) {
+        .shell {
+          display: block;
+        }
+        .sidebar {
+          display: none;
+        }
+        .topbar {
+          height: 54px;
+          padding: 0 16px;
+        }
+        .workspace {
+          padding: 18px 14px;
+        }
+        .heading {
+          align-items: center;
+        }
+        h1 {
+          font-size: 27px;
+        }
+        .heading .primary {
+          font-size: 12px;
+          padding: 9px;
+        }
+        .metrics {
+          gap: 14px;
+          overflow: auto;
+        }
+        .metric {
+          flex-shrink: 0;
+        }
+        .metric strong {
+          font-size: 20px;
+        }
+        .metric span {
+          font-size: 10px;
+        }
+        .chart {
+          display: none;
+        }
+        .agenda {
+          display: block;
+        }
+        .agenda article {
+          background: #fff;
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          padding: 14px;
+          margin: 10px 0;
+        }
+        .agenda article button {
+          float: right;
+          font-size: 11px;
+        }
+        .toolbar input {
+          min-width: 100%;
+          width: 100%;
+        }
+        .drawer {
+          width: 100%;
+          padding: 23px;
+        }
+        .scenario-box {
+          padding: 12px;
+        }
+        .scenario-label {
+          align-items: start;
+          gap: 10px;
+        }
+        .scenarios button {
+          font-size: 10px;
+        }
+        .legend {
+          gap: 8px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">YoHoBed<small>PROPERTY WORKSPACE</small></div>
+        <div class="eyebrow" style="padding: 0 12px">Front desk</div>
+        <span class="nav-item">Overview</span><span class="nav-item active">▦ &nbsp; Stay view</span
+        ><span class="nav-item">Rooms</span><span class="nav-item">Reservations</span
+        ><span class="nav-item">Guests</span>
+        <div class="property">
+          <strong>The Linden House</strong>Colombo · LKR<br />Front office workspace
+        </div>
+        <div class="footer-note">Design preview<br />Sample hotel data</div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <span>The Linden House <span class="muted"> / Front desk</span></span
+          ><span
+            ><span class="preview-tag">DESIGN PREVIEW</span><span class="avatar">AM</span></span
+          >
+        </header>
+        <div class="workspace">
+          <div class="heading">
+            <div>
+              <div class="eyebrow">Your hotel, at a glance</div>
+              <h1>Stay view</h1>
+              <p class="subtitle">A clear place for every guest.</p>
+            </div>
+            <button class="primary" id="new-booking">＋ New reservation</button>
+          </div>
+          <div class="metrics">
+            <div class="metric"><strong id="room-count">20</strong><span>Rooms</span></div>
+            <div class="metric"><strong>3</strong><span>Arriving today</span></div>
+            <div class="metric"><strong>2</strong><span>Departures</span></div>
+            <div class="metric"><strong id="ready-count">18</strong><span>Rooms ready</span></div>
+            <div class="metric"><strong>1</strong><span>Needs attention</span></div>
+          </div>
+          <section class="scenario-box" aria-label="Prototype walkthrough">
+            <div class="scenario-label">
+              <strong>Explore the six workflows</strong
+              ><span class="muted">Changes remain in this preview</span>
+            </div>
+            <div class="scenarios">
+              <button data-scenario="create">1 · Find & book</button
+              ><button data-scenario="assign">2 · Assign a room</button
+              ><button data-scenario="move">3 · Move a booking</button
+              ><button data-scenario="extend">4 · Extend a stay</button
+              ><button data-scenario="arrival">5 · Dirty-room arrival</button
+              ><button data-scenario="occasion">6 · Guest occasion</button>
+            </div>
+          </section>
+          <div class="toolbar">
+            <button id="previous" aria-label="Previous week">←</button
+            ><strong id="range-label">22 September – 5 October 2026</strong
+            ><button id="next" aria-label="Next week">→</button><button id="today">Today</button>
+            <div class="segmented" aria-label="Visible days">
+              <button data-days="7">7 days</button
+              ><button data-days="14" aria-pressed="true">14 days</button
+              ><button data-days="30">30 days</button>
+            </div>
+          </div>
+          <div class="toolbar">
+            <input
+              id="search"
+              aria-label="Search rooms and guests"
+              placeholder="Search guest, room, or reference…"
+            /><select id="group" aria-label="Group rooms">
+              <option value="category">By room category</option>
+              <option value="floor">By floor</option></select
+            ><select id="density" aria-label="Row density">
+              <option value="comfortable">Comfortable</option>
+              <option value="compact">Compact</option></select
+            ><button id="scale" aria-pressed="false">Try 200 rooms</button>
+          </div>
+          <div class="legend">
+            <span><i class="dot"></i>In house</span><span><i class="dot reserved"></i>Reserved</span
+            ><span><i class="dot arrival"></i>Arriving</span
+            ><span>● Green room dot: ready &nbsp; ● Amber: cleaning required</span>
+          </div>
+          <div class="chart" id="chart" aria-label="Stay timeline"></div>
+          <div class="agenda" id="agenda" aria-label="Mobile room agenda"></div>
+          <p class="footer-note">
+            Select a booking for details. Drag it to another room/date, or drag its right edge to
+            extend it. Every change opens a review before saving. The same actions are available as
+            form controls.
+          </p>
+        </div>
+      </main>
+    </div>
+    <section
+      class="drawer"
+      id="drawer"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="drawer-title"
+      hidden
+    ></section>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script>
+      'use strict';
+      const $ = (id) => document.getElementById(id);
+      const escapeHtml = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+        );
+      const dateAt = (offset) =>
+        new Date(Date.UTC(2026, 8, 22 + offset)).toISOString().slice(0, 10);
+      const dayOffset = (iso) =>
+        Math.round((Date.parse(iso + 'T00:00:00Z') - Date.UTC(2026, 8, 22)) / 86400000);
+      const money = (n) => 'LKR ' + n.toLocaleString('en-US');
+      const names = [
+        'Lotus',
+        'Ocean',
+        'Cinnamon',
+        'Jasmine',
+        'Palm',
+        'Orchid',
+        'Coral',
+        'Sandalwood',
+        'Moonstone',
+        'Lily',
+      ];
+      let rooms = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        code: String(101 + i),
+        name: names[i % 10],
+        category: i < 12 ? 'Deluxe rooms' : 'Garden suites',
+        floor: i < 10 ? 'First floor' : 'Second floor',
+        ready: ![1, 4].includes(i),
+        rate: i < 12 ? 18000 : 24000,
+      }));
+      let bookings = [
+        {
+          id: 'LH-2601',
+          guest: 'Sarah Fernando',
+          room: 1,
+          from: -1,
+          to: 3,
+          status: 'house',
+          adults: 2,
+          rate: 18000,
+          occasion: 'Anniversary',
+          tasks: ['Arrange flowers before arrival', 'Prepare a handwritten welcome note'],
+        },
+        {
+          id: 'LH-2602',
+          guest: 'Oliver & Emma Reed',
+          room: 2,
+          from: 0,
+          to: 4,
+          status: 'arrival',
+          adults: 2,
+          rate: 18000,
+        },
+        {
+          id: 'LH-2603',
+          guest: 'Ayesha Perera',
+          room: 3,
+          from: 2,
+          to: 6,
+          status: 'reserved',
+          adults: 2,
+          rate: 18000,
+        },
+        {
+          id: 'LH-2604',
+          guest: 'Daniel Chen',
+          room: 5,
+          from: -2,
+          to: 1,
+          status: 'house',
+          adults: 1,
+          rate: 18000,
+        },
+        {
+          id: 'LH-2605',
+          guest: 'Ravi Jayawardena',
+          room: 7,
+          from: 4,
+          to: 8,
+          status: 'reserved',
+          adults: 2,
+          rate: 18000,
+        },
+        {
+          id: 'LH-2606',
+          guest: 'Nadia Ahmed',
+          room: 13,
+          from: 1,
+          to: 5,
+          status: 'reserved',
+          adults: 2,
+          rate: 24000,
+        },
+        {
+          id: 'LH-2607',
+          guest: 'Maya & Arun',
+          room: null,
+          from: 0,
+          to: 3,
+          status: 'arrival',
+          adults: 2,
+          rate: 18000,
+        },
+      ];
+      let windowStart = 0,
+        windowDays = 14,
+        selected = null,
+        action = 'details',
+        draft = null,
+        collapsed = new Set(),
+        drag = null,
+        lastFocus = null,
+        toastTimer;
+      const labelRoom = (r) => r.code + ' · ' + r.name;
+      const activeBookings = (r) => bookings.filter((b) => b.room === r.id);
+      function announce(text) {
+        $('toast').textContent = text;
+        $('toast').hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => ($('toast').hidden = true), 4200);
+      }
+      function render() {
+        const query = $('search').value.toLowerCase();
+        const visible = rooms.filter((r) =>
+          (
+            labelRoom(r) +
+            ' ' +
+            r.category +
+            ' ' +
+            activeBookings(r)
+              .map((b) => b.guest + ' ' + b.id)
+              .join(' ')
+          )
+            .toLowerCase()
+            .includes(query),
+        );
+        $('room-count').textContent = rooms.length;
+        $('ready-count').textContent = rooms.filter((r) => r.ready).length;
+        $('range-label').textContent =
+          new Date(dateAt(windowStart)).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            timeZone: 'UTC',
+          }) +
+          ' – ' +
+          new Date(dateAt(windowStart + windowDays - 1)).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            timeZone: 'UTC',
+          });
+        let html =
+          '<table aria-label="Rooms and reservations"><thead><tr><th class="room-label">Room / readiness</th>';
+        for (let d = windowStart; d < windowStart + windowDays; d++) {
+          const dt = new Date(dateAt(d));
+          html +=
+            '<th scope="col" class="' +
+            (d === 0 ? 'today-col' : '') +
+            '">' +
+            dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' }) +
+            '<strong>' +
+            dt.getUTCDate() +
+            '</strong></th>';
+        }
+        html += '</tr></thead><tbody>';
+        const unassigned = bookings.filter((b) => b.room === null);
+        html +=
+          '<tr><th class="room-label">Unassigned <small>' +
+          unassigned.length +
+          ' booking' +
+          (unassigned.length !== 1 ? 's' : '') +
+          '</small></th><td colspan="' +
+          windowDays +
+          '">' +
+          unassigned
+            .map(
+              (b) =>
+                '<button class="booking arrival" style="width:210px" data-booking="' +
+                b.id +
+                '"><strong>' +
+                escapeHtml(b.guest) +
+                '</strong><small>Choose a room · ' +
+                b.id +
+                '</small></button>',
+            )
+            .join('') +
+          '</td></tr>';
+        const groups = [...new Set(visible.map((r) => r[$('group').value]))];
+        for (const group of groups) {
+          html +=
+            '<tr class="group-row"><th class="room-label"><button data-collapse="' +
+            escapeHtml(group) +
+            '" aria-expanded="' +
+            !collapsed.has(group) +
+            '">' +
+            (collapsed.has(group) ? '▸' : '▾') +
+            ' ' +
+            escapeHtml(group) +
+            '</button></th><td colspan="' +
+            windowDays +
+            '"></td></tr>';
+          if (collapsed.has(group)) continue;
+          for (const room of visible.filter((r) => r[$('group').value] === group)) {
+            html +=
+              '<tr><th class="room-label" scope="row"><span class="readiness ' +
+              (!room.ready ? 'dirty' : '') +
+              '" aria-label="' +
+              (room.ready ? 'Ready' : 'Cleaning required') +
+              '"></span>' +
+              escapeHtml(labelRoom(room)) +
+              '<small>' +
+              room.floor +
+              ' · ' +
+              (room.ready ? 'Ready' : 'Dirty') +
+              '</small></th>';
+            for (let d = windowStart; d < windowStart + windowDays; d++) {
+              html +=
+                '<td data-room="' +
+                room.id +
+                '" data-day="' +
+                d +
+                '" class="' +
+                (d === 0 ? 'today-col' : '') +
+                '"><button class="empty-cell" data-empty-room="' +
+                room.id +
+                '" data-day="' +
+                d +
+                '" aria-label="New reservation in ' +
+                escapeHtml(labelRoom(room)) +
+                ' on ' +
+                dateAt(d) +
+                '"></button>';
+              for (const b of activeBookings(room).filter(
+                (b) => Math.max(b.from, windowStart) === d && b.to > windowStart,
+              )) {
+                const nights = Math.min(b.to, windowStart + windowDays) - d;
+                html +=
+                  '<button draggable="true" class="booking ' +
+                  (b.status === 'house' ? '' : b.status) +
+                  '" data-booking="' +
+                  b.id +
+                  '" style="width:' +
+                  Math.max(60, nights * 68 - 7) +
+                  'px" aria-label="' +
+                  escapeHtml(b.guest) +
+                  ' ' +
+                  b.id +
+                  '"><strong>' +
+                  escapeHtml(b.guest) +
+                  (b.occasion ? ' ♡' : '') +
+                  '</strong><small>' +
+                  b.id +
+                  ' · ' +
+                  (b.status === 'house'
+                    ? 'In house'
+                    : b.status === 'arrival'
+                      ? 'Arriving today'
+                      : 'Reserved') +
+                  '</small><span class="resize" draggable="true" data-resize="' +
+                  b.id +
+                  '" aria-hidden="true"></span></button>';
+              }
+              html += '</td>';
+            }
+            html += '</tr>';
+          }
+        }
+        html += '</tbody></table>';
+        $('chart').innerHTML = html;
+        $('agenda').innerHTML = visible
+          .slice(0, 40)
+          .map((r) => {
+            const b = activeBookings(r).find((b) => b.from <= windowStart && b.to > windowStart);
+            return (
+              '<article><button ' +
+              (b
+                ? 'data-booking="' + b.id + '"'
+                : 'data-empty-room="' + r.id + '" data-day="' + windowStart + '"') +
+              '>' +
+              (b ? 'Details' : 'Book') +
+              '</button><strong>' +
+              escapeHtml(labelRoom(r)) +
+              '</strong><p class="muted">' +
+              (b ? escapeHtml(b.guest) : 'Vacant') +
+              '</p><span class="pill ' +
+              (!r.ready ? 'amber' : '') +
+              '">' +
+              (r.ready ? 'Ready' : 'Cleaning required') +
+              '</span></article>'
+            );
+          })
+          .join('');
+      }
+      function openBooking(id, mode = 'details', proposal) {
+        selected = bookings.find((b) => b.id === id);
+        if (!selected) return;
+        action = mode;
+        draft = proposal || { ...selected };
+        lastFocus = document.activeElement;
+        renderDrawer();
+        $('drawer').hidden = false;
+        $('drawer').querySelector('button').focus();
+      }
+      function newBooking(roomId = 6, day = windowStart) {
+        selected = null;
+        action = 'create';
+        draft = {
+          id: 'LH-' + (2600 + bookings.length + 1),
+          guest: '',
+          room: roomId,
+          from: day,
+          to: day + 2,
+          status: 'reserved',
+          adults: 2,
+          rate: rooms.find((r) => r.id === roomId).rate,
+        };
+        lastFocus = document.activeElement;
+        renderDrawer();
+        $('drawer').hidden = false;
+        $('guest').focus();
+      }
+      function issueFor(d) {
+        const r = rooms.find((r) => r.id === Number(d.room));
+        if (!r) return 'Choose a room before saving.';
+        if (d.to <= d.from) return 'Departure must be after arrival.';
+        if (
+          bookings.some((b) => b.id !== d.id && b.room === r.id && b.from < d.to && b.to > d.from)
+        )
+          return 'This room has another booking during the selected dates. Choose another room or date range.';
+        if (!d.guest.trim()) return 'Enter the guest’s name.';
+        if (
+          action === 'move' &&
+          selected &&
+          selected.status === 'house' &&
+          d.from !== selected.from
+        )
+          return 'For an in-house guest, use the room-move action without changing the arrival date.';
+        return '';
+      }
+      function changes() {
+        const r = rooms.find((r) => r.id === Number(draft.room));
+        const sameCategory =
+          selected &&
+          selected.room &&
+          rooms.find((x) => x.id === selected.room).category === r.category;
+        const kept =
+          selected && sameCategory
+            ? Math.max(0, Math.min(selected.to, draft.to) - Math.max(selected.from, draft.from))
+            : 0;
+        const nights = draft.to - draft.from;
+        const old = selected ? (selected.to - selected.from) * selected.rate : 0;
+        return {
+          old,
+          total: kept * (selected ? selected.rate : 0) + (nights - kept) * r.rate,
+          kept,
+          nights,
+          rate: r.rate,
+        };
+      }
+      function renderDrawer() {
+        const b = draft;
+        const r = rooms.find((r) => r.id === Number(b.room));
+        const edit = action !== 'details';
+        let html =
+          '<div class="drawer-top"><div><div class="eyebrow">' +
+          (edit ? 'Review before saving' : b.id) +
+          '</div><h2 id="drawer-title">' +
+          (action === 'create'
+            ? 'New reservation'
+            : edit
+              ? action === 'assign'
+                ? 'Assign a room'
+                : action === 'extend'
+                  ? 'Extend the stay'
+                  : 'Move reservation'
+              : escapeHtml(b.guest)) +
+          '</h2></div><button class="close" id="close" aria-label="Close reservation drawer">×</button></div>';
+        if (!edit) {
+          html +=
+            '<span class="pill ' +
+            (b.status === 'arrival' ? 'amber' : '') +
+            '">' +
+            (b.status === 'house' ? 'In house' : b.status === 'arrival' ? 'Arriving' : 'Reserved') +
+            '</span><div class="card"><div class="row"><span class="muted">Room</span><strong>' +
+            (r ? escapeHtml(labelRoom(r)) : 'Unassigned') +
+            '</strong></div><div class="row"><span class="muted">Stay</span><span>' +
+            dateAt(b.from) +
+            ' → ' +
+            dateAt(b.to) +
+            '</span></div><div class="row"><span class="muted">Guests / meal plan</span><span>' +
+            b.adults +
+            ' adults · BB</span></div><div class="row"><span class="muted">Agreed nightly rate</span><strong>' +
+            money(b.rate) +
+            '</strong></div></div>';
+          if (r && !r.ready)
+            html +=
+              '<div class="notice">This room is vacant but still dirty. Cleaning must be completed before check-in.</div><button id="ready">Simulate housekeeping: mark ready</button>';
+          if (b.status === 'arrival')
+            html +=
+              '<button class="primary" id="checkin" ' +
+              (!r || !r.ready ? 'disabled' : '') +
+              '>Check in guest</button>';
+          html +=
+            '<div class="drawer-actions" style="margin-top:18px"><button id="move">' +
+            (r ? 'Change room' : 'Assign room') +
+            '</button><button id="extend">Extend stay</button></div><div class="card"><h3>Guest occasion & preparation</h3><p class="muted">' +
+            (b.occasion || 'No occasion recorded') +
+            '</p><div class="tasks">' +
+            (b.tasks || [])
+              .map(
+                (t, i) =>
+                  '<label><input type="checkbox" data-task="' +
+                  i +
+                  '" ' +
+                  (b.done && b.done.includes(i) ? 'checked' : '') +
+                  '>' +
+                  escapeHtml(t) +
+                  '</label>',
+              )
+              .join('') +
+            '</div><p class="footer-note">Preparation is visible to the teams responsible for the guest’s arrival.</p></div>';
+        } else {
+          html +=
+            '<label for="guest">Guest name</label><input id="guest" value="' +
+            escapeHtml(b.guest) +
+            '" ' +
+            (selected ? 'readonly' : '') +
+            '><label for="destination">Room</label><select id="destination">' +
+            rooms
+              .map(
+                (r) =>
+                  '<option value="' +
+                  r.id +
+                  '" ' +
+                  (r.id === Number(b.room) ? 'selected' : '') +
+                  '>' +
+                  escapeHtml(labelRoom(r)) +
+                  ' · ' +
+                  r.category +
+                  '</option>',
+              )
+              .join('') +
+            '</select><div class="dates"><div><label for="arrival">Arrival</label><input id="arrival" type="date" value="' +
+            dateAt(b.from) +
+            '"></div><div><label for="departure">Departure</label><input id="departure" type="date" value="' +
+            dateAt(b.to) +
+            '"></div></div><div id="review"></div><button class="primary" id="save">' +
+            (action === 'create' ? 'Create preview reservation' : 'Save reviewed change') +
+            '</button><button id="cancel" style="width:100%;margin-top:8px">Cancel</button>';
+        }
+        html +=
+          '<p class="footer-note">Prototype only. No hotel bookings, payments, or messages are changed.</p>';
+        $('drawer').innerHTML = html;
+        $('close').onclick = closeDrawer;
+        if (edit) {
+          ['guest', 'destination', 'arrival', 'departure'].forEach(
+            (id) =>
+              ($(id).oninput = () => {
+                draft = {
+                  ...draft,
+                  guest: $('guest').value,
+                  room: Number($('destination').value),
+                  from: dayOffset($('arrival').value),
+                  to: dayOffset($('departure').value),
+                };
+                renderReview();
+              }),
+          );
+          $('cancel').onclick = closeDrawer;
+          $('save').onclick = saveChange;
+          renderReview();
+        } else {
+          $('move').onclick = () =>
+            openBooking(b.id, r ? 'move' : 'assign', { ...b, room: b.room || 6 });
+          $('extend').onclick = () => openBooking(b.id, 'extend', { ...b, to: b.to + 1 });
+          if ($('ready'))
+            $('ready').onclick = () => {
+              r.ready = true;
+              render();
+              renderDrawer();
+              announce('Housekeeping update received. Room is ready.');
+            };
+          if ($('checkin'))
+            $('checkin').onclick = () => {
+              selected.status = 'house';
+              draft = { ...selected };
+              render();
+              renderDrawer();
+              announce('Guest checked in in the preview.');
+            };
+          document.querySelectorAll('[data-task]').forEach(
+            (el) =>
+              (el.onchange = () => {
+                const i = Number(el.dataset.task);
+                selected.done = (selected.done || []).filter((x) => x !== i);
+                if (el.checked) selected.done.push(i);
+                announce('Preparation task updated in the preview.');
+              }),
+          );
+        }
+      }
+      function renderReview() {
+        const issue = issueFor(draft);
+        $('save').disabled = !!issue;
+        if (issue) {
+          $('review').innerHTML =
+            '<div class="notice" role="alert">' + escapeHtml(issue) + '</div>';
+          return;
+        }
+        const q = changes();
+        const original =
+          selected && selected.room ? rooms.find((r) => r.id === selected.room) : null;
+        $('review').innerHTML =
+          '<div class="card"><h3>' +
+          (selected ? 'Proposed change' : 'Your booking') +
+          '</h3>' +
+          (selected
+            ? '<div class="row"><span class="muted">From</span><span>' +
+              (original ? escapeHtml(labelRoom(original)) : 'Unassigned') +
+              '</span></div>'
+            : '') +
+          '<div class="row"><span class="muted">To</span><strong>' +
+          escapeHtml(labelRoom(rooms.find((r) => r.id === draft.room))) +
+          '</strong></div><div class="row"><span class="muted">Length</span><span>' +
+          q.nights +
+          ' nights</span></div>' +
+          (selected
+            ? '<div class="row"><span class="muted">Previous total</span><span>' +
+              money(q.old) +
+              '</span></div>'
+            : '') +
+          '<div class="row"><span>Proposed total</span><strong>' +
+          money(q.total) +
+          '</strong></div>' +
+          (selected
+            ? '<div class="row"><span>Difference</span><strong>' +
+              money(q.total - q.old) +
+              '</strong></div>'
+            : '') +
+          '</div><div class="notice success">Room available. Capacity is valid for 2 adults.</div><p class="footer-note">' +
+          q.kept +
+          ' unchanged nights retain their agreed rate. New or category-changed nights use the current rate. This preview does not collect payment or issue refunds.</p>';
+      }
+      function saveChange() {
+        if (issueFor(draft)) return;
+        const q = changes();
+        if (selected) Object.assign(selected, draft, { rate: q.total / q.nights });
+        else bookings.push({ ...draft });
+        closeDrawer();
+        render();
+        announce('Reviewed change saved in the preview.');
+      }
+      function closeDrawer() {
+        $('drawer').hidden = true;
+        if (lastFocus && lastFocus.isConnected) lastFocus.focus();
+      }
+      document.addEventListener('click', (event) => {
+        const b = event.target.closest('[data-booking]');
+        if (b) {
+          openBooking(b.dataset.booking);
+          return;
+        }
+        const empty = event.target.closest('[data-empty-room]');
+        if (empty) {
+          newBooking(Number(empty.dataset.emptyRoom), Number(empty.dataset.day));
+          return;
+        }
+        const g = event.target.closest('[data-collapse]');
+        if (g) {
+          const v = g.dataset.collapse;
+          collapsed.has(v) ? collapsed.delete(v) : collapsed.add(v);
+          render();
+        }
+        const s = event.target.closest('[data-scenario]');
+        if (s) {
+          const key = s.dataset.scenario;
+          if (key === 'create') {
+            newBooking(6, 0);
+          } else
+            openBooking(
+              key === 'assign'
+                ? 'LH-2607'
+                : key === 'move'
+                  ? 'LH-2603'
+                  : key === 'arrival'
+                    ? 'LH-2602'
+                    : 'LH-2601',
+              key === 'assign'
+                ? 'assign'
+                : key === 'move'
+                  ? 'move'
+                  : key === 'extend'
+                    ? 'extend'
+                    : 'details',
+            );
+          if (key === 'assign') {
+            draft.room = 6;
+            renderDrawer();
+          }
+        }
+      });
+      document.addEventListener('dragstart', (event) => {
+        const resize = event.target.closest('[data-resize]');
+        const b = event.target.closest('[data-booking]');
+        if (!b) return;
+        drag = { id: b.dataset.booking, resize: !!resize };
+        event.dataTransfer.setData('text/plain', b.dataset.booking);
+        event.dataTransfer.effectAllowed = 'move';
+      });
+      $('chart').addEventListener('dragover', (event) => {
+        if (event.target.closest('[data-room]')) event.preventDefault();
+      });
+      $('chart').addEventListener('drop', (event) => {
+        event.preventDefault();
+        const cell = event.target.closest('[data-room]');
+        if (!cell || !drag) return;
+        const b = bookings.find((b) => b.id === drag.id);
+        const day = Number(cell.dataset.day);
+        const proposal = drag.resize
+          ? { ...b, to: day + 1 }
+          : {
+              ...b,
+              room: Number(cell.dataset.room),
+              from: b.status === 'house' ? b.from : day,
+              to: b.status === 'house' ? b.to : day + (b.to - b.from),
+            };
+        openBooking(b.id, drag.resize ? 'extend' : 'move', proposal);
+        drag = null;
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeDrawer();
+      });
+      $('new-booking').onclick = () => newBooking();
+      $('search').oninput = render;
+      $('group').onchange = () => {
+        collapsed.clear();
+        render();
+      };
+      $('density').onchange = () =>
+        document.body.classList.toggle('compact', $('density').value === 'compact');
+      $('previous').onclick = () => {
+        windowStart -= 7;
+        render();
+      };
+      $('next').onclick = () => {
+        windowStart += 7;
+        render();
+      };
+      $('today').onclick = () => {
+        windowStart = 0;
+        render();
+      };
+      document.querySelectorAll('[data-days]').forEach(
+        (button) =>
+          (button.onclick = () => {
+            windowDays = Number(button.dataset.days);
+            document
+              .querySelectorAll('[data-days]')
+              .forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+            render();
+          }),
+      );
+      $('scale').onclick = () => {
+        if (rooms.length === 20) {
+          rooms = rooms.concat(
+            Array.from({ length: 180 }, (_, i) => ({
+              id: i + 21,
+              code: String(i + 121),
+              name: names[i % 10],
+              category: i % 3 === 0 ? 'Garden suites' : 'Deluxe rooms',
+              floor: 'Floor ' + (3 + Math.floor(i / 20)),
+              ready: true,
+              rate: i % 3 === 0 ? 24000 : 18000,
+            })),
+          );
+          $('scale').textContent = 'Show 20 rooms';
+          $('scale').setAttribute('aria-pressed', 'true');
+        } else {
+          rooms = rooms.slice(0, 20);
+          $('scale').textContent = 'Try 200 rooms';
+          $('scale').setAttribute('aria-pressed', 'false');
+        }
+        render();
+      };
+      render();
+    </script>
+  </body>
+</html>

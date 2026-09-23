@@ -7,9 +7,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { inArray, sql } from 'drizzle-orm';
 import { rooms } from '@yohobed/db';
+import type { TenantRequest } from '../tenancy/tenant.guard';
 import { DatabaseService } from '../database/database.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
@@ -39,8 +42,16 @@ export class RoomsController {
   ) {}
 
   @Get()
-  list(@TenantId() tenantId: string) {
-    return this.dbs.withTenant(tenantId, (tx) => tx.select().from(rooms));
+  list(@TenantId() tenantId: string, @Req() request: TenantRequest) {
+    const grants = request.grantedPropertyIds;
+    return this.dbs.withTenant(tenantId, (tx) =>
+      tx
+        .select()
+        .from(rooms)
+        .where(
+          grants ? (grants.length ? inArray(rooms.propertyId, grants) : sql`false`) : undefined,
+        ),
+    );
   }
 
   @Patch(':id')
