@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bed,
@@ -128,6 +129,7 @@ export default function RoomViewPage() {
   const [density, setDensity] = React.useState<'comfortable' | 'compact'>('comfortable');
   const [maintenanceOverlay, setMaintenanceOverlay] = React.useState(false);
   const [floorDirection, setFloorDirection] = React.useState(0);
+  const viewRootRef = React.useRef<HTMLDivElement>(null);
   const gridRef = React.useRef<HTMLDivElement>(null);
   const previousRects = React.useRef(new Map<string, DOMRect>());
 
@@ -185,6 +187,33 @@ export default function RoomViewPage() {
       ),
     );
   };
+  const switchView = (mode: 'rooms' | 'floor') => {
+    if (mode === view) return;
+    const selectFirstFloor = mode === 'floor' && floor === 'all';
+    const updateView = () => {
+      if (selectFirstFloor) setFloor(floors[0] ?? 'Unassigned');
+      setView(mode);
+    };
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      rememberRects();
+      updateView();
+      return;
+    }
+
+    // The entrance keyframes are for first load. Later switches are driven by
+    // the shared-room transition (or its FLIP fallback), so they must not fight it.
+    viewRootRef.current?.classList.add('room-view-no-entry');
+    if (typeof document.startViewTransition !== 'function') {
+      rememberRects();
+      updateView();
+      return;
+    }
+
+    // Both layouts give each room the same view-transition-name. The browser
+    // carries its snapshot from the floor coordinate to its card-grid position.
+    document.startViewTransition(() => flushSync(updateView));
+  };
   React.useLayoutEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     for (const el of Array.from(
@@ -195,13 +224,26 @@ export default function RoomViewPage() {
       const after = el.getBoundingClientRect();
       const dx = before.left - after.left,
         dy = before.top - after.top;
-      if (Math.abs(dx) + Math.abs(dy) < 2) continue;
-      el.animate(
+      const sx = before.width / after.width,
+        sy = before.height / after.height;
+      if (Math.abs(dx) + Math.abs(dy) + Math.abs(before.width - after.width) < 2) continue;
+      // Fallback for browsers without the View Transitions API, and for grid
+      // reflows caused by filters or density changes.
+      el.style.animation = 'none';
+      const animation = el.animate(
         [
-          { transform: `translate(${dx}px, ${dy}px) scale(.97)`, opacity: 0.75 },
-          { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+          {
+            transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
+            opacity: 0.85,
+            transformOrigin: 'top left',
+          },
+          { transform: 'none', opacity: 1, transformOrigin: 'top left' },
         ],
-        { duration: 500, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        { duration: 520, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+      );
+      void animation.finished.then(
+        () => el.style.removeProperty('animation'),
+        () => el.style.removeProperty('animation'),
       );
     }
     previousRects.current.clear();
@@ -255,7 +297,7 @@ export default function RoomViewPage() {
   );
 
   return (
-    <div>
+    <div ref={viewRootRef}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div>
           <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
@@ -266,22 +308,25 @@ export default function RoomViewPage() {
             <div
               role="tablist"
               aria-label="Room presentation"
-              className="flex rounded-lg border border-line bg-surface-2 p-0.5"
+              className="relative grid grid-cols-2 rounded-lg border border-line bg-surface-2 p-0.5"
             >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 w-[calc(50%-2px)] rounded-md bg-surface shadow-sm transition-transform duration-500 ease-smooth',
+                  view === 'rooms' && 'translate-x-full',
+                )}
+              />
               {(['floor', 'rooms'] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   role="tab"
                   aria-selected={view === mode}
-                  onClick={() => {
-                    rememberRects();
-                    if (mode === 'floor' && floor === 'all') setFloor(floors[0] ?? 'Unassigned');
-                    setView(mode);
-                  }}
+                  onClick={() => switchView(mode)}
                   className={cn(
-                    'rounded-md px-3 py-1 text-sm capitalize transition-colors',
-                    view === mode ? 'bg-surface font-semibold text-ink shadow-sm' : 'text-ink-3',
+                    'relative z-10 rounded-md px-3 py-1 text-sm capitalize transition-colors',
+                    view === mode ? 'font-semibold text-ink' : 'text-ink-3',
                   )}
                 >
                   {mode === 'floor' ? 'Floor' : 'Rooms'}
@@ -435,6 +480,7 @@ export default function RoomViewPage() {
                     ? 'grid-cols-2 md:grid-cols-4 2xl:grid-cols-6'
                     : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
                 )}
+                style={{ viewTransitionName: 'room-layout' }}
               >
                 {visible.map((c, index) => (
                   <RoomTile
@@ -529,7 +575,10 @@ function RoomTile({
     <div
       data-room-id={card.unitId}
       className="room-tile-wrap group relative"
-      style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
+      style={{
+        animationDelay: `${Math.min(index, 12) * 25}ms`,
+        viewTransitionName: `room-${card.unitId}`,
+      }}
       onContextMenu={(event) => {
         if (!onQuickStatus) return;
         event.preventDefault();
@@ -774,13 +823,28 @@ function FloorCanvas({
   const [landmarkKind, setLandmarkKind] =
     React.useState<FloorLayout['landmarks'][number]['kind']>('lift');
   const canvasRef = React.useRef<HTMLDivElement>(null);
-  const columns = 4;
-  const rows = Math.max(2, Math.ceil(cards.length / columns));
-  const canvasHeight = Math.max(460, rows * 170 + 100);
+  const [canvasWidth, setCanvasWidth] = React.useState(640);
+  const columns = Math.max(1, Math.min(6, Math.floor((canvasWidth - 24) / 184)));
+  const rows = Math.max(1, Math.ceil(cards.length / columns));
+  const upperRows = Math.ceil(rows / 2);
+  const canvasHeight = Math.max(
+    layout ? 460 : 320,
+    48 + rows * 160 + (rows - 1) * 24 + (rows > 1 ? 40 : 0),
+  );
+  const corridorY = 24 + upperRows * 160 + (upperRows - 1) * 24 + 20;
   const auto = (i: number) => ({
-    x: 25 + (i % columns) * 240,
-    y: 30 + Math.floor(i / columns) * (800 / rows),
+    x: 25 + (i % columns) * (950 / columns),
+    y:
+      ((24 + Math.floor(i / columns) * 184 + (Math.floor(i / columns) >= upperRows ? 40 : 0)) /
+        canvasHeight) *
+      1000,
   });
+  React.useEffect(() => {
+    if (!canvasRef.current) return;
+    const observer = new ResizeObserver(([entry]) => setCanvasWidth(entry.contentRect.width));
+    observer.observe(canvasRef.current);
+    return () => observer.disconnect();
+  }, []);
   React.useEffect(() => {
     setPositions(
       Object.fromEntries(
@@ -792,7 +856,13 @@ function FloorCanvas({
     );
     setLandmarks(layout?.landmarks ?? []);
     setEditing(false);
-  }, [floor, layout?.version, cards.map((c) => `${c.unitId}:${c.mapX}:${c.mapY}`).join('|')]);
+  }, [
+    floor,
+    layout?.version,
+    columns,
+    canvasHeight,
+    cards.map((c) => `${c.unitId}:${c.mapX}:${c.mapY}`).join('|'),
+  ]);
   const save = useMutation({
     mutationFn: () =>
       saveFloorLayout(propertyId!, {
@@ -812,7 +882,10 @@ function FloorCanvas({
     onError: (e) => toast.error((e as Error).message),
   });
   return (
-    <div className="rounded-2xl border border-line bg-surface-2 p-3 sm:p-5">
+    <div
+      className="rounded-2xl border border-line bg-surface-2 p-3 sm:p-5"
+      style={{ viewTransitionName: 'room-layout' }}
+    >
       <div className="mb-3 flex items-center gap-2">
         <MapPin size={18} className="text-brand" />
         <h2 className="font-semibold text-ink">{floor}</h2>
@@ -923,12 +996,15 @@ function FloorCanvas({
         className="relative overflow-hidden rounded-xl border border-line bg-surface"
         style={{ height: canvasHeight }}
       >
-        <div
-          aria-hidden
-          className="absolute left-3 right-3 top-1/2 border-t border-dashed border-line-strong text-center text-[10px] uppercase tracking-widest text-ink-3"
-        >
-          Corridor
-        </div>
+        {cards.length > columns && (
+          <div
+            aria-hidden
+            className="absolute left-3 right-3 border-t border-dashed border-line-strong text-center text-[10px] uppercase tracking-widest text-ink-3"
+            style={{ top: corridorY }}
+          >
+            Corridor
+          </div>
+        )}
         {landmarks.map((l) => (
           <div
             key={l.id}

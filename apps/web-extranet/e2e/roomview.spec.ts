@@ -96,6 +96,46 @@ test('keeps the date, floor and live room cards across Floor and Rooms', async (
   ).toBeVisible();
 });
 
+test('carries room tiles through the Floor to Rooms spatial morph', async ({ page }, testInfo) => {
+  const modes = page.getByRole('tablist', { name: 'Room presentation' });
+  await modes.getByRole('tab', { name: 'Floor' }).click();
+  await expect(modes.getByRole('tab', { name: 'Floor' })).toHaveAttribute('aria-selected', 'true');
+  await page.waitForTimeout(550);
+  await page.screenshot({ path: testInfo.outputPath('floor.png') });
+
+  const roomId = await page.locator('[data-room-id]').first().getAttribute('data-room-id');
+  expect(roomId).toBeTruthy();
+  const transitionName = `room-${roomId}`;
+  expect(
+    await page
+      .locator(`[data-room-id="${roomId}"]`)
+      .evaluate((el) => getComputedStyle(el).viewTransitionName),
+  ).toBe(transitionName);
+
+  await page.evaluate(() => {
+    const start = document.startViewTransition.bind(document);
+    document.startViewTransition = (callback) => {
+      const transition = start(callback);
+      (window as typeof window & { roomMorph?: ViewTransition }).roomMorph = transition;
+      return transition;
+    };
+  });
+  await modes.getByRole('tab', { name: 'Rooms' }).click();
+  const groups = await page.evaluate(async () => {
+    const transition = (window as typeof window & { roomMorph?: ViewTransition }).roomMorph;
+    if (!transition) return [];
+    await transition.ready;
+    return document
+      .getAnimations()
+      .map((animation) => (animation.effect as KeyframeEffect | null)?.pseudoElement);
+  });
+  expect(groups).toContain(`::view-transition-group(${transitionName})`);
+  await page.screenshot({ path: testInfo.outputPath('morph.png') });
+  await expect(page.locator(`[data-room-id="${roomId}"]`)).toBeVisible();
+  await page.waitForTimeout(550);
+  await page.screenshot({ path: testInfo.outputPath('rooms.png') });
+});
+
 test('exposes the cleaning queue and tile action on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByLabel('Priority cleaning queue')).toBeVisible();
