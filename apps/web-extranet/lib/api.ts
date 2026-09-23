@@ -1394,6 +1394,8 @@ export interface ReservationFilters {
   createdBy?: string;
   /** One group's rooms, whatever the tab. */
   groupId?: string;
+  /** One reservation, whatever its dates or state — how the search opens a stay (UX-2). */
+  bookingId?: string;
   groupsOnly?: boolean;
 }
 
@@ -1409,6 +1411,7 @@ function reservationParams(params: ReservationFilters): URLSearchParams {
     'ledgerAccountId',
     'createdBy',
     'groupId',
+    'bookingId',
   ] as const) {
     const v = params[k];
     if (v) sp.set(k, v);

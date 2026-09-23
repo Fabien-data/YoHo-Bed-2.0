@@ -92,6 +92,37 @@ export async function arrivalToday(page: Page, guest: string, nights = 2) {
   return b as { id: string; reference: string; amount: string };
 }
 
+/**
+ * A confirmed stay a few days out, booked through the API.
+ *
+ * For a task that does not need the guest in house: the demo hotel has few rooms, and a spec that
+ * takes one of tonight's is a spec that makes another spec fail.
+ */
+export async function futureStay(page: Page, guest: string, nights = 2) {
+  const { headers, propertyId } = await api(page);
+  const { checkin, checkout } = await findStay(page, nights, 1);
+  const grid = await (
+    await page.request.get(
+      `${API}/properties/${propertyId}/room-availability?checkin=${checkin}&checkout=${checkout}`,
+      { headers },
+    )
+  ).json();
+  const rt = grid.roomTypes.find(
+    (r: { free: number; rateTypes: Array<{ priced: boolean }> }) =>
+      r.free >= 1 && r.rateTypes.some((t) => t.priced),
+  );
+  if (!rt) throw new Error('no free, priced room type in the demo data');
+  const occupancyId = rt.rateTypes.find((t: { priced: boolean }) => t.priced).occupancyId;
+  const res = await page.request.post(`${API}/bookings`, {
+    headers,
+    data: { roomId: rt.roomId, occupancyId, checkin, checkout, customerName: guest },
+  });
+  const b = await res.json();
+  if (!res.ok()) throw new Error(`futureStay failed: ${JSON.stringify(b)}`);
+  await page.request.post(`${API}/bookings/${b.id}/approve`, { headers });
+  return b as { id: string; reference: string; amount: string };
+}
+
 /** Drive a booking through the API — setup and clean-up only, never the thing under test. */
 export async function bookingApi(page: Page, id: string, action: string, data?: unknown) {
   const { headers } = await api(page);

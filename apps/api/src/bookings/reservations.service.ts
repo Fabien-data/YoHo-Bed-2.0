@@ -69,7 +69,7 @@ export class ReservationsService {
       // A group's rooms are listed together whatever their dates, so the tab does not apply.
       const where = and(
         this.filtersFor(q),
-        q.groupId ? undefined : this.tabFilter(q.tab, q.date, tz),
+        q.groupId || q.bookingId ? undefined : this.tabFilter(q.tab, q.date, tz),
       );
       const [rows, counts, [total]] = await Promise.all([
         this.rowsFor(tx, where, q.tab).limit(q.limit).offset(q.offset),
@@ -101,7 +101,7 @@ export class ReservationsService {
       const tz = await this.timezoneOf(tx, q.propertyId);
       const where = and(
         this.filtersFor(q),
-        q.groupId ? undefined : this.tabFilter(q.tab, q.date, tz),
+        q.groupId || q.bookingId ? undefined : this.tabFilter(q.tab, q.date, tz),
       );
       const rows = (await this.rowsFor(tx, where, q.tab).limit(EXPORT_CAP)).map(shapeRow);
       const head = [
@@ -215,6 +215,7 @@ export class ReservationsService {
       q.createdBy ? eq(bookings.createdByUserId, q.createdBy) : undefined,
       q.groupsOnly ? sql`${bookings.groupId} is not null` : undefined,
       q.groupId ? eq(bookings.groupId, q.groupId) : undefined,
+      q.bookingId ? eq(bookings.id, q.bookingId) : undefined,
     );
   }
 

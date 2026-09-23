@@ -249,6 +249,16 @@ function ReservationsScreen() {
     if (requested && list.data?.rows.some((row) => row.id === requested)) setOpenId(requested);
   }, [params, list.data?.rows]);
 
+  // A stay opened from the search may not be on this tab at all — a future arrival, a cancelled
+  // booking. Fetch that one row so the sheet opens wherever it was found (UX-2).
+  const missing = Boolean(openId) && !(list.data?.rows ?? []).some((r) => r.id === openId);
+  const openedElsewhere = useQuery({
+    queryKey: ['reservations', 'one', propertyId, day, openId],
+    queryFn: () =>
+      getReservations({ propertyId: propertyId!, date: day!, bookingId: openId!, limit: 1 }),
+    enabled: Boolean(propertyId && day && openId) && missing,
+  });
+
   const makeGroup = useMutation({
     mutationFn: () =>
       makeBookingGroup(propertyId!, {
@@ -307,7 +317,7 @@ function ReservationsScreen() {
     formatMoney(v, currency ?? cfg.property.currency);
   const rows = list.data?.rows ?? [];
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const openRow = openId ? (byId.get(openId) ?? null) : null;
+  const openRow = openId ? (byId.get(openId) ?? openedElsewhere.data?.rows[0] ?? null) : null;
   const filtered = kind !== 'any' || sourceId || segmentId || mine || group;
 
   const sourceOptions: ComboboxOption[] = cfg.businessSources.map((s) => ({

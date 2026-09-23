@@ -120,6 +120,11 @@ const reservationFilterFields = {
   createdBy: z.string().uuid().optional(),
   /** One group's rooms, whatever their dates or state: the tab is ignored. */
   groupId: z.string().uuid().optional(),
+  /**
+   * One reservation, whatever its dates or state — the tab is ignored (UX-2). What the search
+   * uses to open a stay that is not on the list's current tab.
+   */
+  bookingId: z.string().uuid().optional(),
 };
 
 export const reservationQuerySchema = z.object({

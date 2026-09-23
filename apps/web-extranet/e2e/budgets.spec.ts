@@ -9,6 +9,7 @@ import {
   cancelAll,
   dmy,
   findStay,
+  futureStay,
   signIn,
 } from './support/demo';
 
@@ -210,9 +211,11 @@ test.describe('click budgets', () => {
     }
   });
 
+  // These two book a stay a few days out rather than tonight: the demo hotel has few rooms, and
+  // a budget test must not eat the one free room another spec needs for an arrival today.
   test(`Move a guest to another room — ≤ ${BUDGETS.moveRoom.clicks}C`, async ({ page }) => {
-    const b = await arrivalToday(page, 'Budget Jayasuriya');
-    await bookingApi(page, b.id, 'check-in');
+    const b = await futureStay(page, 'Budget Jayasuriya');
+    await bookingApi(page, b.id, 'auto-assign');
     try {
       await page.goto(`/app/reservations?bookingId=${b.id}`);
       const ux = new UxBudget(page);
@@ -226,7 +229,6 @@ test.describe('click budgets', () => {
       ux.expectWithin(BUDGETS.moveRoom);
       test.info().annotations.push({ type: 'cost', description: ux.summary });
     } finally {
-      await bookingApi(page, b.id, 'undo-check-in', { reason: 'Test clean-up' });
       await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
     }
   });
@@ -239,8 +241,9 @@ test.describe('click budgets', () => {
       headers,
       data: { code, name: `Minibar ${code}`, category: 'beverage', defaultPrice: 950 },
     });
-    const b = await arrivalToday(page, 'Budget Fernando');
-    await bookingApi(page, b.id, 'check-in');
+    const b = await futureStay(page, 'Budget Fernando');
+    // A bill to post onto: the same window check-in would open.
+    await page.request.post(`${API}/bookings/${b.id}/folio/post-room-charges`, { headers });
     try {
       await page.goto(`/app/reservations?bookingId=${b.id}&section=folio`);
       const ux = new UxBudget(page);
@@ -250,7 +253,6 @@ test.describe('click budgets', () => {
       ux.expectWithin(BUDGETS.postStandardCharge);
       test.info().annotations.push({ type: 'cost', description: ux.summary });
     } finally {
-      await bookingApi(page, b.id, 'undo-check-in', { reason: 'Test clean-up' });
       await bookingApi(page, b.id, 'cancel', { reason: 'Test clean-up' });
     }
   });

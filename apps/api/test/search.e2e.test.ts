@@ -83,9 +83,9 @@ describe('one search', () => {
     const past = await stay(fx, 'Room Searcher', hotelToday(-2), 1);
     const inHouse = await stay(fx, 'Room Searcher', hotelToday(), 2);
     const future = await stay(fx, 'Room Searcher', hotelToday(20), 2);
-    expect((await request('POST', `/bookings/${inHouse.id}/check-in`, { token: fx.token })).status).toBe(
-      200,
-    );
+    expect(
+      (await request('POST', `/bookings/${inHouse.id}/check-in`, { token: fx.token })).status,
+    ).toBe(200);
 
     // Same name on three stays: the one in house comes first.
     const byName = await find(fx, 'Room Searcher');
@@ -187,10 +187,7 @@ describe('the guest list', () => {
     await openAndPrice(fx, hotelToday(-20), hotelToday(40));
     const name = `Repeat Guest ${Date.now().toString(36)}`;
     const first = await stay(fx, name, hotelToday(-20), 2);
-    await admin()
-      .update(customers)
-      .set({ vip: true })
-      .where(eq(customers.id, first.customerId));
+    await admin().update(customers).set({ vip: true }).where(eq(customers.id, first.customerId));
     await stay(fx, name, hotelToday(10), 3);
 
     const res = await find(fx, name);

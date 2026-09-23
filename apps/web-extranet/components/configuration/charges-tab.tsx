@@ -135,8 +135,8 @@ export function ChargesTab({ canEdit, currency }: { canEdit: boolean; currency: 
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm text-ink-3">
-          What the desk can put on a guest&apos;s bill in one tap. The first eight appear as
-          buttons on the bill, in this order.
+          What the desk can put on a guest&apos;s bill in one tap. The first eight appear as buttons
+          on the bill, in this order.
         </p>
         {canEdit && (
           <Button onClick={() => setDraft({ ...EMPTY })}>
