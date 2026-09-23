@@ -59,19 +59,19 @@ live in `BUDGETS` there **and** in the table below, and must be changed together
 
 "Today" is the 2026-09-22 audit. The sprint named is the one that makes the budget a hard gate.
 
-| Task                                                             | Budget        | Today                    | Gate     |
-| ---------------------------------------------------------------- | ------------- | ------------------------ | -------- |
-| Quick Reservation, new guest, 1 room × 2 nights on a chosen date | **≤ 8C + 3T** | 7C + 3T                  | ✅ UX-0  |
-| Check in a prepared arrival (with the §4 checks)                 | **≤ 3C**      | 2C (was 4C, no checks)   | ✅ UX-1b |
-| Full check-in: room, ID, registration card                       | **≤ 6C + 2T** | 4C + 1T (was ≈14C + 1T)  | ✅ UX-1b |
-| Check out: settle, invoice, email                                | **≤ 5C + 1T** | 3C (was ≈16C, 3 screens) | ✅ UX-1b |
-| Take a payment                                                   | **≤ 4C + 1T** | 2C (was 6C)              | ✅ UX-1b |
-| Extend or shorten an in-house stay                               | **≤ 4C + 1T** | 3C (was impossible)      | ✅ UX-1b |
-| Walk-in: reserve, check in, deposit, one sheet                   | **≤ 8C + 3T** | 8C + 2T + a page load    | UX-2     |
-| Find a booking by name, phone or reference, from anywhere        | **≤ 2C + 1T** | 4C + 1T, often misses    | UX-2     |
-| Move a guest to another room                                     | **≤ 3C**      | 7C, Room View only       | UX-2     |
-| Post a standard charge (minibar, laundry)                        | **≤ 3C**      | 5–6C, typed by hand      | UX-2     |
-| Mark a room clean, housekeeper's phone                           | **1 tap**     | 3C on the desktop        | UX-6     |
+| Task                                                             | Budget        | Today                              | Gate     |
+| ---------------------------------------------------------------- | ------------- | ---------------------------------- | -------- |
+| Quick Reservation, new guest, 1 room × 2 nights on a chosen date | **≤ 8C + 3T** | 7C + 3T                            | ✅ UX-0  |
+| Check in a prepared arrival (with the §4 checks)                 | **≤ 3C**      | 2C (was 4C, no checks)             | ✅ UX-1b |
+| Full check-in: room, ID, registration card                       | **≤ 6C + 2T** | 4C + 1T (was ≈14C + 1T)            | ✅ UX-1b |
+| Check out: settle, invoice, email                                | **≤ 5C + 1T** | 3C (was ≈16C, 3 screens)           | ✅ UX-1b |
+| Take a payment                                                   | **≤ 4C + 1T** | 2C (was 6C)                        | ✅ UX-1b |
+| Extend or shorten an in-house stay                               | **≤ 4C + 1T** | 3C (was impossible)                | ✅ UX-1b |
+| Walk-in: reserve, check in, deposit, one sheet                   | **≤ 8C + 3T** | one sheet (UX-2); measured in UX-3 | UX-3     |
+| Find a booking by name, phone or reference, from anywhere        | **≤ 2C + 1T** | 2C + 1T (was 4C+1T, often missed)  | ✅ UX-2  |
+| Move a guest to another room                                     | **≤ 3C**      | 3C (was 7C, Room View only)        | ✅ UX-2  |
+| Post a standard charge (minibar, laundry)                        | **≤ 3C**      | 2C (was 5–6C, typed by hand)       | ✅ UX-2  |
+| Mark a room clean, housekeeper's phone                           | **1 tap**     | 3C on the desktop                  | UX-6     |
 
 `e2e/budgets.spec.ts` drives each gated task through the harness. Every task not yet gated is
 listed there as `fixme`, with the cost above, so the debt shows in every test run.
