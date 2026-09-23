@@ -28,13 +28,8 @@ import {
   StatCard,
 } from '@yohobed/ui';
 import { useMoney } from '@/components/currency';
-import { todayISO } from '@/lib/format';
 
 const TH = 'px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-2';
-
-function today() {
-  return todayISO();
-}
 
 function MovementList({
   title,
@@ -90,7 +85,9 @@ function MovementList({
 }
 
 export default function DashboardPage() {
-  const [date, setDate] = useState(today());
+  // Empty until someone picks a day: the API then answers for the hotel's own today, which the
+  // browser's clock gets wrong whenever it sits in another timezone.
+  const [date, setDate] = useState('');
   const [properties, setProperties] = useState<Property[]>([]);
   const [propertyId, setPropertyId] = useState('');
   const { money } = useMoney();
@@ -155,7 +152,7 @@ export default function DashboardPage() {
             </Select>
             <Input
               type="date"
-              value={date}
+              value={date || data?.date || ''}
               onChange={(e) => setDate(e.target.value)}
               className="w-40"
               aria-label="Dashboard date"
