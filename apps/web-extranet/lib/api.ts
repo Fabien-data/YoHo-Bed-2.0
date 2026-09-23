@@ -952,6 +952,13 @@ export function overrideFxRate(body: { base: string; rate: number; note?: string
 // --- Stay view (the tape chart) ---------------------------------------------
 
 export interface StayBar {
+  hasNotes?: boolean;
+  amount?: string;
+  balance?: string;
+  roomId?: string;
+  adults?: number;
+  children?: number;
+  vip?: boolean;
   kind: 'booking' | 'block';
   id: string;
   from: string;
@@ -978,6 +985,10 @@ export interface StayBar {
 }
 
 export interface StayUnit {
+  notes?: string | null;
+  housekeepingNotes?: string | null;
+  smokingPolicy?: string;
+  wheelchairAccessible?: boolean;
   id: string;
   roomId: string;
   code: string;
@@ -1006,7 +1017,7 @@ export interface StayFooter {
 }
 
 export interface StayView {
-  property: { id: string; name: string; code: string | null; currency: string };
+  property: { id: string; name: string; code: string | null; currency: string; timezone?: string };
   from: string;
   to: string;
   dates: string[];
@@ -1025,8 +1036,13 @@ export interface StayView {
   };
 }
 
-export function getStayView(propertyId: string, from: string, to: string): Promise<StayView> {
-  return apiFetch<StayView>(`/stayview?propertyId=${propertyId}&from=${from}&to=${to}`);
+export function getStayView(
+  propertyId: string,
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+): Promise<StayView> {
+  return apiFetch<StayView>(`/stayview?propertyId=${propertyId}&from=${from}&to=${to}`, { signal });
 }
 
 export interface BookingLeg {

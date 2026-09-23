@@ -68,8 +68,12 @@ test('keeps the calendar usable on tablet and narrow screens', async ({ page }) 
   ]) {
     await page.setViewportSize(viewport);
     await page.reload();
-    const navigation = page.getByRole('button', { name: 'Open navigation' });
-    if ((await navigation.getAttribute('aria-expanded')) === 'true') await navigation.click();
+    const closeNavigation = page.getByRole('button', { name: 'Close navigation' });
+    if (await closeNavigation.isVisible()) await closeNavigation.click();
+    if (viewport.width < 768) {
+      await expect(page.getByLabel('Daily stay list')).toBeVisible();
+      await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+    }
     await expect(page.getByRole('region', { name: 'Stay calendar' })).toBeVisible();
     await expect(page.getByLabel('Calendar days')).toHaveValue('14');
     const overflow = await page.evaluate(

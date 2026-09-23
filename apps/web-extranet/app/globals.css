@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Stay calendar uses the product palette and motion scale, including dark mode. */
+.calendar-workspace {
+  --calendar-today: var(--brand-soft);
+}
+.calendar-today {
+  background: var(--calendar-today);
+  box-shadow: inset 0 -2px var(--brand);
+}
+.calendar-viewport [data-unit-id]:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+}
+.calendar-viewport [data-unit-id]:hover {
+  background-color: var(--surface-2);
+}
+.calendar-viewport [data-leg-id] {
+  transition:
+    opacity 140ms ease,
+    box-shadow 140ms ease;
+}
+.calendar-viewport [data-selected='true'] {
+  animation: calendar-locate 240ms ease-out;
+}
+@keyframes calendar-locate {
+  from {
+    filter: brightness(1.2);
+  }
+  to {
+    filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .calendar-viewport [data-leg-id] {
+    transition: none;
+    animation: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    YoHoBed design tokens — "Ink Navy & Brass".
    Light is the product default; ThemeScript stamps data-theme on <html> before

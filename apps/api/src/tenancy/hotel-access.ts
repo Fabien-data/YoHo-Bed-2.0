@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import {
   bookings,
+  maintenanceBlocks,
   housekeepingTasks,
   occupancies,
   properties,
@@ -21,6 +22,7 @@ type AccessRule = {
     | 'none'
     | 'property'
     | 'booking'
+    | 'block'
     | 'room'
     | 'roomUnit'
     | 'task'
@@ -82,6 +84,7 @@ export function accessRule(method: string, path: string): AccessRule | null {
     return rule('property', 'setup');
   if (/^\/properties\/[^/]+\/blocks$/.test(path))
     return rule('property', read ? 'reservation_read' : 'reservation_change');
+  if (/^\/blocks\/[^/]+(?:\/release)?$/.test(path)) return rule('block', 'reservation_change');
   if (/^\/properties\/[^/]+\/housekeeping(?:\/tasks|\/mark-departures-dirty)?$/.test(path))
     return rule('property', 'housekeeping');
   if (/^\/properties\/[^/]+\/(?:floor-layouts|work-orders)$/.test(path))
@@ -191,6 +194,13 @@ export async function propertyForAccess(
       .select({ propertyId: bookings.propertyId })
       .from(bookings)
       .where(eq(bookings.id, id));
+    return row?.propertyId ?? null;
+  }
+  if (resource === 'block') {
+    const [row] = await tx
+      .select({ propertyId: maintenanceBlocks.propertyId })
+      .from(maintenanceBlocks)
+      .where(eq(maintenanceBlocks.id, id));
     return row?.propertyId ?? null;
   }
   if (resource === 'room') {

@@ -45,6 +45,13 @@ export interface StayBar {
   sourceColor?: string | null;
   /** On a tentative bar: the room the guest asked for. */
   preferredRoomUnitId?: string | null;
+  roomId?: string;
+  adults?: number;
+  children?: number;
+  vip?: boolean;
+  hasNotes?: boolean;
+  amount?: string;
+  balance?: string;
 }
 
 /**
@@ -72,7 +79,12 @@ export class StayViewService {
       const dates = eachNight(from, to);
 
       const [property] = await tx
-        .select({ name: properties.name, code: properties.code, currency: properties.currency })
+        .select({
+          name: properties.name,
+          code: properties.code,
+          currency: properties.currency,
+          timezone: properties.timezone,
+        })
         .from(properties)
         .where(eq(properties.id, propertyId));
 
@@ -92,6 +104,9 @@ export class StayViewService {
           floor: roomUnits.floor,
           status: roomUnits.status,
           displayOrder: roomUnits.displayOrder,
+          notes: roomUnits.notes,
+          smokingPolicy: roomUnits.smokingPolicy,
+          wheelchairAccessible: roomUnits.wheelchairAccessible,
         })
         .from(roomUnits)
         .where(eq(roomUnits.propertyId, propertyId))
@@ -166,6 +181,13 @@ export class StayViewService {
           holdUntil: l.holdUntil?.toISOString() ?? null,
           sourceCode: l.sourceCode,
           sourceColor: l.sourceColor,
+          roomId: l.roomId,
+          adults: l.adults,
+          children: l.children,
+          vip: l.vip,
+          hasNotes: l.hasNotes,
+          amount: showFinancial ? l.amount : undefined,
+          balance: showFinancial ? (Number(l.amount) - Number(l.paid ?? 0)).toFixed(2) : undefined,
         };
         if (!l.inventoryHeld) {
           tentative.push({ ...bar, roomId: l.roomId, preferredRoomUnitId: l.preferredRoomUnitId });
@@ -211,7 +233,8 @@ export class StayViewService {
           .filter((u) => u.roomId === r.id)
           .map((u) => ({
             ...u,
-            housekeeping: housekeepingByUnit.get(u.id) ?? 'clean',
+            housekeeping: housekeepingByUnit.get(u.id)?.status ?? 'clean',
+            housekeepingNotes: housekeepingByUnit.get(u.id)?.remarks ?? null,
             bars: barsByUnit.get(u.id) ?? [],
           })),
       }));
@@ -308,6 +331,10 @@ export class StayViewService {
           where p.booking_id = ${bookings.id}
         ), 0)`,
         guestName: customers.name,
+        adults: bookingRooms.adults,
+        children: bookingRooms.children,
+        vip: customers.vip,
+        hasNotes: sql<boolean>`exists(select 1 from booking_remarks r where r.booking_id = ${bookings.id})`,
         channel: otaReservations.channel,
       })
       .from(bookingRooms)
