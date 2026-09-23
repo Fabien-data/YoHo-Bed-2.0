@@ -5,6 +5,7 @@ import {
   request,
   openAndPrice,
   book,
+  hotelToday,
   stopApp,
   type TenantFixture,
 } from './harness';
@@ -50,7 +51,8 @@ describe('business date', () => {
     const fx = await makeTenant();
     const res = await businessDate(fx);
     expect(res.status).toBe(200);
-    expect(res.body.currentDate).toBe(new Date().toISOString().slice(0, 10));
+    // The hotel's today, not UTC's: from 18:30 UTC the two are a day apart.
+    expect(res.body.currentDate).toBe(hotelToday());
   });
 
   it('is per property, not global', async () => {
