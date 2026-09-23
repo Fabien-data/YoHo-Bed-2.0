@@ -8,8 +8,11 @@ import {
   Post,
   Query,
   Req,
+  Sse,
   UseGuards,
+  type MessageEvent,
 } from '@nestjs/common';
+import type { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { EntitlementGuard } from '../common/entitlement.guard';
@@ -18,8 +21,10 @@ import { CurrentUser, TenantId } from '../tenancy/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { StayViewService } from './stayview.service';
 import { BlocksService } from './blocks.service';
+import { PropertyEventsService } from './property-events.service';
 import {
   createBlockSchema,
+  stayUpdatesQuerySchema,
   stayViewQuerySchema,
   updateBlockSchema,
   type CreateBlockDto,
@@ -38,7 +43,21 @@ export class StayViewController {
   constructor(
     private readonly stayView: StayViewService,
     private readonly blocks: BlocksService,
+    private readonly events: PropertyEventsService,
   ) {}
+
+  /**
+   * Live calendar: a `change` whenever something the calendar draws changes for this property
+   * (committed, from any process), `resync` after a reconnect, `ping` to keep proxies open. The
+   * stream ends after 15 minutes; the browser reconnects, re-checking its token and access.
+   */
+  @Sse('stay-updates')
+  updates(
+    @TenantId() tenantId: string,
+    @Query(new ZodValidationPipe(stayUpdatesQuerySchema)) q: { propertyId: string },
+  ): Observable<MessageEvent> {
+    return this.events.stream(tenantId, q.propertyId);
+  }
 
   /** The whole tape chart for a date window, in one request. */
   @Get('stayview')

@@ -10,9 +10,11 @@ import {
   makeTenant,
   openAndPrice,
   request,
+  startApp,
   stopApp,
   type TenantFixture,
 } from './harness';
+import { PropertyEventsService } from '../src/stayview/property-events.service';
 
 /**
  * Stay View as the front desk's workspace: room and date changes made on the calendar are safe,
@@ -388,5 +390,67 @@ describe('custom hotel roles at the desk', () => {
     const chart = await calendar(fx, hotelToday(), hotelToday(5), desk.token);
     expect(chart.status).toBe(200);
     expect(chart.body.roomTypes[0].units[0].bars[0].amount).toBeUndefined();
+  });
+});
+
+describe('live calendar updates', () => {
+  /** Collect the change signals one property's calendar would receive. */
+  async function listen(fx: TenantFixture) {
+    const app = await startApp();
+    const seen: string[] = [];
+    const sub = app
+      .get(PropertyEventsService)
+      .changes(fx.tenantId, fx.propertyId)
+      .subscribe((e) => e.kind === 'change' && seen.push(e.kind));
+    return { seen, stop: () => sub.unsubscribe() };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 900));
+
+  it('tells a property’s open calendars about a committed change, and only that property’s', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const other = await makeTenant({ roomQuantity: 3 });
+    const [u1] = await addUnits(fx, fx.roomId, ['101']);
+    await openAndPrice(fx, hotelToday(), hotelToday(20), { roomsToSell: 3 });
+    const mine = await listen(fx);
+    const theirs = await listen(other);
+    await settle();
+    mine.seen.length = 0;
+    theirs.seen.length = 0;
+
+    await stay(fx, u1!, hotelToday(5), hotelToday(7));
+    await settle();
+    expect(mine.seen.length).toBeGreaterThan(0);
+    expect(theirs.seen).toHaveLength(0);
+    mine.stop();
+    theirs.stop();
+  });
+
+  it('says nothing about a change that was written and then rolled back', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const [u1, u2] = await addUnits(fx, fx.roomId, ['101', '102']);
+    await openAndPrice(fx, hotelToday(), hotelToday(20), { roomsToSell: 3 });
+    await stay(fx, u2!, hotelToday(5), hotelToday(8));
+    const two = await book(fx, { checkin: hotelToday(5), checkout: hotelToday(7), rooms: 2 });
+    expect(two.status, JSON.stringify(two.body)).toBe(201);
+    const legs = await legsOf(fx, two.body.id);
+    const listener = await listen(fx);
+    await settle();
+    listener.seen.length = 0;
+
+    // The first room is written, the second clashes: the whole assignment rolls back, and a
+    // rolled-back write must not tell anyone anything.
+    const refused = await request('POST', `/bookings/${two.body.id}/assign`, {
+      token: fx.token,
+      body: {
+        assignments: [
+          { legId: legs[0]!.id, roomUnitId: u1 },
+          { legId: legs[1]!.id, roomUnitId: u2 },
+        ],
+      },
+    });
+    expect(refused.status).toBe(409);
+    await settle();
+    expect(listener.seen).toHaveLength(0);
+    listener.stop();
   });
 });

@@ -5,10 +5,12 @@ import { BillingModule } from '../billing/billing.module';
 import { StayViewService } from './stayview.service';
 import { BlocksService } from './blocks.service';
 import { StayViewController } from './stayview.controller';
+import { PropertyEventsService } from './property-events.service';
 
 @Module({
   imports: [AuthModule, BillingModule],
   controllers: [StayViewController],
-  providers: [StayViewService, BlocksService, TenantGuard],
+  providers: [StayViewService, BlocksService, PropertyEventsService, TenantGuard],
+  exports: [PropertyEventsService],
 })
 export class StayViewModule {}

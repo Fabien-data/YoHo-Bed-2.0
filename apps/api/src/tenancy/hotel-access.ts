@@ -94,6 +94,7 @@ export function accessRule(method: string, path: string): AccessRule | null {
   if (path === '/room-view' || path === '/room-updates' || path === '/house-status/summary')
     return rule('property', 'reservation_read', 'housekeeping');
   if (path === '/stayview' && read) return rule('property', 'reservation_read');
+  if (path === '/stay-updates' && read) return rule('property', 'reservation_read');
   // Finding a stay; the service leaves out money and contact details without financial_read.
   if (path === '/search' && read) return rule('property', 'reservation_read');
   if (/^\/housekeeping\/tasks\/[^/]+$/.test(path) && method === 'PATCH')

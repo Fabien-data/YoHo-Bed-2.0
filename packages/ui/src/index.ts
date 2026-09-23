@@ -44,6 +44,15 @@ export {
   MenuSubContent,
 } from './primitives/menu';
 export {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuGroup,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+} from './primitives/context-menu';
+export {
   Popover,
   PopoverTrigger,
   PopoverAnchor,

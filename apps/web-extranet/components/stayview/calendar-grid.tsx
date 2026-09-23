@@ -468,6 +468,7 @@ const DateHeader = React.memo(function DateHeader({
 }) {
   const cb = useCallbacks();
   const roomy = geo.colW >= 64;
+  const spacious = geo.colW >= 92;
   return (
     <div
       ref={headerRef}
@@ -507,19 +508,19 @@ const DateHeader = React.memo(function DateHeader({
             </span>
             {showStats && s && (
               <span
-                className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-3"
+                className="mt-0.5 flex max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap px-1 font-mono text-[10px] tabular-nums text-ink-3"
                 title={`${s.occupancyPct}% occupied · ${s.available} free · ${s.arrivals} arriving · ${s.departures} leaving`}
               >
                 <span className={cn(s.occupancyPct >= 90 && 'font-semibold text-closed-ink')}>
                   {s.occupancyPct}%
                 </span>
-                {roomy && s.arrivals > 0 && (
+                {spacious && s.arrivals > 0 && (
                   <span className="inline-flex items-center gap-0.5">
                     <SignIn size={10} weight="bold" aria-hidden />
                     {s.arrivals}
                   </span>
                 )}
-                {roomy && s.departures > 0 && (
+                {spacious && s.departures > 0 && (
                   <span className="inline-flex items-center gap-0.5">
                     <SignOut size={10} weight="bold" aria-hidden />
                     {s.departures}
@@ -534,7 +535,7 @@ const DateHeader = React.memo(function DateHeader({
                 onClick={() => cb.current.unassignedOn(d)}
                 aria-label={`${s.unassigned} unassigned on ${dayOfMonth(d)} ${monthShort(d)}`}
                 title={`${s.unassigned} stay${s.unassigned === 1 ? '' : 's'} without a room — open`}
-                className="absolute right-1 top-1 min-w-[1.1rem] rounded-full bg-low px-1 font-mono text-[10px] font-semibold leading-4 tabular-nums text-white transition duration-1 hover:brightness-110"
+                className="mt-0.5 min-w-[1rem] rounded-full bg-low px-1 font-mono text-[10px] font-semibold leading-[14px] tabular-nums text-white transition duration-1 hover:brightness-110"
               >
                 {s.unassigned}
               </button>

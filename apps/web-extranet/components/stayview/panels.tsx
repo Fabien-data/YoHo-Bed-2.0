@@ -380,14 +380,16 @@ export function ReservationPanelBody({
               {money((Number(bar.amount) - Number(bar.balance ?? 0)).toFixed(2), currency)}
             </span>
           </Fact>
-          <Fact label="Balance">
+          {/* A negative balance is the guest's money on account, so it says so. */}
+          <Fact label={Number(bar.balance) < 0 ? 'In credit' : 'Balance'}>
             <span
               className={cn(
                 'font-mono tabular-nums',
                 Number(bar.balance) > 0 && 'font-semibold text-low-ink',
+                Number(bar.balance) < 0 && 'text-avail-ink',
               )}
             >
-              {money(bar.balance, currency)}
+              {money(Math.abs(Number(bar.balance ?? 0)).toFixed(2), currency)}
             </span>
           </Fact>
         </div>

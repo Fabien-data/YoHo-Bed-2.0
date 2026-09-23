@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowsClockwise,
@@ -15,6 +16,8 @@ import {
 } from '@phosphor-icons/react';
 import {
   Button,
+  ContextMenu,
+  ContextMenuTrigger,
   CountedChips,
   DatePicker,
   EmptyState,
@@ -26,17 +29,24 @@ import {
   type Chip,
 } from '@yohobed/ui';
 import {
+  autoAssignRooms,
+  confirmBooking,
   describeError,
   getStayView,
   moveRoom,
-  subscribeRoomUpdates,
+  setHousekeeping,
+  subscribeStayUpdates,
+  type StreamStatus,
   type SearchReservation,
   type StayBar,
   type StayUnit,
 } from '@/lib/api';
-import { useHasFeature } from '@/lib/queries';
 import { useActiveProperty } from '@/components/active-property';
 import { useRefreshDesk } from '@/components/booking/refresh';
+import { useDesk, type DeskAction } from '@/components/booking/desk-dialogs';
+import { CalendarContextMenu, type MenuTarget } from '@/components/stayview/context-menu';
+import { stayActions, type StayAction } from '@/components/stayview/model/actions';
+import { dayAt } from '@/components/stayview/model/layout';
 import {
   useOnReservationCreated,
   useReservationComposer,
@@ -131,14 +141,15 @@ function readUrl() {
 
 function StayViewScreen() {
   const qc = useQueryClient();
+  const router = useRouter();
   const refreshDesk = useRefreshDesk();
   const { propertyId, property } = useActiveProperty();
   const { openComposer } = useReservationComposer();
   const access = useCalendarAccess();
   const prefs = useCalendarPreferences(propertyId);
   const p = prefs.preferences;
-  const roomStream = useHasFeature('room_view');
   const store = React.useContext(InteractionContext)!;
+  const [stream, setStream] = React.useState<StreamStatus>('connecting');
 
   // --- where the calendar is looking -------------------------------------------------------
   const fallbackToday = todayIn(property?.timezone ?? 'UTC');
@@ -153,7 +164,8 @@ function StayViewScreen() {
     enabled: !!propertyId && prefs.loaded,
     // Keep the old window on screen while the next loads — but never another property's.
     placeholderData: (previous) => (previous?.property.id === propertyId ? previous : undefined),
-    refetchInterval: 30_000,
+    // Live stream first; a slow poll only while it is down.
+    refetchInterval: stream === 'live' ? false : 60_000,
     refetchOnWindowFocus: true,
   });
   const data = chart.data?.property.id === propertyId ? chart.data : undefined;
@@ -176,16 +188,25 @@ function StayViewScreen() {
     return () => window.clearTimeout(t);
   }, [propertyId, settled, windowFrom, days, qc]);
 
-  // Another desk's housekeeping change arrives by stream; everything else by the poll above.
+  // Another desk's change arrives by the live stream. While this desk is mid-gesture or reviewing
+  // a change, the refresh waits, so rows never shift under the pointer; it runs the moment the
+  // desk is done.
+  const busy = React.useRef(false);
+  const pendingRefresh = React.useRef(false);
+  const refreshLive = React.useCallback(() => {
+    if (busy.current) {
+      pendingRefresh.current = true;
+      return;
+    }
+    void qc.invalidateQueries({ queryKey: ['stayview', propertyId] });
+    void qc.invalidateQueries({ queryKey: ['booking-legs'] });
+    void qc.invalidateQueries({ queryKey: ['booking-remarks'] });
+  }, [qc, propertyId]);
   React.useEffect(() => {
-    if (!propertyId || !roomStream) return;
-    const c = subscribeRoomUpdates(
-      propertyId,
-      anchor,
-      () => void qc.invalidateQueries({ queryKey: ['stayview', propertyId] }),
-    );
+    if (!propertyId) return;
+    const c = subscribeStayUpdates(propertyId, { onChange: refreshLive, onStatus: setStream });
     return () => c.abort();
-  }, [propertyId, roomStream, anchor, qc]);
+  }, [propertyId, refreshLive]);
 
   // --- panels, reviews and selection ----------------------------------------------------------
   const [panel, setPanel] = React.useState<PanelTarget | null>(null);
@@ -193,6 +214,19 @@ function StayViewScreen() {
   const [moveProposal, setMoveProposal] = React.useState<MoveProposal | null>(null);
   const [dateProposal, setDateProposal] = React.useState<DateProposal | null>(null);
   const [blockDraft, setBlockDraft] = React.useState<BlockDraft | null>(null);
+  React.useEffect(() => {
+    const update = () => {
+      const s = store.get();
+      const now = !!(s.drag || (s.range && !s.range.done) || moveProposal || dateProposal);
+      busy.current = now;
+      if (!now && pendingRefresh.current) {
+        pendingRefresh.current = false;
+        refreshLive();
+      }
+    };
+    update();
+    return store.subscribe(update);
+  }, [store, moveProposal, dateProposal, refreshLive]);
   const [flash, setFlash] = React.useState<{ key: string; n: number } | null>(null);
   const [flashToday, setFlashToday] = React.useState(0);
   const pendingLocate = React.useRef<{ bookingId: string; open: boolean } | null>(null);
@@ -489,6 +523,83 @@ function StayViewScreen() {
       units.filter((u) => !destinationIssue(pick, u, { today: operatingDate })).map((u) => u.id),
     );
   }, [pick, units, operatingDate]);
+
+  // --- the right-click menu (a shortcut to what the panel and + menu already offer) -----------
+  const desk = useDesk();
+  const [menuTarget, setMenuTarget] = React.useState<MenuTarget | null>(null);
+  const runAction = React.useCallback(
+    (action: StayAction, bar: StayBar) => {
+      if (!bar.bookingId) return;
+      const id = bar.bookingId;
+      const fail = (e: unknown) => toast.error(describeError(e, 'That did not work'));
+      switch (action) {
+        case 'confirm':
+          return void confirmBooking(id)
+            .then(() => done(id, `${bar.reference ?? 'The reservation'} is confirmed`))
+            .catch(fail);
+        case 'assign':
+          return void autoAssignRooms(id)
+            .then((r) =>
+              r.assigned
+                ? done(id, `${bar.guestName ?? 'The stay'} has a room`)
+                : toast.error('No free room of this type for every night. Drag it onto one.'),
+            )
+            .catch(fail);
+        case 'change-dates':
+        case 'change-departure':
+          return setDateProposal({ bar, from: bar.from, to: bar.to });
+        case 'release':
+        case 'no-show':
+          return openBar(bar);
+        default:
+          return desk(action as DeskAction, {
+            id,
+            reference: bar.reference ?? '',
+            guestName: bar.guestName ?? 'the guest',
+            checkin: bar.from,
+            checkout: bar.to,
+            currency: data?.property.currency,
+          });
+      }
+    },
+    [done, openBar, desk, data?.property.currency],
+  );
+  const onGridContextMenu = React.useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const el = e.target as HTMLElement;
+      const barEl = el.closest<HTMLElement>('[data-bar-id]');
+      const bar = barEl ? barsById.get(barEl.dataset.barId!) : undefined;
+      if (bar) {
+        const { primary, secondary } = stayActions(bar, operatingDate, {
+          permissions: access.permissions,
+        });
+        const actions = [primary, ...secondary].filter(
+          (a): a is StayAction => !!a && a !== 'release' && a !== 'no-show',
+        );
+        return setMenuTarget({ kind: 'bar', bar, actions });
+      }
+      const label = el.closest<HTMLElement>('[data-unit-label]');
+      const labelUnit = label ? unitsById.get(label.dataset.unitLabel!) : undefined;
+      if (labelUnit) return setMenuTarget({ kind: 'unit', unit: labelUnit });
+      const strip = el.closest<HTMLElement>('[data-unit-id]');
+      const unit = strip ? unitsById.get(strip.dataset.unitId!) : undefined;
+      const grid = el.closest<HTMLElement>('.sv-grid');
+      if (strip && unit && grid && data) {
+        const colW = Number(grid.dataset.colWidth) || 60;
+        const date = addDays(
+          data.from,
+          dayAt(e.clientX - strip.getBoundingClientRect().left, colW, data.dates.length),
+        );
+        if (unit.status === 'active' && !unit.bars.some((b) => b.from <= date && date < b.to))
+          return setMenuTarget({ kind: 'night', unit, date });
+      }
+      // Nothing to offer here: no menu at all rather than an empty one.
+      e.preventDefault();
+      setMenuTarget(null);
+    },
+    [barsById, unitsById, operatingDate, access.permissions, data],
+  );
+  const coarse = useCoarsePointer();
 
   // --- keyboard ---------------------------------------------------------------------------------
   const searchRef = React.useRef<HTMLInputElement>(null);
@@ -791,6 +902,7 @@ function StayViewScreen() {
       <StatusLine
         online={online}
         fetching={chart.isFetching && !chart.isLoading}
+        live={stream === 'live'}
         businessDate={data?.businessDate}
         today={today}
         empty={!!data && allBars.every((b) => b.kind !== 'booking')}
@@ -844,70 +956,103 @@ function StayViewScreen() {
               <MobileDayList data={data} date={anchor} onOpen={openBar} />
             </div>
           )}
-          <div
-            className={cn(
-              'overflow-hidden rounded-xl border border-line bg-surface shadow-card transition-opacity duration-2',
-              mobileView === 'list' && 'hidden md:block',
-              !settled && 'opacity-60',
-            )}
-            aria-busy={!settled}
-          >
-            {groups.length === 0 ? (
-              <EmptyState
-                title="No rooms match"
-                description="Nothing fits these filters in these dates."
-                action={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setChip('all');
-                      setFilters(EMPTY_FILTERS);
+          <ContextMenu onOpenChange={(open) => !open && setMenuTarget(null)}>
+            <ContextMenuTrigger asChild disabled={coarse}>
+              <div
+                className={cn(
+                  'overflow-hidden rounded-xl border border-line bg-surface shadow-card transition-opacity duration-2',
+                  mobileView === 'list' && 'hidden md:block',
+                  !settled && 'opacity-60',
+                )}
+                aria-busy={!settled}
+              >
+                {groups.length === 0 ? (
+                  <EmptyState
+                    title="No rooms match"
+                    description="Nothing fits these filters in these dates."
+                    action={
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setChip('all');
+                          setFilters(EMPTY_FILTERS);
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <CalendarGrid
+                    data={data}
+                    groups={groups}
+                    windowFrom={data.from}
+                    days={data.dates.length}
+                    prefs={p}
+                    stats={stats}
+                    today={today}
+                    operatingDate={operatingDate}
+                    collapsed={collapsed}
+                    visibleIds={visibleIds}
+                    selectedBookingId={selectedBookingId}
+                    compatibleUnitIds={compatibleUnitIds}
+                    flash={flash}
+                    flashToday={flashToday}
+                    canAssign={canAssign && online}
+                    canChangeDates={canChangeDates && online}
+                    canCreate={(canCreate || canBlock) && online}
+                    scrollKey={`${propertyId}:${days}`}
+                    handlers={{
+                      onOpenBar: openBar,
+                      onOpenUnit: openUnit,
+                      onRange,
+                      onOpenEmpty: (unitId, date) => {
+                        if (!canCreate) return;
+                        const unit = unitsById.get(unitId);
+                        openComposer({ checkin: date, roomId: unit?.roomId, roomUnitId: unitId });
+                      },
+                      onProposeMove: proposeMove,
+                      onProposeDates: (bar, f, t) => setDateProposal({ bar, from: f, to: t }),
+                      onProposeResize: (bar, t) => setDateProposal({ bar, from: bar.from, to: t }),
+                      onRefuse: refuse,
+                      onUnassignedOn: (date) => setPanel({ kind: 'unassigned', date }),
+                      onToggleGroup: toggleGroup,
                     }}
-                  >
-                    Clear filters
-                  </Button>
-                }
-              />
-            ) : (
-              <CalendarGrid
-                data={data}
-                groups={groups}
-                windowFrom={data.from}
-                days={data.dates.length}
-                prefs={p}
-                stats={stats}
-                today={today}
-                operatingDate={operatingDate}
-                collapsed={collapsed}
-                visibleIds={visibleIds}
-                selectedBookingId={selectedBookingId}
-                compatibleUnitIds={compatibleUnitIds}
-                flash={flash}
-                flashToday={flashToday}
-                canAssign={canAssign && online}
-                canChangeDates={canChangeDates && online}
-                canCreate={(canCreate || canBlock) && online}
-                scrollKey={`${propertyId}:${days}`}
-                handlers={{
-                  onOpenBar: openBar,
-                  onOpenUnit: openUnit,
-                  onRange,
-                  onOpenEmpty: (unitId, date) => {
-                    if (!canCreate) return;
-                    const unit = unitsById.get(unitId);
-                    openComposer({ checkin: date, roomId: unit?.roomId, roomUnitId: unitId });
-                  },
-                  onProposeMove: proposeMove,
-                  onProposeDates: (bar, f, t) => setDateProposal({ bar, from: f, to: t }),
-                  onProposeResize: (bar, t) => setDateProposal({ bar, from: bar.from, to: t }),
-                  onRefuse: refuse,
-                  onUnassignedOn: (date) => setPanel({ kind: 'unassigned', date }),
-                  onToggleGroup: toggleGroup,
-                }}
-              />
-            )}
-          </div>
+                    onContextMenu={onGridContextMenu}
+                  />
+                )}
+              </div>
+            </ContextMenuTrigger>
+            <CalendarContextMenu
+              target={menuTarget}
+              canReserve={canCreate && online}
+              canBlock={canBlock && online}
+              canHousekeeping={access.can('housekeeping') && online}
+              onOpenBar={openBar}
+              onAction={runAction}
+              onEditBlock={(bar) => {
+                const unit = units.find((u) => u.bars.some((b) => b.id === bar.id));
+                setBlockDraft({
+                  block: bar,
+                  kind: bar.blockKind ?? 'out_of_service',
+                  unitId: unit?.id,
+                  from: bar.from,
+                  to: bar.to,
+                });
+              }}
+              onOpenUnit={openUnit}
+              onHousekeeping={(unit, status) =>
+                void setHousekeeping(propertyId!, { roomUnitId: unit.id, date: today, status })
+                  .then(() => done(null, `Room ${unit.code} marked ${status}`))
+                  .catch((e) => toast.error(describeError(e, 'Housekeeping was not saved')))
+              }
+              onNight={(action, unit, date) =>
+                startRangeAction(action, { unitId: unit.id, from: date, to: addDays(date, 1) })
+              }
+              onRoomView={() => router.push('/app/roomview')}
+            />
+          </ContextMenu>
         </>
       )}
 
@@ -1040,6 +1185,7 @@ function RangeActions({
 function StatusLine({
   online,
   fetching,
+  live,
   businessDate,
   today,
   empty,
@@ -1047,6 +1193,7 @@ function StatusLine({
 }: {
   online: boolean;
   fetching: boolean;
+  live: boolean;
   businessDate?: string;
   today: string;
   empty: boolean;
@@ -1069,7 +1216,8 @@ function StatusLine({
           className="inline-flex items-center gap-1.5 hover:text-ink"
         >
           <ArrowsClockwise size={12} className={cn(fetching && 'animate-spin')} aria-hidden />
-          {fetching ? 'Updating…' : 'Up to date'}
+          {fetching ? 'Updating…' : live ? 'Live' : 'Up to date'}
+          {live && !fetching && <span className="h-1.5 w-1.5 rounded-full bg-avail" aria-hidden />}
         </button>
       )}
       {businessDate && businessDate < today && (
@@ -1112,6 +1260,19 @@ function GridSkeleton() {
       ))}
     </div>
   );
+}
+
+/** A touch-first device: the long-press there opens the stay, not a menu. */
+function useCoarsePointer() {
+  const [coarse, setCoarse] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia('(pointer: coarse)');
+    const update = () => setCoarse(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return coarse;
 }
 
 function useOnline() {

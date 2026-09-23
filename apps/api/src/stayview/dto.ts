@@ -19,6 +19,8 @@ export const stayViewQuerySchema = z
   });
 export type StayViewQueryDto = z.infer<typeof stayViewQuerySchema>;
 
+export const stayUpdatesQuerySchema = z.object({ propertyId: z.string().uuid() });
+
 export const createBlockSchema = z
   .object({
     roomUnitId: z.string().uuid(),

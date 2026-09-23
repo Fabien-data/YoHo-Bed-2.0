@@ -26,6 +26,14 @@ export class DatabaseService implements OnModuleDestroy {
     return withTenant(this.handle.db, tenantId, fn);
   }
 
+  /**
+   * LISTEN on a Postgres channel over a dedicated connection that postgres.js reconnects by
+   * itself; `onListen` runs after every (re)connect.
+   */
+  listen(channel: string, onNotify: (payload: string) => void, onListen?: () => void) {
+    return this.handle.sql.listen(channel, onNotify, onListen);
+  }
+
   onModuleDestroy(): Promise<void> {
     return this.handle.close();
   }
