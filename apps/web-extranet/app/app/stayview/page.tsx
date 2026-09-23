@@ -558,6 +558,7 @@ function StayViewScreen() {
             guestName: bar.guestName ?? 'the guest',
             checkin: bar.from,
             checkout: bar.to,
+            status: bar.status,
             currency: data?.property.currency,
           });
       }

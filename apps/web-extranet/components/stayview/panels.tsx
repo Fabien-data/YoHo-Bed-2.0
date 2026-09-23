@@ -250,6 +250,7 @@ export function ReservationPanelBody({
     guestName: bar.guestName ?? 'the guest',
     checkin: bar.from,
     checkout: bar.to,
+    status: bar.status,
     currency,
   };
   const run = (action: StayAction) => {
