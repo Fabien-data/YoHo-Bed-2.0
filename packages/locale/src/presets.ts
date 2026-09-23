@@ -65,8 +65,56 @@ export interface PaymentMethodSeed {
   currency?: string;
 }
 
+/** One tax a regional preset sets up (Sprint 7, tax engine v2). */
+export interface TaxPresetSeed {
+  code: string;
+  name: string;
+  /** What documents print, when it differs from `name`. */
+  invoiceLabel?: string;
+  priority: 1 | 2 | 3;
+  /** Charged on the price plus the taxes before it. */
+  compound: boolean;
+  /** Whether a tax-exempt guest is excused from it (never a service charge). */
+  exemptible: boolean;
+  displayGroup: 'single' | 'gst_split';
+  /** One rate, or several slabs chosen by the pre-tax value per room per night. */
+  rates: Array<{ ratePercent: number; minAmount?: number; maxAmount?: number }>;
+  /** When the rates took effect. */
+  from: string;
+}
+
+export interface LevyPresetSeed {
+  code: string;
+  name: string;
+  amount: number;
+  currency: string;
+  appliesTo: 'non_resident' | 'all';
+  from: string;
+}
+
+/**
+ * The tax set-up a regional preset applies (Sprint 7). DATA ONLY, like the rest of the preset:
+ * applying it copies these rows into the property's own tax tables. The rules are as researched
+ * on 2026-09-17 and are switched on for live hotels only after a tax adviser signs them off:
+ *
+ * - Malaysia: 10% service charge, then 8% SST charged on the room plus the service charge
+ *   (`compound` — the one point still to confirm), and RM10 Tourism Tax per room per night for
+ *   foreign guests.
+ * - India: GST 5% up to ₹7,500 per room per night, 18% above (rates in force from 2025-09-22),
+ *   printed as CGST + SGST.
+ */
+export interface TaxPreset {
+  taxMode: 'exclusive_forward';
+  taxes: TaxPresetSeed[];
+  levies: LevyPresetSeed[];
+  /** Turn on Malaysia's guest-register check at check-in. */
+  requireGuestRegistration: boolean;
+}
+
 export interface RegionPreset {
   country: HomeMarket;
+  /** Null for Sri Lanka, whose taxes run on the legacy inclusive engine and are set up by hand. */
+  tax: TaxPreset | null;
   timezone: string;
   /** Base currencies a property here may price in; the first is the default. */
   baseCurrencies: string[];
@@ -198,6 +246,7 @@ const CARDS: PaymentMethodSeed[] = [
 export const REGION_PRESETS: Record<HomeMarket, RegionPreset> = {
   LK: {
     country: 'LK',
+    tax: null,
     timezone: 'Asia/Colombo',
     baseCurrencies: ['LKR', 'USD'],
     timeFormat: '12h',
@@ -253,6 +302,43 @@ export const REGION_PRESETS: Record<HomeMarket, RegionPreset> = {
   },
   MY: {
     country: 'MY',
+    tax: {
+      taxMode: 'exclusive_forward',
+      taxes: [
+        {
+          code: 'SC',
+          name: 'Service Charge',
+          priority: 1,
+          compound: false,
+          exemptible: false,
+          displayGroup: 'single',
+          rates: [{ ratePercent: 10 }],
+          from: '2024-03-01',
+        },
+        {
+          code: 'SST',
+          name: 'Service Tax (SST)',
+          invoiceLabel: 'SST',
+          priority: 2,
+          compound: true,
+          exemptible: true,
+          displayGroup: 'single',
+          rates: [{ ratePercent: 8 }],
+          from: '2024-03-01',
+        },
+      ],
+      levies: [
+        {
+          code: 'TTX',
+          name: 'Tourism Tax',
+          amount: 10,
+          currency: 'MYR',
+          appliesTo: 'non_resident',
+          from: '2017-09-01',
+        },
+      ],
+      requireGuestRegistration: true,
+    },
     timezone: 'Asia/Kuala_Lumpur',
     baseCurrencies: ['MYR'],
     timeFormat: '12h',
@@ -325,6 +411,26 @@ export const REGION_PRESETS: Record<HomeMarket, RegionPreset> = {
   },
   IN: {
     country: 'IN',
+    tax: {
+      taxMode: 'exclusive_forward',
+      taxes: [
+        {
+          code: 'GST',
+          name: 'GST',
+          priority: 1,
+          compound: false,
+          exemptible: true,
+          displayGroup: 'gst_split',
+          rates: [
+            { ratePercent: 5, maxAmount: 7500 },
+            { ratePercent: 18, minAmount: 7500.01 },
+          ],
+          from: '2025-09-22',
+        },
+      ],
+      levies: [],
+      requireGuestRegistration: false,
+    },
     timezone: 'Asia/Kolkata',
     baseCurrencies: ['INR'],
     timeFormat: '12h',

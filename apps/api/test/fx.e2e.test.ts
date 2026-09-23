@@ -22,6 +22,7 @@ describe('exchange rates', () => {
       'GBP',
       'INR',
       'LKR',
+      'MYR',
       'USD',
     ]);
   });

@@ -150,7 +150,8 @@ export function AppShell({
     items: group.items.filter(
       (i) =>
         (!housekeepingUser || i.href === '/app/roomview' || i.href === '/app/profile') &&
-        (!i.feature || entitlements?.features[i.feature] !== false),
+        (!i.feature || entitlements?.features[i.feature] !== false) &&
+        (!i.countries || i.countries.includes(property?.countryCode ?? '')),
     ),
   })).filter((g) => g.items.length > 0);
 

@@ -12,6 +12,7 @@ import { createDb } from './client';
 import { seedDefaultTemplates } from './default-templates';
 import { seedDefaultPlans } from './default-plans';
 import { seedDefaultMasters } from './masters';
+import { seedRegionalProperty } from './seed-regional';
 import {
   tenants,
   users,
@@ -363,6 +364,37 @@ try {
   const demoOta = demoCommissionable - demoBase - demoCommission; // 4500
   const demoEffective = applyLastMinuteDrop(demoSelling, 15); // 31625 → 26881.25
 
+  // Malaysia and India (Development Phase 02, Sprint 7): one demo hotel each, taxed forward. The
+  // Indian weekday rate sits under ₹7,500 a night (5% GST) and the weekend one above it (18%).
+  const penang = await seedRegionalProperty(db, tenantId, {
+    name: 'Straits Heritage Penang',
+    country: 'MY',
+    stateCode: 'MY-07',
+    city: 'George Town',
+    taxIds: { sstNo: 'W10-1808-32000001', ttxNo: '141-2017-10000001', brn: '201901000005' },
+    roomName: 'Heritage Double',
+    quantity: 4,
+    weekday: 240,
+    weekend: 320,
+    rateCodeId: bb!.id,
+    dates: dateRange(START, SEED_DAYS),
+    fxToLkr: 70,
+  });
+  const mysuru = await seedRegionalProperty(db, tenantId, {
+    name: 'Mysuru Palace Residency',
+    country: 'IN',
+    stateCode: '29',
+    city: 'Mysuru',
+    taxIds: { gstin: '29ABCDE1234F1Z5' },
+    roomName: 'Maharaja Suite',
+    quantity: 4,
+    weekday: 5500,
+    weekend: 6500,
+    rateCodeId: bb!.id,
+    dates: dateRange(START, SEED_DAYS),
+    fxToLkr: 3.6,
+  });
+
   // Languages (global) + message templates (Compartment E).
   for (const l of [
     { code: 'en', name: 'English', isDefault: true },
@@ -377,7 +409,7 @@ try {
 
   // Physical rooms. Numbered across the whole property (01..NN) the way Yanolja numbers them,
   // matching exactly what migration 0020 back-fills for existing data.
-  for (const pid of [propertyId, taxPropId]) {
+  for (const pid of [propertyId, taxPropId, penang.propertyId, mysuru.propertyId]) {
     const propRooms = await db
       .select()
       .from(rooms)
@@ -440,6 +472,8 @@ try {
   console.log(`  last-room   : ${LAST_ROOM_DATE} (rooms_to_sell = 1)`);
   console.log(`  occupancyId : ${occ!.id} (BB / Double, priced via @yohobed/domain)`);
   console.log(`  taxed occ   : ${taxOcc!.id} (Ceylon Tax Villa · slab + 10% SC + 15% VAT)`);
+  console.log(`  Malaysia    : Straits Heritage Penang (MYR · SC 10% + SST 8% + RM10 TTx)`);
+  console.log(`  India       : Mysuru Palace Residency (INR · GST 5% / 18% slabs)`);
   console.log(
     `    reconcile : base ${demoBase} + yoho ${demoCommission} + ota ${demoOta} + taxes ${demoTaxes} = ` +
       `${demoBase + demoCommission + demoOta + demoTaxes} (selling ${demoSelling})`,

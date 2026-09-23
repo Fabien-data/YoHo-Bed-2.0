@@ -3,7 +3,16 @@
 import * as React from 'react';
 import { Printer } from '@phosphor-icons/react';
 import { Button } from '@yohobed/ui';
-import type { Invoice, InvoiceParty } from '@/lib/api';
+import type { Invoice, InvoiceParty, InvoiceProfile } from '@/lib/api';
+import { numberLocale } from '@/lib/format';
+
+/** What the taxpayer number is called on this profile's documents. */
+const TAX_ID_LABEL: Record<InvoiceProfile, string> = {
+  lk_vat: 'TIN',
+  in_gst: 'GSTIN',
+  my_sst: 'SST No.',
+  generic: 'Tax ID',
+};
 
 /**
  * A printed invoice, bill, pro-forma or credit note.
@@ -11,7 +20,10 @@ import type { Invoice, InvoiceParty } from '@/lib/api';
  * Sri Lanka's Gazette 2481/22 decides the layout of a tax invoice: the heading "TAX INVOICE", the
  * supplier's TIN top-left and the purchaser's top-right, the serial, dates as MM/DD/YYYY, only
  * VAT-able supplies, and the LKR equivalent of a foreign-currency invoice at the day's rate.
- * Everything printed comes from the document's own snapshot, so a reprint years later is identical.
+ * India's GST invoice (Sprint 7) prints the supplier's and buyer's GSTIN, the place of supply, SAC
+ * 996311, CGST + SGST and the rupee round-off; Malaysia's prints the SST number and the Tourism Tax
+ * number beside its own line. Everything printed comes from the document's own snapshot, so a
+ * reprint years later is identical.
  */
 
 const isVat = (t: { priority: number; name: string }) =>
@@ -23,8 +35,8 @@ function fmtDate(iso: string | null, profile: string): string {
   return profile === 'lk_vat' ? `${m}/${d}/${y}` : `${d}/${m}/${y}`;
 }
 
-function num(v: string | number | null | undefined): string {
-  return Number(v ?? 0).toLocaleString('en-US', {
+function num(v: string | number | null | undefined, currency?: string): string {
+  return Number(v ?? 0).toLocaleString(numberLocale(currency), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -34,10 +46,12 @@ function Party({
   party,
   label,
   align,
+  profile,
 }: {
   party: InvoiceParty | null;
   label: string;
   align?: 'right';
+  profile: InvoiceProfile;
 }) {
   if (!party) return null;
   const lines = [
@@ -57,10 +71,18 @@ function Party({
         </div>
       ))}
       {party.taxId && (
-        <div className="mt-1 font-mono text-xs font-semibold text-ink">TIN {party.taxId}</div>
+        <div className="mt-1 font-mono text-xs font-semibold text-ink">
+          {TAX_ID_LABEL[profile]} {party.taxId}
+        </div>
       )}
       {party.registrationNo && (
         <div className="font-mono text-[11px] text-ink-2">Reg. {party.registrationNo}</div>
+      )}
+      {profile === 'in_gst' && party.stateCode && (
+        <div className="font-mono text-[11px] text-ink-2">State code {party.stateCode}</div>
+      )}
+      {profile === 'my_sst' && party.ttxNo && (
+        <div className="font-mono text-[11px] font-semibold text-ink">TTx No. {party.ttxNo}</div>
       )}
     </div>
   );
@@ -68,9 +90,12 @@ function Party({
 
 export function PrintInvoice({ invoice }: { invoice: Invoice }) {
   const lk = invoice.profile === 'lk_vat';
+  const india = invoice.profile === 'in_gst';
+  const cur = invoice.currency;
   const taxes = invoice.taxSummary ?? [];
   const vatTotal = taxes.filter(isVat).reduce((s, t) => s + Number(t.amount), 0);
-  const exVat = Number(invoice.amount) - vatTotal;
+  // Sri Lanka's value excludes only VAT; everyone else's excludes every tax.
+  const exVat = lk ? Number(invoice.amount) - vatTotal : Number(invoice.subtotal ?? 0);
   const fx = invoice.fxRate ? Number(invoice.fxRate) : null;
   const local = (v: number) => (fx ? num(v * fx) : null);
 
@@ -89,8 +114,8 @@ export function PrintInvoice({ invoice }: { invoice: Invoice }) {
         )}
 
         <div className="mt-4 flex items-start justify-between gap-8 border-b border-line pb-4">
-          <Party party={invoice.supplier} label="Supplier" />
-          <Party party={invoice.payer} label="Purchaser" align="right" />
+          <Party party={invoice.supplier} label="Supplier" profile={invoice.profile} />
+          <Party party={invoice.payer} label="Purchaser" align="right" profile={invoice.profile} />
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-1 text-xs sm:grid-cols-4">
@@ -108,12 +133,14 @@ export function PrintInvoice({ invoice }: { invoice: Invoice }) {
             <Meta label="Against invoice" value={invoice.original.number} mono />
           )}
           {invoice.creditReason && <Meta label="Reason" value={invoice.creditReason} />}
+          {india && <Meta label="Place of supply" value={invoice.placeOfSupply ?? '—'} mono />}
         </dl>
 
         <table className="mt-5 w-full text-xs">
           <thead>
             <tr className="border-y border-line-strong text-left">
               <th className="py-1.5">Description</th>
+              {india && <th className="py-1.5">SAC</th>}
               <th className="py-1.5 text-right">Qty</th>
               <th className="py-1.5 text-right">Unit price</th>
               <th className="py-1.5 text-right">{lk ? 'Value (excl. VAT)' : 'Net'}</th>
@@ -123,18 +150,21 @@ export function PrintInvoice({ invoice }: { invoice: Invoice }) {
           </thead>
           <tbody>
             {invoice.lines.map((l) => {
-              const vat = (l.taxLines ?? [])
-                .filter(isVat)
-                .reduce((s, t) => s + Number(t.amount), 0);
+              const vat = lk
+                ? (l.taxLines ?? []).filter(isVat).reduce((s, t) => s + Number(t.amount), 0)
+                : Number(l.tax ?? 0);
               const value = Number(l.amount) - vat;
               return (
                 <tr key={l.id} className="border-b border-line">
                   <td className="py-1.5">{l.description}</td>
+                  {india && <td className="py-1.5 font-mono">{l.hsnSac ?? ''}</td>}
                   <td className="py-1.5 text-right font-mono tabular-nums">{Number(l.quantity)}</td>
-                  <td className="py-1.5 text-right font-mono tabular-nums">{num(l.unitPrice)}</td>
-                  <td className="py-1.5 text-right font-mono tabular-nums">{num(value)}</td>
-                  <td className="py-1.5 text-right font-mono tabular-nums">{num(vat)}</td>
-                  <td className="py-1.5 text-right font-mono tabular-nums">{num(l.amount)}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">
+                    {num(l.unitPrice, cur)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">{num(value, cur)}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">{num(vat, cur)}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">{num(l.amount, cur)}</td>
                 </tr>
               );
             })}
@@ -144,22 +174,22 @@ export function PrintInvoice({ invoice }: { invoice: Invoice }) {
         <div className="mt-4 flex flex-col items-end gap-1 text-xs">
           <Total
             label={`Total value of supply (excl. ${lk ? 'VAT' : 'tax'})`}
-            value={num(exVat)}
+            value={num(exVat, cur)}
             currency={invoice.currency}
           />
           {taxes.map((t) => (
             <Total
               key={`${t.key}-${t.rate}`}
               label={`${t.name} ${(t.rate * 100).toFixed((t.rate * 100) % 1 === 0 ? 0 : 2)}%`}
-              value={num(t.amount)}
+              value={num(t.amount, cur)}
               currency={invoice.currency}
-              muted={!isVat(t)}
+              muted={lk && !isVat(t)}
             />
           ))}
           {Number(invoice.rounding) !== 0 && (
             <Total
-              label="Rounding"
-              value={num(invoice.rounding)}
+              label={india ? 'Round off' : 'Rounding'}
+              value={num(invoice.rounding, cur)}
               currency={invoice.currency}
               muted
             />
@@ -167,7 +197,7 @@ export function PrintInvoice({ invoice }: { invoice: Invoice }) {
           <div className="mt-1 flex items-baseline gap-6 border-t border-line-strong pt-1 text-sm font-bold">
             <span>Total</span>
             <span className="font-mono tabular-nums">
-              {invoice.currency} {num(invoice.amount)}
+              {invoice.currency} {num(invoice.amount, cur)}
             </span>
           </div>
           {fx && (
@@ -194,6 +224,7 @@ export function PrintInvoice({ invoice }: { invoice: Invoice }) {
         )}
         <p className="mt-6 text-center text-[10px] text-ink-3">
           Computer-generated document. {lk ? 'Issued under Gazette 2481/22.' : ''}
+          {india ? 'SAC 996311 — accommodation services.' : ''}
         </p>
       </div>
 

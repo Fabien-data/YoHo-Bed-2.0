@@ -36,7 +36,9 @@ import {
 import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme';
 import { UxScoreboardPanel } from '@/components/staff/ux-scoreboard';
+import { FxRatesPanel } from '@/components/staff/fx-rates-panel';
 import { money } from '@/lib/format';
+import { BASE_CURRENCIES, type BaseCurrencyCode } from '@yohobed/domain';
 
 function tenantTone(status: StaffTenant['status']): 'avail' | 'low' | 'closed' {
   return status === 'active' ? 'avail' : status === 'pending' ? 'low' : 'closed';
@@ -130,7 +132,7 @@ export default function StaffPage() {
    * change once the property has bookings; `locked` mirrors that rule so the control disables
    * instead of offering an action that will fail.
    */
-  async function changeCurrency(p: StaffProperty, currency: 'LKR' | 'USD') {
+  async function changeCurrency(p: StaffProperty, currency: BaseCurrencyCode) {
     if (!tenantId || p.locked || p.currency === currency) return;
     setBusy(true);
     setCcyError(null);
@@ -250,7 +252,7 @@ export default function StaffPage() {
                         <Select
                           value={p.currency}
                           disabled={busy}
-                          onValueChange={(v) => changeCurrency(p, v as 'LKR' | 'USD')}
+                          onValueChange={(v) => changeCurrency(p, v as BaseCurrencyCode)}
                         >
                           <SelectTrigger
                             className="w-24"
@@ -259,8 +261,11 @@ export default function StaffPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="LKR">LKR</SelectItem>
-                            <SelectItem value="USD">USD</SelectItem>
+                            {BASE_CURRENCIES.map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {c}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       )}
@@ -372,6 +377,8 @@ export default function StaffPage() {
             </div>
           </section>
         </div>
+
+        <FxRatesPanel />
 
         <UxScoreboardPanel tenantId={tenantId} tenantName={selected?.name} />
       </main>

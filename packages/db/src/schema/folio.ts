@@ -12,6 +12,7 @@ import {
   jsonb,
   unique,
   index,
+  uniqueIndex,
   check,
 } from 'drizzle-orm/pg-core';
 import type { TaxLine } from '@yohobed/domain';
@@ -125,7 +126,14 @@ export const chargeParticulars = pgTable(
   }),
 );
 
-export const chargeSource = pgEnum('charge_source', ['room', 'manual', 'pos', 'inclusion']);
+export const chargeSource = pgEnum('charge_source', [
+  'room',
+  'manual',
+  'pos',
+  'inclusion',
+  // Sprint 7: Malaysia's tourism tax and any other per-room-night levy.
+  'levy',
+]);
 
 /**
  * One line on the bill.
@@ -175,11 +183,25 @@ export const folioCharges = pgTable(
      * otherwise); a partial unique index there stops one inclusion being posted twice for a night.
      */
     bookingInclusionId: uuid('booking_inclusion_id'),
+    /**
+     * The levy this line charges (Sprint 7), e.g. `TTX`. With `booking_date`, the night it is for;
+     * a partial unique index stops a levy being posted twice for one night on one window.
+     */
+    levyCode: text('levy_code'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     folioIdx: index('folio_charges_folio_idx').on(t.folioId, t.postedFor),
+    // Keyed on levy_code, not source: the 'levy' enum value is added by the same migration and
+    // cannot be used in it.
+    levyNightUnique: uniqueIndex('folio_charges_levy_night_uq')
+      .on(t.folioId, t.levyCode, t.bookingDate)
+      .where(sql`${t.levyCode} is not null and ${t.voidedAt} is null`),
+    levyHasNight: check(
+      'folio_charges_levy_night',
+      sql`${t.levyCode} is null or ${t.bookingDate} is not null`,
+    ),
   }),
 );
 

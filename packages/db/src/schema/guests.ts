@@ -15,6 +15,52 @@ import { bookings, customers } from './bookings';
 import { privateFiles } from './files';
 
 /**
+ * A stay's registration with the authorities (Development Phase 02, Sprint 7): the journey
+ * details India's Form C and Malaysia's Registration of Guests Act 1965 ask for, and India's
+ * Form C filing — due within 24 hours of a foreign guest's arrival, submitted on the Bureau of
+ * Immigration portal and recorded here with its reference. One row per booking.
+ *
+ * `form_c_status`: `not_required` (local guest, or a Nepal/Bhutan citizen), `pending` (foreign
+ * guest, not yet filed) or `submitted`.
+ */
+export const stayRegistrations = pgTable(
+  'stay_registrations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    bookingId: uuid('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'cascade' }),
+    arrivedFrom: text('arrived_from'),
+    arrivedInCountryOn: date('arrived_in_country_on'),
+    portOfEntry: text('port_of_entry'),
+    nextDestination: text('next_destination'),
+    purposeOfVisit: text('purpose_of_visit'),
+    formCStatus: text('form_c_status').notNull().default('not_required'),
+    formCReference: text('form_c_reference'),
+    formCSubmittedAt: timestamp('form_c_submitted_at', { withTimezone: true }),
+    formCSubmittedByUserId: uuid('form_c_submitted_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    bookingUnique: unique('stay_registrations_booking_uq').on(t.bookingId),
+    formCStatusValid: check(
+      'stay_registrations_form_c_status_valid',
+      sql`${t.formCStatus} in ('not_required', 'pending', 'submitted')`,
+    ),
+    formCSubmittedHasReference: check(
+      'stay_registrations_form_c_submitted',
+      sql`${t.formCStatus} <> 'submitted' or (${t.formCReference} is not null and ${t.formCSubmittedAt} is not null)`,
+    ),
+  }),
+);
+
+/**
  * The other people in a room (Development Phase 02, Sprint 4).
  *
  * A booking's `customer_id` is the guest the room is booked for. Anyone else sharing the room

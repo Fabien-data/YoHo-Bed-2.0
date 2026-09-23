@@ -172,7 +172,10 @@ export const invoices = pgTable(
       'invoices_kind_valid',
       sql`${t.kind} in ('legacy', 'tax_invoice', 'invoice', 'bill', 'proforma', 'credit_note')`,
     ),
-    profileValid: check('invoices_profile_valid', sql`${t.profile} in ('lk_vat', 'generic')`),
+    profileValid: check(
+      'invoices_profile_valid',
+      sql`${t.profile} in ('lk_vat', 'generic', 'in_gst', 'my_sst')`,
+    ),
     creditNoteHasOriginal: check(
       'invoices_credit_note_original',
       sql`${t.kind} <> 'credit_note' or (${t.originalInvoiceId} is not null and length(trim(coalesce(${t.creditReason}, ''))) > 0)`,

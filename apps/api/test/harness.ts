@@ -108,6 +108,8 @@ export async function makeTenant(
     taxed?: boolean;
     /** The property's country (ISO alpha-2); selects the seeded master-list preset. */
     country?: 'LK' | 'MY' | 'IN';
+    /** The property's base currency (Sprint 7: MYR and INR for Malaysia and India). */
+    currency?: 'LKR' | 'USD' | 'MYR' | 'INR';
   } = {},
 ): Promise<TenantFixture> {
   const db = admin();
@@ -159,6 +161,7 @@ export async function makeTenant(
       commissionType: 'percentage',
       commissionPercentage: String(opts.commissionPercentage ?? 10),
       countryCode: opts.country ?? 'LK',
+      currency: opts.currency ?? 'LKR',
     })
     .returning();
 

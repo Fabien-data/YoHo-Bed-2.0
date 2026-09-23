@@ -22,6 +22,7 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { CashieringService } from '../cashiering/cashiering.service';
 import { postInclusionsForNight } from '../folio/inclusions';
+import { postLeviesForNight } from '../folio/levies';
 import { localToday } from '../common/local-date';
 
 const money = (n: number) => n.toFixed(2);
@@ -267,6 +268,10 @@ export class NightAuditService {
       //     routed to the window that pays for extras (Development Phase 02).
       const inclusions = await postInclusionsForNight(tx, tenantId, propertyId, date, userId);
 
+      // 1c. Levies for the night — Malaysia's tourism tax on every foreign guest in house
+      //     (Development Phase 02, Sprint 7). Only CheckedIn stays: a no-show is never charged.
+      const levies = await postLeviesForNight(tx, tenantId, propertyId, date, userId);
+
       // 2. No-show anything that was due to arrive and did not. The night just charged stays
       //    held; the rest of the stay goes back on sale. An OTA booking also tells the channel.
       //    A booking the desk said to `keep` (a late arrival they still expect) is charged its
@@ -327,6 +332,7 @@ export class NightAuditService {
               roomsSkipped: skipped,
               inclusionsPosted: inclusions.posted,
               inclusionsTotal: money(inclusions.total),
+              leviesPosted: levies,
               noShowReferences: p.unarrived.filter((u) => !kept.has(u.id)).map((u) => u.reference),
               keptAsLateArrivals: p.unarrived.filter((u) => kept.has(u.id)).map((u) => u.reference),
               overstays: p.overstays.map((o) => o.reference),

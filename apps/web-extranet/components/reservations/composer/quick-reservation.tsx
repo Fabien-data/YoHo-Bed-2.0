@@ -469,7 +469,10 @@ export function QuickReservationSheet({
                 <span>Room</span>
                 <span>Adult</span>
                 <span>Child</span>
-                <span className="text-right">Rate ({currency}) · tax inc.</span>
+                <span className="text-right">
+                  Rate ({currency}) ·{' '}
+                  {quote.data?.taxMode === 'exclusive_forward' ? 'before tax' : 'tax inc.'}
+                </span>
                 <span />
               </div>
               {grid.isLoading ? (
@@ -484,6 +487,7 @@ export function QuickReservationSheet({
                     grid={grid.data}
                     takesRooms={takesRooms}
                     quote={quote.data?.lines[i]}
+                    beforeTax={quote.data?.taxMode === 'exclusive_forward'}
                     money={money}
                     error={
                       lineErrors[i] ??
@@ -531,6 +535,11 @@ export function QuickReservationSheet({
                       incl. taxes {money(quote.data.totals.taxes)}
                     </div>
                   )}
+                  {quote.data?.levies?.map((l) => (
+                    <div key={l.code} className="text-[11px] text-ink-3">
+                      + {l.name} {money(l.amount)} at the hotel
+                    </div>
+                  ))}
                   {quote.data && Number(quote.data.totals.discount) > 0 && (
                     <div className="text-[11px] text-avail-ink">
                       coupon −{money(quote.data.totals.discount)}

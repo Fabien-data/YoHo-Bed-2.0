@@ -34,7 +34,8 @@ export const LINE_GRID =
  * One room of the reservation — one row of Yanolja's grid: Room Type · Rate Type · Room · Adult ·
  * Child · Rate (tax inclusive). The rate shows the quoted stay total for the room; typing over it
  * sets the price for the room (the pricer spreads it across the nights), and the arrow puts the
- * calendar price back.
+ * calendar price back. Where tax is charged on top (India, Malaysia — Sprint 7) the rate shown and
+ * typed is the price before tax, as those markets quote it.
  */
 export function RoomLine({
   index,
@@ -45,6 +46,7 @@ export function RoomLine({
   quote,
   money,
   error,
+  beforeTax = false,
   onChange,
   onRemove,
 }: {
@@ -57,6 +59,8 @@ export function RoomLine({
   quote: ReservationQuote['lines'][number] | undefined;
   money: (v: string | number) => string;
   error?: string | null;
+  /** The property charges tax on top: show and take the rate before tax. */
+  beforeTax?: boolean;
   onChange: (patch: Partial<LineDraft>) => void;
   onRemove?: () => void;
 }) {
@@ -71,6 +75,20 @@ export function RoomLine({
   );
   const [editingRate, setEditingRate] = React.useState(false);
   const typed = line.rate.trim() !== '';
+  // What the field shows untouched: the stay's price, before tax where tax is added on top.
+  const shown = quote
+    ? beforeTax
+      ? (Number(quote.amount) - Number(quote.taxes)).toFixed(2)
+      : quote.amount
+    : '';
+  // Typing the calendar price back is the same as not typing one.
+  const calendar = quote
+    ? beforeTax
+      ? quote.rateSource === 'calendar'
+        ? shown
+        : null
+      : quote.listAmount
+    : null;
 
   function chooseRoomType(roomId: string) {
     const rt = grid?.roomTypes.find((r) => r.roomId === roomId);
@@ -198,28 +216,22 @@ export function RoomLine({
           )}
         >
           <input
-            aria-label={`Rate for the stay, tax inclusive, room ${n}`}
+            aria-label={`Rate for the stay, ${beforeTax ? 'before tax' : 'tax inclusive'}, room ${n}`}
             inputMode="decimal"
             disabled={!line.occupancyId}
             value={
-              editingRate
-                ? line.rate
-                : typed
-                  ? grouped(line.rate)
-                  : quote
-                    ? grouped(quote.amount)
-                    : ''
+              editingRate ? line.rate : typed ? grouped(line.rate) : quote ? grouped(shown) : ''
             }
             placeholder="0.00"
             onFocus={(e) => {
               setEditingRate(true);
-              if (!typed && quote) onChange({ rate: quote.amount });
+              if (!typed && quote) onChange({ rate: shown });
               requestAnimationFrame(() => e.target.select());
             }}
             onBlur={() => {
               setEditingRate(false);
               // Typing the calendar price back is the same as not typing one.
-              if (quote && Number(line.rate) === Number(quote.listAmount)) onChange({ rate: '' });
+              if (quote && Number(line.rate) === Number(calendar)) onChange({ rate: '' });
             }}
             onChange={(e) => onChange({ rate: e.target.value.replace(/[^\d.,]/g, '') })}
             className="h-full w-full min-w-0 bg-transparent px-3 text-right font-mono tabular-nums text-ink outline-none disabled:opacity-50"

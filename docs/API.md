@@ -438,6 +438,30 @@ A reservation with "Email booking vouchers" sends the voucher to the addresses i
 created, in place of the plain confirmation to those addresses. "Send email at check-out" sends the
 `checkout_thank_you` template (or the reservation's chosen one) when the guest leaves.
 
+### Malaysia and India: taxes, levies, Form C (Sprint 7)
+
+| Method & path                             | Auth             | Purpose                                                                                                                                                                                                                                                                               |
+| ----------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /properties/:id/taxes`               | JWT+Tenant       | The property's tax engine (`taxMode`), its taxes with their rates and slabs, its levies, and whether its country preset is available / switched on / applied.                                                                                                                         |
+| `POST /properties/:id/taxes/apply-preset` | JWT+Tenant·OWNER | Apply the country's tax set-up (Malaysia: SC + SST + Tourism Tax + guest register; India: GST slabs) and re-price the calendar from today. **409** `region_not_enabled` until the platform switches the country on; **409** `currency_mismatch`; **400** `no_tax_preset` (Sri Lanka). |
+| `GET /bookings/:id/registration`          | JWT+Tenant       | The stay's journey details, its Form C status and due time, and what Malaysia's guest register still lacks.                                                                                                                                                                           |
+| `PUT /bookings/:id/registration`          | JWT+Tenant       | `{ arrivedFrom?, arrivedInCountryOn?, portOfEntry?, nextDestination?, purposeOfVisit? }`.                                                                                                                                                                                             |
+| `POST /bookings/:id/form-c`               | JWT+Tenant       | `{ reference, submittedAt? }` — Form C was filed on the Bureau of Immigration portal. **400** `form_c_not_required` for a guest who does not need it.                                                                                                                                 |
+| `GET /properties/:propertyId/form-c`      | JWT+Tenant       | India's Form C work list: foreign guests checked in over the last 14 days, each with `dueAt` (check-in + 24 h), `hoursLeft`, `overdue` and the filing reference. `{ required: false }` elsewhere.                                                                                     |
+
+- **Forward pricing.** An `exclusive_forward` property prices from `rate_calendar.net_price`; a
+  typed rate, contract rate or discount is **before tax**, and `POST /reservations/quote` says so
+  (`taxMode`). The quote also returns `levies`: the tourism tax the stay will owe on top.
+- **Levies on the folio.** Levy lines are `source: 'levy'` with a `levyCode`. Night audit posts
+  them for in-house guests, and `check-out` reconciles them to the nights stayed. Undoing a
+  check-in voids them. `POST /folio-charges/transfer` moves every line of a levy together.
+- **Invoices.** An Indian hotel with a GSTIN on the forward engine issues `profile: 'in_gst'` TAX
+  INVOICEs, and a Malaysian one with an SST number issues `my_sst`. **400** `invalid_gstin` when a
+  buyer GSTIN is not one.
+- **Check-in.** With `requireGuestRegistration` on, check-in answers **409**
+  `registration_required` with `missing: [...]`, the register fields still needed.
+- **Staff.** `POST /fx/override` now also takes `MYR`.
+
 ## Room view & housekeeping
 
 | Method & path                                                     | Auth       | Purpose                                                                                                 |
@@ -783,19 +807,20 @@ bought, so support never demonstrates a module the customer cannot use.
 
 ### apps/api (validated at boot — `src/config/env.ts`; boot fails fast on violations)
 
-| Variable            | Default                           | Purpose                                                            |
-| ------------------- | --------------------------------- | ------------------------------------------------------------------ |
-| `APP_DATABASE_URL`  | — (required)                      | Postgres URL for the **restricted `yoho_app` role** (RLS applies). |
-| `PORT`              | `3001`                            | HTTP port.                                                         |
-| `JWT_SECRET`        | — (required, min 16 chars)        | JWT signing secret.                                                |
-| `JWT_EXPIRES_IN`    | `1d`                              | Token lifetime.                                                    |
-| `CM_WEBHOOK_SECRET` | dev default (min 16)              | Shared secret the channel manager sends in `x-cm-secret`.          |
-| `EMAIL_PROVIDER`    | `console`                         | `console` (log only) or `resend`.                                  |
-| `RESEND_API_KEY`    | —                                 | Required when provider is `resend`.                                |
-| `EMAIL_FROM`        | `YoHoBed <onboarding@resend.dev>` | From address.                                                      |
-| `WEB_URL`           | `http://localhost:3000`           | Base for links in emails (reset, review).                          |
-| `MEDIA_DIR`         | `./uploads`                       | Photo storage directory.                                           |
-| `CORS_ORIGINS`      | `http://localhost:3000`           | Comma-separated allowed origins (read in `main.ts`).               |
+| Variable                 | Default                           | Purpose                                                                                       |
+| ------------------------ | --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `APP_DATABASE_URL`       | — (required)                      | Postgres URL for the **restricted `yoho_app` role** (RLS applies).                            |
+| `PORT`                   | `3001`                            | HTTP port.                                                                                    |
+| `JWT_SECRET`             | — (required, min 16 chars)        | JWT signing secret.                                                                           |
+| `JWT_EXPIRES_IN`         | `1d`                              | Token lifetime.                                                                               |
+| `CM_WEBHOOK_SECRET`      | dev default (min 16)              | Shared secret the channel manager sends in `x-cm-secret`.                                     |
+| `EMAIL_PROVIDER`         | `console`                         | `console` (log only) or `resend`.                                                             |
+| `RESEND_API_KEY`         | —                                 | Required when provider is `resend`.                                                           |
+| `EMAIL_FROM`             | `YoHoBed <onboarding@resend.dev>` | From address.                                                                                 |
+| `WEB_URL`                | `http://localhost:3000`           | Base for links in emails (reset, review).                                                     |
+| `MEDIA_DIR`              | `./uploads`                       | Photo storage directory.                                                                      |
+| `CORS_ORIGINS`           | `http://localhost:3000`           | Comma-separated allowed origins (read in `main.ts`).                                          |
+| `REGIONAL_TAX_COUNTRIES` | — (none)                          | Countries whose tax preset may be applied, e.g. `MY,IN` — only after a tax adviser signs off. |
 
 ### apps/worker
 

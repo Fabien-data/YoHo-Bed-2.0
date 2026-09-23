@@ -473,6 +473,14 @@ function Line({
             {l.particularCode}
           </span>
         )}
+        {l.source === 'levy' && (
+          <span
+            className="ml-1.5 rounded bg-info-soft px-1 text-[10px] text-info-ink"
+            title="A levy per room per night stayed — not part of the room rate, and it moves between bills only as a whole"
+          >
+            Levy
+          </span>
+        )}
         {dead && (
           <span className="ml-1.5 text-[11px] text-closed-ink">
             voided{l.voidReason ? ` — ${l.voidReason}` : ''}

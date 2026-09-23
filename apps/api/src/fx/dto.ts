@@ -5,7 +5,7 @@ import { z } from 'zod';
  * is restricted to the non-LKR tracked currencies. `rate` is "1 base = rate LKR".
  */
 export const fxOverrideSchema = z.object({
-  base: z.enum(['USD', 'INR', 'GBP', 'EUR']),
+  base: z.enum(['USD', 'INR', 'MYR', 'GBP', 'EUR']),
   rate: z.number().positive(),
   note: z.string().max(500).optional(),
 });

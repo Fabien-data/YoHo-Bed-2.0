@@ -1,7 +1,76 @@
 import { eq, inArray } from 'drizzle-orm';
-import type { TaxComponent } from '@yohobed/domain';
+import type { ForwardTax, TaxComponent, TaxDisplayGroup } from '@yohobed/domain';
 import type { Tx } from './scope';
 import { propertyTaxTypes, taxDurations, taxTypes } from './schema';
+
+/** A duration that only applies within a price band (India's GST slabs). */
+function isSlab(d: { minAmount: string | null; maxAmount: string | null }): boolean {
+  return d.minAmount !== null || d.maxAmount !== null;
+}
+
+/**
+ * The taxes an `exclusive_forward` property charges on each date (Development Phase 02, Sprint 7):
+ * one entry per rate in force, slabs included — the forward engine (`forwardTaxLines`) picks the
+ * slab from the pre-tax price. Call inside `withTenant(...)`.
+ */
+export async function resolveForwardTaxesForDates(
+  tx: Tx,
+  propertyId: string,
+  dates: string[],
+): Promise<Map<string, ForwardTax[]>> {
+  const out = new Map<string, ForwardTax[]>();
+  const links = await tx
+    .select({
+      priority: propertyTaxTypes.priority,
+      taxTypeId: propertyTaxTypes.taxTypeId,
+      name: taxTypes.name,
+      invoiceLabel: taxTypes.invoiceLabel,
+      code: taxTypes.code,
+      exemptible: taxTypes.exemptible,
+      compound: taxTypes.compound,
+      displayGroup: taxTypes.displayGroup,
+    })
+    .from(propertyTaxTypes)
+    .innerJoin(taxTypes, eq(taxTypes.id, propertyTaxTypes.taxTypeId))
+    .where(eq(propertyTaxTypes.propertyId, propertyId));
+  if (links.length === 0) {
+    for (const d of dates) out.set(d, []);
+    return out;
+  }
+  const durations = await tx
+    .select()
+    .from(taxDurations)
+    .where(
+      inArray(
+        taxDurations.taxTypeId,
+        links.map((l) => l.taxTypeId),
+      ),
+    );
+  for (const d of dates) {
+    const taxes: ForwardTax[] = [];
+    for (const link of links) {
+      for (const dur of durations) {
+        if (dur.taxTypeId !== link.taxTypeId || dur.startDate > d || dur.endDate < d) continue;
+        const rate = Number(dur.ratePercent) / 100;
+        if (!(rate > 0)) continue;
+        taxes.push({
+          key: link.taxTypeId,
+          name: link.invoiceLabel || link.name,
+          code: link.code,
+          priority: link.priority,
+          rate,
+          exemptible: link.exemptible,
+          compound: link.compound,
+          displayGroup: link.displayGroup as TaxDisplayGroup,
+          minAmount: dur.minAmount === null ? null : Number(dur.minAmount),
+          maxAmount: dur.maxAmount === null ? null : Number(dur.maxAmount),
+        });
+      }
+    }
+    out.set(d, taxes);
+  }
+  return out;
+}
 
 /** Priority-ordered tax rates for a property on a date, as decimal fractions (0.10 = 10%). */
 export interface PropertyTaxRates {
@@ -52,8 +121,9 @@ export async function resolveTaxRatesForDates(
     const rates: PropertyTaxRates = { serviceCharge: 0, nbt: 0, vat: 0 };
     for (const link of links) {
       // ISO date strings compare lexically, so `<=`/`>=` are correct date comparisons here.
+      // Slab rows (Sprint 7, India's GST) belong to the forward engine alone.
       const dur = durations.find(
-        (x) => x.taxTypeId === link.taxTypeId && x.startDate <= d && x.endDate >= d,
+        (x) => x.taxTypeId === link.taxTypeId && x.startDate <= d && x.endDate >= d && !isSlab(x),
       );
       const frac = dur ? Number(dur.ratePercent) / 100 : 0;
       if (link.priority === 1) rates.serviceCharge += frac;
@@ -109,7 +179,7 @@ export async function resolveTaxComponentsForDates(
     const components: TaxComponent[] = [];
     for (const link of links) {
       const dur = durations.find(
-        (x) => x.taxTypeId === link.taxTypeId && x.startDate <= d && x.endDate >= d,
+        (x) => x.taxTypeId === link.taxTypeId && x.startDate <= d && x.endDate >= d && !isSlab(x),
       );
       const rate = dur ? Number(dur.ratePercent) / 100 : 0;
       if (rate <= 0) continue;

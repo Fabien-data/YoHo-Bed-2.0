@@ -39,15 +39,15 @@ reservation types and holds, sources and segments, Bill To and invoices. It is b
 Malaysian and Indian hotels. Sri Lanka comes first; Malaysia and India money is the last sprint.
 Every sprint deploys on its own.
 
-| Sprint | Deliverable                                                           | Migration | Status         |
-| ------ | --------------------------------------------------------------------- | --------- | -------------- |
-| P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Live**³   |
-| P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴   |
-| P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵   |
-| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶   |
-| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Live**⁷   |
-| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ✅ **Built**⁸  |
-| P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0032`    | ⬜ Not started |
+| Sprint | Deliverable                                                           | Migration | Status        |
+| ------ | --------------------------------------------------------------------- | --------- | ------------- |
+| P2-S1  | Property profile, locale data, master lists, rate control             | `0027`    | ✅ **Live**³  |
+| P2-S2  | Reservation engine: pricer, atomic multi-room create, holds lifecycle | `0028`    | ✅ **Live**⁴  |
+| P2-S3  | UI kit pickers + Quick Reservation + entry points                     | —         | ✅ **Live**⁵  |
+| P2-S4  | Full Add Reservation page + Reservations list rebuild                 | `0029`    | ✅ **Live**⁶  |
+| P2-S5  | Payments at reservation, Bill To routing, walk-in check-in            | `0030`    | ✅ **Live**⁷  |
+| P2-S6  | Vouchers, guest booking page, invoices (Sri Lanka profile)            | `0031`    | ✅ **Live**⁸  |
+| P2-S7  | Malaysia & India money (MYR/INR, GST, SST, TTx) + Form C              | `0040`    | ✅ **Built**⁹ |
 
 ³ P2-S1 (2026-09-17) — live on yova.markui.lk since 2026-09-18 (`main@391be6e`, PR #4).
 
@@ -127,7 +127,7 @@ on a copy of the live database first (every total unchanged); the server now has
 - **Open items.** A payment method in a foreign currency (Cash USD) is hidden until payments can be
   converted. Early check-out still holds its remaining nights.
 
-⁸ P2-S6 (2026-09-20) — built and tested; not deployed yet.
+⁸ P2-S6 (2026-09-20) — live on yova.markui.lk since 2026-09-20 (`main@0e602c0`, PR #7).
 
 - **Invoices.** A folio window (or a booking) is invoiced once. A Sri Lankan hotel with a TIN issues
   a TAX INVOICE for the VAT-able lines and a BILL for the rest, to Gazette 2481/22: serial
@@ -156,6 +156,52 @@ on a copy of the live database first (every total unchanged); the server now has
   time.
 - **Fixes along the way.** API CORS now allows `Idempotency-Key`. `Select` drops Radix's
   empty-string echo.
+
+⁹ P2-S7 (2026-09-22) — built and tested; not deployed yet. **Malaysia and India stay switched off
+for live hotels until a tax adviser signs off**: the platform setting `REGIONAL_TAX_COUNTRIES`
+names the countries whose tax preset may be applied, and it is unset in production.
+
+- **Tax engine v2.** A property's `tax_mode` chooses the engine. Sri Lanka keeps the inclusive
+  legacy path, untouched and still pinned by its parity tests. India and Malaysia price
+  `exclusive_forward`: the rate calendar keeps the pre-tax `net_price`, each tax is computed on top
+  and rounded to the cent, and a compound tax (Malaysia's SST) is charged on the service charge
+  too. India's GST slab (5% up to ₹7,500 a room-night, 18% above) is chosen on the discounted
+  pre-tax value, and GST prints as CGST + SGST halves. Typed rates are before tax in those
+  markets, and the reservation screens say so.
+- **Tourism Tax (Malaysia).**
+  - RM10 per room per night, for foreign guests only, on nights actually stayed. Complimentary
+    nights are charged; no-show nights are not.
+  - It is never charged twice: not when the booking's source collects it, and not on an exempt
+    stay.
+  - Night audit posts it for in-house guests; check-out posts any night the audit missed, which
+    covers Starter hotels.
+  - It sits on a line of its own, never inside the room rate. Its lines move between bills only
+    as a whole, and a partial unique index stops a night being posted twice.
+- **Invoices.**
+  - **India:** a TAX INVOICE with supplier and buyer GSTIN (validated), place of supply, SAC 996311
+    and CGST/SGST. The number (`INV/26-27/000001`, at most 16 characters) restarts every April, and
+    the total is rounded to the rupee with the round-off shown.
+  - **Malaysia:** the SST number, and the TTx number beside the tourism tax line.
+- **Registering guests.**
+  - **India, Form C:** a tracker for every foreign guest (Nepal and Bhutan exempt), due 24 hours
+    after check-in, with a countdown and a place to record the filing reference.
+  - **Malaysia:** the Registration of Guests Act 1965 register is enforced at check-in when the
+    setting is on, and the check-in dialog asks for exactly the missing fields.
+- **Money.** MYR and INR are base currencies, and INR amounts print with lakh grouping. The FX
+  fetch keeps the other rates when one currency is missing, and YoHo staff can set a rate by hand
+  from the staff console.
+- **Setup → Taxes & levies.** Shows what the property charges and applies the country preset in
+  one step, re-pricing the calendar from today on; bookings already made keep their prices.
+  Demo hotels: Straits Heritage Penang (MY) and Mysuru Palace Residency (IN).
+- **Migration 0040**:
+  - `properties.tax_mode`.
+  - `tax_types` code / compound / invoice label / display group.
+  - Slab bounds on `tax_durations`.
+  - `rate_calendar.net_price`.
+  - `property_levies` and `stay_registrations`, both with RLS.
+  - `folio_charges.levy_code` with its unique index.
+  - The `in_gst` / `my_sst` invoice profiles.
+  - `charge_source 'levy'`, added last.
 
 ### UX Excellence Program (approved 2026-09-22)
 

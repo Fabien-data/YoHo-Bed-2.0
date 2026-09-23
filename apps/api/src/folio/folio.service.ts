@@ -119,6 +119,7 @@ export class FolioService {
           total: folioCharges.total,
           voidedAt: folioCharges.voidedAt,
           voidReason: folioCharges.voidReason,
+          levyCode: folioCharges.levyCode,
           particularCode: chargeParticulars.code,
         })
         .from(folioCharges)
@@ -406,6 +407,30 @@ export class FolioService {
       }
       if (charges.some((c) => c.voidedAt)) {
         throw new BadRequestException('A voided charge cannot be transferred');
+      }
+      // A levy is never split across bills (Malaysia's TTx rule): moving one night's line moves
+      // every live line of that levy on the booking with it.
+      const levyCodes = [
+        ...new Set(charges.map((c) => c.levyCode).filter((c): c is string => !!c)),
+      ];
+      if (levyCodes.length) {
+        const [first] = await tx
+          .select({ bookingId: folios.bookingId })
+          .from(folios)
+          .where(eq(folios.id, charges.find((c) => c.levyCode)!.folioId));
+        const siblings = await tx
+          .select({ charge: folioCharges })
+          .from(folioCharges)
+          .innerJoin(folios, eq(folios.id, folioCharges.folioId))
+          .where(
+            and(
+              eq(folios.bookingId, first!.bookingId),
+              inArray(folioCharges.levyCode, levyCodes),
+              isNull(folioCharges.voidedAt),
+            ),
+          );
+        const have = new Set(charges.map((c) => c.id));
+        for (const s of siblings) if (!have.has(s.charge.id)) charges.push(s.charge);
       }
 
       const sourceFolios = await tx

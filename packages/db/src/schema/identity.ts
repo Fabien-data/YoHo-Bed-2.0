@@ -206,6 +206,12 @@ export const properties = pgTable(
     /** First month of the invoice-numbering year: 4 (April) for India and Sri Lanka. */
     fyStartMonth: integer('fy_start_month').notNull().default(4),
     invoicePrefix: text('invoice_prefix'),
+    /**
+     * Which tax engine prices the property (Sprint 7): `inclusive_legacy` decomposes taxes out of a
+     * tax-inclusive calendar price (Sri Lanka, the parity path); `exclusive_forward` charges them on
+     * top of a pre-tax price (India, Malaysia). Set by applying a regional tax preset.
+     */
+    taxMode: text('tax_mode').notNull().default('inclusive_legacy'),
     /** Reservation-desk settings, resolved by `resolvePropertySettings` in @yohobed/domain. */
     settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
 
@@ -218,6 +224,10 @@ export const properties = pgTable(
       sql`${t.fyStartMonth} between 1 and 12`,
     ),
     countryCodeShape: check('properties_country_code_shape', sql`${t.countryCode} ~ '^[A-Z]{2}$'`),
+    taxModeValid: check(
+      'properties_tax_mode_valid',
+      sql`${t.taxMode} in ('inclusive_legacy', 'exclusive_forward')`,
+    ),
     coordinatesPair: check(
       'properties_coordinates_pair',
       sql`(${t.latitude} is null and ${t.longitude} is null) or (${t.latitude} is not null and ${t.longitude} is not null and ${t.latitude} between -90 and 90 and ${t.longitude} between -180 and 180)`,

@@ -11,8 +11,15 @@ import {
   ratePlans,
   roomUnits,
   rooms,
+  resolveForwardTaxesForDates,
 } from '@yohobed/db';
-import { applyLastMinuteDrop, audienceAllows, sumMoney, type RateAudience } from '@yohobed/domain';
+import {
+  applyLastMinuteDrop,
+  audienceAllows,
+  forwardNight,
+  sumMoney,
+  type RateAudience,
+} from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { eachNight } from '../common/dates';
 import type { RoomAvailabilityQuery } from './dto';
@@ -34,7 +41,7 @@ export class RoomAvailabilityService {
   get(tenantId: string, propertyId: string, q: RoomAvailabilityQuery) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const [property] = await tx
-        .select({ id: properties.id, currency: properties.currency })
+        .select({ id: properties.id, currency: properties.currency, taxMode: properties.taxMode })
         .from(properties)
         .where(eq(properties.id, propertyId));
       if (!property) throw new NotFoundException('Property not found');
@@ -135,6 +142,7 @@ export class RoomAvailabilityService {
               occupancyId: rateCalendar.occupancyId,
               date: rateCalendar.date,
               sellingPrice: rateCalendar.sellingPrice,
+              netPrice: rateCalendar.netPrice,
               lastMinuteDropPct: rateCalendar.lastMinuteDropPct,
             })
             .from(rateCalendar)
@@ -145,10 +153,20 @@ export class RoomAvailabilityService {
               ),
             )
         : [];
+      // Forward-taxed properties (Sprint 7) drop the pre-tax price, then tax it, as the pricer does.
+      const forwardTaxes =
+        property.taxMode === 'exclusive_forward'
+          ? await resolveForwardTaxesForDates(tx, propertyId, nights)
+          : null;
       const priceOf = new Map(
         prices.map((p) => [
           `${p.occupancyId}|${p.date}`,
-          applyLastMinuteDrop(Number(p.sellingPrice), Number(p.lastMinuteDropPct)),
+          forwardTaxes && p.netPrice !== null
+            ? forwardNight(
+                applyLastMinuteDrop(Number(p.netPrice), Number(p.lastMinuteDropPct)),
+                forwardTaxes.get(p.date) ?? [],
+              ).selling
+            : applyLastMinuteDrop(Number(p.sellingPrice), Number(p.lastMinuteDropPct)),
         ]),
       );
       const busyUnits = new Set(busy.map((b) => b.unitId));

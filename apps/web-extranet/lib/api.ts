@@ -624,6 +624,8 @@ export interface DeskProblem {
   balance?: string;
   currency?: string;
   checkin?: string;
+  /** `registration_required`: what Malaysia's guest register still lacks (Sprint 7). */
+  missing?: string[];
 }
 
 export interface CheckInPreview {
@@ -828,6 +830,14 @@ export interface FxRates {
 }
 export function getFxRates(): Promise<FxRates> {
   return apiFetch<FxRates>('/fx/rates');
+}
+
+/** Staff only: set a rate by hand when the provider has none or is wrong (audited). Sprint 7. */
+export function overrideFxRate(body: { base: string; rate: number; note?: string }) {
+  return apiFetch<{ base: string; rate: number; quote: string; source: string }>('/fx/override', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 // --- Stay view (the tape chart) ---------------------------------------------
@@ -1626,6 +1636,10 @@ export interface GuestProfile {
   country: string | null;
   vip: boolean;
   notes: string | null;
+  // Regional profile (Development Phase 02) — the register fields Malaysia's Act asks for.
+  nationalityCode?: string | null;
+  gender?: 'male' | 'female' | 'other' | null;
+  occupation?: string | null;
 }
 
 export function updateCustomer(
@@ -1639,7 +1653,7 @@ export function updateCustomer(
 
 export interface FolioLine {
   id: string;
-  source: 'room' | 'manual' | 'pos' | 'inclusion';
+  source: 'room' | 'manual' | 'pos' | 'inclusion' | 'levy';
   description: string;
   postedFor: string;
   bookingDate: string | null;
@@ -1650,6 +1664,8 @@ export interface FolioLine {
   total: string;
   voidedAt: string | null;
   voidReason: string | null;
+  /** A levy line's code (Malaysia's TTX), Sprint 7. */
+  levyCode?: string | null;
   particularCode: string | null;
 }
 
@@ -2582,7 +2598,7 @@ export function getStaffTenantProperties(tenantId: string): Promise<StaffPropert
 export function setPropertyCurrency(
   tenantId: string,
   propertyId: string,
-  currency: 'LKR' | 'USD',
+  currency: 'LKR' | 'USD' | 'MYR' | 'INR',
 ): Promise<StaffProperty> {
   return apiFetch(`/staff/tenants/${tenantId}/properties/${propertyId}/currency`, {
     method: 'POST',
@@ -3076,6 +3092,10 @@ export interface ReservationQuote {
   };
   approvalsRequired: PriceApproval[];
   reasonRequired: boolean;
+  /** `exclusive_forward`: a typed rate is before tax (India, Malaysia — Sprint 7). */
+  taxMode?: 'inclusive_legacy' | 'exclusive_forward';
+  /** Levies owed on top of the price, charged on the folio per night stayed (Sprint 7). */
+  levies?: Array<{ code: string; name: string; amount: number; nights: number; unit: number }>;
 }
 
 export function quoteReservation(body: ReservationStayInput): Promise<ReservationQuote> {
@@ -3483,7 +3503,7 @@ export function updateBookingTransfer(
 
 export type InvoiceKind =
   'legacy' | 'tax_invoice' | 'invoice' | 'bill' | 'proforma' | 'credit_note';
-export type InvoiceProfile = 'lk_vat' | 'generic';
+export type InvoiceProfile = 'lk_vat' | 'generic' | 'in_gst' | 'my_sst';
 
 /** Supplier or purchaser, as printed on the document — frozen when it was issued. */
 export interface InvoiceParty {
@@ -3497,6 +3517,10 @@ export interface InvoiceParty {
   taxId?: string | null;
   registrationNo?: string | null;
   branchCode?: string | null;
+  /** India: the GST state code (place of supply). Sprint 7. */
+  stateCode?: string | null;
+  /** Malaysia: the Tourism Tax registration number. Sprint 7. */
+  ttxNo?: string | null;
 }
 
 export interface InvoiceTaxTotal {
@@ -3843,4 +3867,119 @@ export function getUxScoreboard(days = 30, tenantId?: string): Promise<UxScorebo
   const q = new URLSearchParams({ days: String(days) });
   if (tenantId) q.set('tenantId', tenantId);
   return apiFetch(`/staff/ux/scoreboard?${q.toString()}`);
+}
+
+// --- Malaysia & India money and compliance (Development Phase 02, Sprint 7) ------------------
+
+export interface TaxRateRow {
+  ratePercent: number;
+  minAmount: number | null;
+  maxAmount: number | null;
+  startDate: string;
+  endDate: string;
+}
+
+export interface PropertyTaxes {
+  propertyId: string;
+  countryCode: string;
+  currency: string;
+  taxMode: 'inclusive_legacy' | 'exclusive_forward';
+  taxes: Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    invoiceLabel: string | null;
+    priority: number;
+    compound: boolean;
+    exemptible: boolean;
+    displayGroup: string;
+    rates: TaxRateRow[];
+  }>;
+  levies: Array<{
+    code: string;
+    name: string;
+    amount: string;
+    currency: string;
+    appliesTo: 'non_resident' | 'all';
+    validFrom: string | null;
+    validTo: string | null;
+    active: boolean;
+  }>;
+  preset: { available: boolean; enabled: boolean; currency: string | null; applied: boolean };
+}
+
+export function getPropertyTaxes(propertyId: string): Promise<PropertyTaxes> {
+  return apiFetch(`/properties/${propertyId}/taxes`);
+}
+
+export function applyTaxPreset(
+  propertyId: string,
+): Promise<PropertyTaxes & { repriced: number; repricedFrom: string }> {
+  return apiFetch(`/properties/${propertyId}/taxes/apply-preset`, { method: 'POST' });
+}
+
+export interface StayRegistration {
+  bookingId: string;
+  arrivedFrom: string | null;
+  arrivedInCountryOn: string | null;
+  portOfEntry: string | null;
+  nextDestination: string | null;
+  purposeOfVisit: string | null;
+  formC: {
+    required: boolean;
+    status: 'not_required' | 'pending' | 'submitted';
+    reference: string | null;
+    submittedAt: string | null;
+    dueAt: string | null;
+  };
+  guestRegister: { required: boolean; missing: string[] };
+}
+
+export function getStayRegistration(bookingId: string): Promise<StayRegistration> {
+  return apiFetch(`/bookings/${bookingId}/registration`);
+}
+
+export function saveStayRegistration(
+  bookingId: string,
+  body: Partial<
+    Pick<
+      StayRegistration,
+      'arrivedFrom' | 'arrivedInCountryOn' | 'portOfEntry' | 'nextDestination' | 'purposeOfVisit'
+    >
+  >,
+): Promise<StayRegistration> {
+  return apiFetch(`/bookings/${bookingId}/registration`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export function submitFormC(bookingId: string, reference: string): Promise<StayRegistration> {
+  return apiFetch(`/bookings/${bookingId}/form-c`, {
+    method: 'POST',
+    body: JSON.stringify({ reference }),
+  });
+}
+
+export interface FormCRow {
+  bookingId: string;
+  reference: string;
+  guestName: string;
+  nationalityCode: string | null;
+  status: string;
+  checkin: string;
+  checkout: string;
+  checkedInAt: string;
+  dueAt: string;
+  submitted: boolean;
+  overdue: boolean;
+  hoursLeft: number | null;
+  formCReference: string | null;
+  submittedAt: string | null;
+}
+
+export function getFormCTracker(
+  propertyId: string,
+): Promise<{ required: boolean; pending?: number; overdue?: number; rows: FormCRow[] }> {
+  return apiFetch(`/properties/${propertyId}/form-c`);
 }

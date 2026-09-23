@@ -31,11 +31,13 @@ import { PaymentMethodsTab } from '@/components/configuration/payment-methods-ta
 import { SalesPersonsTab } from '@/components/configuration/sales-persons-tab';
 import { TransportModesTab } from '@/components/configuration/transport-modes-tab';
 import { DocumentSeries } from '@/components/configuration/document-series';
+import { TaxesTab } from '@/components/configuration/taxes-tab';
 import { OwnerOnlyNotice, errorMessage } from '@/components/configuration/shared';
 
 const TABS = [
   { value: 'property', label: 'Property profile' },
   { value: 'reservations', label: 'Reservation settings' },
+  { value: 'taxes', label: 'Taxes & levies' },
   { value: 'sources', label: 'Business sources' },
   { value: 'segments', label: 'Market segments' },
   { value: 'payments', label: 'Payment methods' },
@@ -132,6 +134,9 @@ function ConfigurationScreen() {
         </TabsContent>
         <TabsContent value="reservations">
           {property && <ReservationSettingsForm propertyId={property.id} canEdit={canEdit} />}
+        </TabsContent>
+        <TabsContent value="taxes">
+          {property && <TaxesTab propertyId={property.id} canEdit={canEdit} />}
         </TabsContent>
         <TabsContent value="sources">
           <BusinessSourcesTab canEdit={canEdit} countryCode={property?.countryCode} />

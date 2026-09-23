@@ -1,8 +1,8 @@
 /**
  * Multi-currency metadata and conversion (framework-free).
  *
- * Model (decided 2026-07-24): every property has ONE base currency — USD or LKR — in which it
- * prices, stores, and settles. INR/GBP/EUR are display-only conversions applied at the current
+ * Model (decided 2026-07-24, widened 2026-09-22): every property has ONE base currency — LKR, USD,
+ * MYR or INR — in which it prices, stores, and settles. GBP/EUR are display-only conversions applied at the current
  * (or booking-snapshotted) FX rate; they never become a base currency and never touch the
  * pricing/settlement math. Amounts stay in their base currency everywhere except the display
  * layer and the cross-property consolidated view (which converts to LKR, labelled approximate).
@@ -13,11 +13,14 @@
  */
 
 /** Every currency the platform can display. */
-export const SUPPORTED_CURRENCIES = ['LKR', 'USD', 'INR', 'GBP', 'EUR'] as const;
+export const SUPPORTED_CURRENCIES = ['LKR', 'USD', 'INR', 'MYR', 'GBP', 'EUR'] as const;
 export type CurrencyCode = (typeof SUPPORTED_CURRENCIES)[number];
 
-/** Currencies a property may price/store/settle in. Superset (display) is SUPPORTED_CURRENCIES. */
-export const BASE_CURRENCIES = ['LKR', 'USD'] as const;
+/**
+ * Currencies a property may price/store/settle in. Superset (display) is SUPPORTED_CURRENCIES.
+ * MYR and INR joined in Development Phase 02 Sprint 7, for hotels in Malaysia and India.
+ */
+export const BASE_CURRENCIES = ['LKR', 'USD', 'MYR', 'INR'] as const;
 export type BaseCurrencyCode = (typeof BASE_CURRENCIES)[number];
 
 /** The currency all cross-property/consolidated figures are normalised to. */
@@ -37,6 +40,7 @@ export const CURRENCY_META: Record<CurrencyCode, CurrencyMeta> = {
   LKR: { code: 'LKR', symbol: 'Rs', name: 'Sri Lankan Rupee', decimals: 2 },
   USD: { code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2 },
   INR: { code: 'INR', symbol: '₹', name: 'Indian Rupee', decimals: 2 },
+  MYR: { code: 'MYR', symbol: 'RM', name: 'Malaysian Ringgit', decimals: 2 },
   GBP: { code: 'GBP', symbol: '£', name: 'Pound Sterling', decimals: 2 },
   EUR: { code: 'EUR', symbol: '€', name: 'Euro', decimals: 2 },
 };
