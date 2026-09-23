@@ -71,8 +71,14 @@ export type CheckOutDto = z.infer<typeof checkOutSchema>;
 export const changeDepartureSchema = z.object({
   checkout: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Give the new departure as YYYY-MM-DD'),
   reason: reasonText.min(3, 'Say why the stay is changing, in a few words'),
+  /** From a reviewed proposal: refuse if the reservation changed since the review. */
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 });
 export type ChangeDepartureDto = z.infer<typeof changeDepartureSchema>;
+export const changeDeparturePreviewSchema = z.object({
+  checkout: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Give the new departure as YYYY-MM-DD'),
+});
+export type ChangeDeparturePreviewDto = z.infer<typeof changeDeparturePreviewSchema>;
 
 /** Undo and reinstate always say why — they rewrite what the desk told everyone had happened. */
 export const reasonRequiredSchema = z.object({

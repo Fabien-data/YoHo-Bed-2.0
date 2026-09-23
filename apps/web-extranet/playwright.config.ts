@@ -11,13 +11,15 @@ import { defineConfig, devices } from '@playwright/test';
  * is useless without the API, so a bare `pnpm e2e` should bring up everything it needs. A
  * migrated, seeded database is the one prerequisite — see docs/OPERATIONS.md §3.
  */
-const WEB_PORT = 3100;
+// Overridable so a second checkout can test its own servers while another session's run
+// (holding the defaults) is up — `reuseExistingServer` would otherwise test the wrong code.
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3100);
 /**
  * Must match the `NEXT_PUBLIC_API_URL` default baked into the bundle at build time — a
  * `NEXT_PUBLIC_*` value is inlined by `next build`, so setting it on the start command has no
  * effect. Running the API on its normal port is simpler than rebuilding the app per test run.
  */
-const API_PORT = 3001;
+const API_PORT = Number(process.env.E2E_API_PORT ?? 3001);
 
 const APP_DATABASE_URL =
   process.env.APP_DATABASE_URL ?? 'postgres://yoho_app:yoho_app_pw@127.0.0.1:5433/yohobed';

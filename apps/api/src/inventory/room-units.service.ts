@@ -6,10 +6,12 @@ import {
 } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  bookingApprovals,
   bookingRooms,
   bookings,
   housekeepingAsOf,
   maintenanceBlocks,
+  markRoomVacated,
   properties,
   roomMoves,
   roomUnits,
@@ -35,6 +37,13 @@ const EXCLUSION_VIOLATION = '23P01';
 function isExclusionViolation(e: unknown): boolean {
   return (e as { code?: string })?.code === EXCLUSION_VIOLATION;
 }
+
+/** Who is changing a room assignment, for the reservation's trail. */
+export interface DeskActor {
+  userId: string | null;
+  ip: string | null;
+}
+const NO_ACTOR: DeskActor = { userId: null, ip: null };
 
 @Injectable()
 export class RoomUnitsService {
@@ -338,9 +347,17 @@ export class RoomUnitsService {
    * `rooms_to_sell >= 0` check closes for buckets — two agents assigning the last free room at the
    * same moment cannot both win.
    */
-  async assign(tenantId: string, bookingId: string, dto: AssignRoomsDto) {
+  async assign(
+    tenantId: string,
+    bookingId: string,
+    dto: AssignRoomsDto,
+    actor: DeskActor = NO_ACTOR,
+  ) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const booking = await this.loadAssignable(tx, bookingId);
+      const codeOf = async (id: string) =>
+        (await tx.select({ code: roomUnits.code }).from(roomUnits).where(eq(roomUnits.id, id)))[0]
+          ?.code ?? 'another room';
 
       for (const a of dto.assignments) {
         const [leg] = await tx
@@ -375,6 +392,15 @@ export class RoomUnitsService {
             .update(bookingRooms)
             .set({ roomUnitId: null, updatedAt: new Date() })
             .where(eq(bookingRooms.id, a.legId));
+          if (leg.roomUnitId)
+            await this.trail(
+              tx,
+              tenantId,
+              bookingId,
+              'room_assigned',
+              `Room ${await codeOf(leg.roomUnitId)} unassigned`,
+              actor,
+            );
           continue;
         }
 
@@ -409,6 +435,17 @@ export class RoomUnitsService {
           }
           throw e;
         }
+        if (leg.roomUnitId !== a.roomUnitId)
+          await this.trail(
+            tx,
+            tenantId,
+            bookingId,
+            'room_assigned',
+            leg.roomUnitId
+              ? `Room ${await codeOf(leg.roomUnitId)} → ${unit.code}`
+              : `Room ${unit.code} assigned`,
+            actor,
+          );
       }
 
       return this.legsOf(tx, bookingId);
@@ -434,7 +471,8 @@ export class RoomUnitsService {
     );
   }
 
-  move(tenantId: string, bookingId: string, userId: string | null, dto: MoveRoomDto) {
+  move(tenantId: string, bookingId: string, actor: DeskActor, dto: MoveRoomDto) {
+    const userId = actor.userId;
     return this.dbs.withTenant(tenantId, async (tx) => {
       const booking = await this.loadAssignable(tx, bookingId);
       const [leg] = await tx
@@ -464,10 +502,20 @@ export class RoomUnitsService {
         .from(properties)
         .where(eq(properties.id, booking.propertyId));
       const today = localToday(property?.timezone);
-      const effectiveDate = dto.effectiveDate ?? (leg.checkin > today ? leg.checkin : today);
-      if (effectiveDate < today || effectiveDate < leg.checkin || effectiveDate >= leg.checkout)
+      const inHouse = booking.status === 'CheckedIn';
+      // A guest who has not arrived has slept in no room yet, so nothing stays behind: the whole
+      // stay moves. Splitting at today (the in-house rule) would leave nights the guest never
+      // stayed on the old room's record, so an overdue arrival would read as a stay in two rooms.
+      const wholeStay = !inHouse && !dto.effectiveDate;
+      const effectiveDate = wholeStay
+        ? leg.checkin
+        : (dto.effectiveDate ?? (leg.checkin > today ? leg.checkin : today));
+      if (
+        !wholeStay &&
+        (effectiveDate < today || effectiveDate < leg.checkin || effectiveDate >= leg.checkout)
+      )
         throw new ConflictException('Move date must be an affected stay date');
-      if (booking.status === 'CheckedIn' && effectiveDate === today)
+      if (inHouse && effectiveDate === today)
         await assertRoomsReadyForCheckIn(tx, booking.propertyId, [to.id], today);
       await this.assertNotBlocked(tx, to.id, effectiveDate, leg.checkout, to.code);
       await this.assertDestinationFree(tx, to.id, effectiveDate, leg.checkout, leg.id, to.code);
@@ -485,6 +533,14 @@ export class RoomUnitsService {
             createdByUserId: userId,
           })
           .returning();
+        await this.trail(
+          tx,
+          tenantId,
+          bookingId,
+          'room_moved',
+          `Move planned: room ${from.code} → ${to.code} from ${effectiveDate}`,
+          actor,
+        );
         return planned;
       }
       let destinationLegId: string | null = null;
@@ -521,6 +577,25 @@ export class RoomUnitsService {
           throw new ConflictException(`Room ${to.code} is occupied over the affected dates`);
         throw error;
       }
+      // The guest has walked out of the old room today, so housekeeping has to turn it over.
+      if (inHouse)
+        await markRoomVacated(tx, {
+          tenantId,
+          propertyId: booking.propertyId,
+          roomUnitId: from.id,
+          date: today,
+          bookingId,
+        });
+      await this.trail(
+        tx,
+        tenantId,
+        bookingId,
+        'room_moved',
+        effectiveDate > leg.checkin
+          ? `Room ${from.code} → ${to.code} from ${effectiveDate}; earlier nights stay in ${from.code}`
+          : `Room ${from.code} → ${to.code}`,
+        actor,
+      );
       const [completed] = await tx
         .insert(roomMoves)
         .values({
@@ -541,7 +616,8 @@ export class RoomUnitsService {
     });
   }
 
-  exchange(tenantId: string, userId: string | null, dto: ExchangeRoomsDto) {
+  exchange(tenantId: string, actor: DeskActor, dto: ExchangeRoomsDto) {
+    const userId = actor.userId;
     return this.dbs.withTenant(tenantId, async (tx) => {
       const ids = [dto.legId, dto.otherLegId].sort();
       const legs = await tx
@@ -603,6 +679,24 @@ export class RoomUnitsService {
             .from(properties)
             .where(eq(properties.id, a!.booking.propertyId))
         )[0]?.timezone,
+      );
+      const codeA = byId.get(a!.leg.roomUnitId!)?.code ?? 'room';
+      const codeB = byId.get(b!.leg.roomUnitId!)?.code ?? 'room';
+      await this.trail(
+        tx,
+        tenantId,
+        a!.booking.id,
+        'room_moved',
+        `Rooms exchanged: ${codeA} → ${codeB}`,
+        actor,
+      );
+      await this.trail(
+        tx,
+        tenantId,
+        b!.booking.id,
+        'room_moved',
+        `Rooms exchanged: ${codeB} → ${codeA}`,
+        actor,
       );
       return tx
         .insert(roomMoves)
@@ -697,11 +791,11 @@ export class RoomUnitsService {
    * more useful at a front desk than refusing to assign any.
    */
   /** Auto-assign rooms to a selection of stays (UX-2); each one stands or falls on its own. */
-  bulkAutoAssign(tenantId: string, bookingIds: string[]) {
-    return runBulk(bookingIds, (id) => this.autoAssign(tenantId, id));
+  bulkAutoAssign(tenantId: string, bookingIds: string[], actor: DeskActor = NO_ACTOR) {
+    return runBulk(bookingIds, (id) => this.autoAssign(tenantId, id, actor));
   }
 
-  async autoAssign(tenantId: string, bookingId: string) {
+  async autoAssign(tenantId: string, bookingId: string, actor: DeskActor = NO_ACTOR) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const booking = await this.loadAssignable(tx, bookingId);
 
@@ -718,6 +812,7 @@ export class RoomUnitsService {
         .orderBy(asc(bookingRooms.legIndex));
 
       let assigned = 0;
+      const given: string[] = [];
       for (const leg of legs) {
         const free = await this.firstFreeUnit(tx, booking.roomId, leg.checkin, leg.checkout);
         if (!free) break;
@@ -733,11 +828,26 @@ export class RoomUnitsService {
               .where(eq(bookingRooms.id, leg.id));
           });
           assigned += 1;
+          given.push(free);
         } catch (e) {
           // Lost a race for that unit; stop rather than spin.
           if (!isExclusionViolation(e)) throw e;
           break;
         }
+      }
+      if (given.length) {
+        const codes = await tx
+          .select({ code: roomUnits.code })
+          .from(roomUnits)
+          .where(inArray(roomUnits.id, given));
+        await this.trail(
+          tx,
+          tenantId,
+          bookingId,
+          'room_assigned',
+          `Auto-assigned room ${codes.map((c) => c.code).join(', ')}`,
+          actor,
+        );
       }
 
       return {
@@ -745,6 +855,25 @@ export class RoomUnitsService {
         unassigned: legs.length - assigned,
         legs: await this.legsOf(tx, bookingId),
       };
+    });
+  }
+
+  /** A room change on the reservation's own trail, beside check-in and check-out (Stay View). */
+  private async trail(
+    tx: Tx,
+    tenantId: string,
+    bookingId: string,
+    action: 'room_assigned' | 'room_moved',
+    reason: string,
+    actor: DeskActor,
+  ) {
+    await tx.insert(bookingApprovals).values({
+      tenantId,
+      bookingId,
+      action,
+      reason,
+      actorUserId: actor.userId,
+      ip: actor.ip,
     });
   }
 

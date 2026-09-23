@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Input } from '@yohobed/ui';
+import { Button, Input, toast } from '@yohobed/ui';
 import { addBookingRemark, getBookingRemarks, getBookingTasks, describeError } from '@/lib/api';
 
 export function ReservationNotes({
@@ -27,11 +27,12 @@ export function ReservationNotes({
       setText('');
       void notes.refetch();
       void qc.invalidateQueries({ queryKey: ['stayview'] });
+      toast.success('Note added');
     },
   });
   return (
     <section className="space-y-2">
-      <h3 className="text-sm font-bold">Notes and preparation</h3>
+      <h3 className="text-sm font-semibold text-ink">Notes and preparation</h3>
       {notes.isLoading && <p className="text-xs text-ink-3">Loading notes…</p>}
       {notes.isError && (
         <p role="alert" className="text-sm text-closed-ink">
@@ -63,17 +64,18 @@ export function ReservationNotes({
           className="flex gap-2"
           onSubmit={(event) => {
             event.preventDefault();
+            event.stopPropagation();
             add.mutate();
           }}
         >
           <Input
             aria-label="Reservation note"
             value={text}
-            maxLength={2000}
+            maxLength={1000}
             onChange={(event) => setText(event.target.value)}
             placeholder="Add an operational note"
           />
-          <Button size="sm" disabled={!text.trim() || add.isPending}>
+          <Button size="sm" className="shrink-0" disabled={!text.trim() || add.isPending}>
             {add.isPending ? 'Saving…' : 'Add note'}
           </Button>
         </form>

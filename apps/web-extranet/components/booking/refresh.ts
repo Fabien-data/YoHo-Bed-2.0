@@ -21,6 +21,12 @@ const DESK_KEYS = [
   'check-out-preview',
   'invoices',
   'drawer-sessions',
+  // Stay View's panel and review data.
+  'booking-legs',
+  'booking-stay',
+  'booking-remarks',
+  'room-units',
+  'room-availability',
 ];
 
 export function useRefreshDesk() {

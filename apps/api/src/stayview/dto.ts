@@ -25,6 +25,8 @@ export const createBlockSchema = z
     blockFrom: isoDate,
     blockTo: isoDate,
     reason: z.string().min(1).max(200),
+    /** Out of service (maintenance) or blocked (held back from sale). */
+    kind: z.enum(['out_of_service', 'blocked']).default('out_of_service'),
   })
   .refine((v) => v.blockTo > v.blockFrom, {
     message: 'blockTo must be after blockFrom',
@@ -37,6 +39,7 @@ export const updateBlockSchema = z
     blockFrom: isoDate.optional(),
     blockTo: isoDate.optional(),
     reason: z.string().min(1).max(200).optional(),
+    kind: z.enum(['out_of_service', 'blocked']).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
 export type UpdateBlockDto = z.infer<typeof updateBlockSchema>;

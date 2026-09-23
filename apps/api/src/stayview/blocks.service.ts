@@ -41,6 +41,7 @@ export class BlocksService {
           blockFrom: maintenanceBlocks.blockFrom,
           blockTo: maintenanceBlocks.blockTo,
           reason: maintenanceBlocks.reason,
+          kind: maintenanceBlocks.kind,
           releasedAt: maintenanceBlocks.releasedAt,
           createdAt: maintenanceBlocks.createdAt,
         })
@@ -69,6 +70,7 @@ export class BlocksService {
             blockFrom: dto.blockFrom,
             blockTo: dto.blockTo,
             reason: dto.reason,
+            kind: dto.kind,
             blockedByUserId: userId,
           })
           .returning();
@@ -136,7 +138,13 @@ export class BlocksService {
       try {
         const [updated] = await tx
           .update(maintenanceBlocks)
-          .set({ blockFrom, blockTo, reason: dto.reason ?? block.reason, updatedAt: new Date() })
+          .set({
+            blockFrom,
+            blockTo,
+            reason: dto.reason ?? block.reason,
+            kind: dto.kind ?? block.kind,
+            updatedAt: new Date(),
+          })
           .where(eq(maintenanceBlocks.id, id))
           .returning();
         await releaseStay(tx, unit!.roomId, stayNights(block.blockFrom, block.blockTo), 1);
@@ -171,7 +179,12 @@ export class BlocksService {
           entity: 'maintenance_block',
           entityId: id,
           detail: {
-            before: { from: block.blockFrom, to: block.blockTo, reason: block.reason },
+            before: {
+              from: block.blockFrom,
+              to: block.blockTo,
+              reason: block.reason,
+              kind: block.kind,
+            },
             after: dto,
           },
         });

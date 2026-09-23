@@ -94,6 +94,8 @@ export function accessRule(method: string, path: string): AccessRule | null {
   if (path === '/room-view' || path === '/room-updates' || path === '/house-status/summary')
     return rule('property', 'reservation_read', 'housekeeping');
   if (path === '/stayview' && read) return rule('property', 'reservation_read');
+  // Finding a stay; the service leaves out money and contact details without financial_read.
+  if (path === '/search' && read) return rule('property', 'reservation_read');
   if (/^\/housekeeping\/tasks\/[^/]+$/.test(path) && method === 'PATCH')
     return rule('task', 'housekeeping');
   if (/^\/work-orders\/[^/]+$/.test(path)) return rule('workOrder', 'housekeeping');
@@ -119,6 +121,17 @@ export function accessRule(method: string, path: string): AccessRule | null {
     return rule('booking', 'room_assignment', 'reservation_read');
   if (/^\/bookings\/[^/]+\/(?:check-in|check-out)$/.test(path))
     return { ...rule('booking', 'check_in_out'), all: ['financial_read'] };
+  // The desk dialogs open on dry runs that show what the guest owes, so they need both.
+  if (/^\/bookings\/[^/]+\/(?:check-in-preview|check-out-preview|balance)$/.test(path) && read)
+    return { ...rule('booking', 'check_in_out'), all: ['financial_read'] };
+  if (/^\/bookings\/[^/]+\/(?:undo-check-in|undo-check-out)$/.test(path))
+    return { ...rule('booking', 'check_in_out'), all: ['financial_read'] };
+  if (/^\/bookings\/[^/]+\/rooms\/switch-clean$/.test(path))
+    return rule('booking', 'check_in_out', 'room_assignment');
+  if (/^\/bookings\/[^/]+\/change-departure(?:\/preview)?$/.test(path))
+    return { ...rule('booking', 'reservation_change'), all: ['financial_read'] };
+  if (/^\/bookings\/[^/]+\/reinstate$/.test(path))
+    return { ...rule('booking', 'reservation_change'), all: ['financial_read'] };
   if (/^\/bookings\/[^/]+\/room-signals$/.test(path)) return rule('booking', 'housekeeping');
   if (/^\/bookings\/[^/]+\/(?:remarks|guests|tasks)$/.test(path))
     return rule('booking', read ? 'reservation_read' : 'reservation_change');

@@ -110,26 +110,42 @@ export const roomUnits = pgTable(
  * Deliberately separate from a booking: a block has no guest, no money and no rate plan, and it
  * must be able to overlap the same dates a cancelled booking once held.
  */
-export const maintenanceBlocks = pgTable('maintenance_blocks', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id')
-    .notNull()
-    .references(() => tenants.id, { onDelete: 'cascade' }),
-  propertyId: uuid('property_id')
-    .notNull()
-    .references(() => properties.id, { onDelete: 'cascade' }),
-  roomUnitId: uuid('room_unit_id')
-    .notNull()
-    .references(() => roomUnits.id, { onDelete: 'cascade' }),
-  /** Inclusive start, exclusive end — the same half-open convention as a stay. */
-  blockFrom: date('block_from').notNull(),
-  blockTo: date('block_to').notNull(),
-  reason: text('reason').notNull(),
-  blockedByUserId: uuid('blocked_by_user_id'),
-  releasedAt: timestamp('released_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const maintenanceBlocks = pgTable(
+  'maintenance_blocks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    roomUnitId: uuid('room_unit_id')
+      .notNull()
+      .references(() => roomUnits.id, { onDelete: 'cascade' }),
+    /** Inclusive start, exclusive end — the same half-open convention as a stay. */
+    blockFrom: date('block_from').notNull(),
+    blockTo: date('block_to').notNull(),
+    reason: text('reason').notNull(),
+    /**
+     * What the block is for. `out_of_service` is maintenance: the room is broken or being worked on.
+     * `blocked` holds a sound room back from sale (owner use, staff, an event). Both take the room
+     * off sale and update channels; the kind only changes how the desk sees it. CHECK-constrained
+     * text, never an enum (see configuration.ts).
+     */
+    kind: text('kind').notNull().default('out_of_service'),
+    blockedByUserId: uuid('blocked_by_user_id'),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    kindValid: check(
+      'maintenance_blocks_kind_valid',
+      sql`${t.kind} in ('out_of_service', 'blocked')`,
+    ),
+  }),
+);
 
 export const availabilityCalendar = pgTable(
   'availability_calendar',

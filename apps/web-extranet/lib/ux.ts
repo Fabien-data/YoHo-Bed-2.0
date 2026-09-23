@@ -23,6 +23,8 @@ export type UxTask =
   | 'stay.check_in'
   | 'stay.check_out'
   | 'stay.move_room'
+  | 'stay.change_dates'
+  | 'stay.new_block'
   | 'folio.take_payment'
   | 'folio.post_charge'
   | 'search.find_booking'

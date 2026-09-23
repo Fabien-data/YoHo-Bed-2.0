@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   availabilityCalendar,
+  bookingGroups,
   bookingRooms,
   bookings,
   businessSources,
@@ -15,10 +16,12 @@ import {
   ratePlans,
   roomUnits,
   rooms,
+  users,
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { eachNight } from '../common/dates';
+import { localToday, propertyBusinessDate } from '../common/local-date';
 
 /** A booking occupying a room, or a maintenance block taking it out of service. */
 export interface StayBar {
@@ -52,6 +55,20 @@ export interface StayBar {
   hasNotes?: boolean;
   amount?: string;
   balance?: string;
+  /** The physical room, or null for a stay not yet given one. */
+  roomUnitId?: string | null;
+  /** Which room of the reservation this is (0-based), and the leg's version for safe edits. */
+  legIndex?: number;
+  legUpdatedAt?: string;
+  /**
+   * A stay moved mid-way lives in several rooms, one dated segment each. `of` > 1 marks a split
+   * stay; `index` is this segment's place in it, counted over the whole stay, not just the window.
+   */
+  segment?: { index: number; of: number };
+  groupCode?: string | null;
+  /** On a block: what it is for. */
+  blockKind?: 'out_of_service' | 'blocked';
+  blockedBy?: string | null;
 }
 
 /**
@@ -87,6 +104,13 @@ export class StayViewService {
         })
         .from(properties)
         .where(eq(properties.id, propertyId));
+      // The hotel's own today, in its timezone — the browser's clock may be elsewhere. The chips,
+      // housekeeping and "due out" describe today whenever today is on screen, otherwise the
+      // window's first day.
+      const today = localToday(property?.timezone);
+      const business = await propertyBusinessDate(tx, propertyId, property?.timezone ?? null);
+      const operatingDate = business.date > today ? business.date : today;
+      const anchor = from <= today && today < to ? today : from;
 
       const roomRows = await tx
         .select({ id: rooms.id, name: rooms.name, quantity: rooms.quantity })
@@ -137,7 +161,7 @@ export class StayViewService {
 
       // The Dirty chip counts rooms dirty AS OF the picked date: a room left dirty yesterday is
       // still dirty today until someone cleans it (UX-1a).
-      const housekeepingByUnit = await housekeepingAsOf(tx, propertyId, from);
+      const housekeepingByUnit = await housekeepingAsOf(tx, propertyId, anchor);
       const dirty = [...housekeepingByUnit.values()].filter((h) => h.status === 'dirty').length;
 
       // Due-out cannot come from the drawn legs: a stay ending exactly on `from` is excluded by
@@ -151,7 +175,9 @@ export class StayViewService {
           and(
             eq(bookings.propertyId, propertyId),
             isNull(bookingRooms.releasedAt),
-            eq(bookingRooms.checkout, from),
+            eq(bookingRooms.checkout, anchor),
+            // A room move ends one segment mid-stay; only the stay's last night is a departure.
+            eq(bookingRooms.checkout, bookings.checkout),
             eq(bookings.status, 'CheckedIn'),
           ),
         );
@@ -188,6 +214,11 @@ export class StayViewService {
           hasNotes: l.hasNotes,
           amount: showFinancial ? l.amount : undefined,
           balance: showFinancial ? (Number(l.amount) - Number(l.paid ?? 0)).toFixed(2) : undefined,
+          roomUnitId: l.roomUnitId,
+          legIndex: l.legIndex,
+          legUpdatedAt: l.legUpdatedAt.toISOString(),
+          segment: { index: l.segmentIndex, of: l.segmentOf },
+          groupCode: l.groupCode,
         };
         if (!l.inventoryHeld) {
           tentative.push({ ...bar, roomId: l.roomId, preferredRoomUnitId: l.preferredRoomUnitId });
@@ -209,6 +240,8 @@ export class StayViewService {
           from: b.blockFrom,
           to: b.blockTo,
           reason: b.reason,
+          blockKind: b.kind as 'out_of_service' | 'blocked',
+          blockedBy: b.blockedBy,
         });
         barsByUnit.set(b.roomUnitId, list);
       }
@@ -262,6 +295,10 @@ export class StayViewService {
         property: { id: propertyId, ...property },
         from,
         to,
+        /** The property's calendar today, and the date the desk works to (night audit aware). */
+        today,
+        operatingDate,
+        businessDate: business.date,
         dates,
         roomTypes,
         /** Legs with no room yet — Yanolja's "Default Unmapped Room" row. */
@@ -270,8 +307,10 @@ export class StayViewService {
         tentative,
         footer,
         counts: {
-          ...this.countsFor(from, heldLegs, blockRows, activeUnits),
-          tentative: tentative.filter((t) => t.from <= from && from < t.to).length,
+          /** The day the chips describe: today when it is on screen, else the first day. */
+          date: anchor,
+          ...this.countsFor(anchor, heldLegs, blockRows, activeUnits),
+          tentative: tentative.filter((t) => t.from <= anchor && anchor < t.to).length,
           dirty,
           dueOut,
         },
@@ -333,6 +372,24 @@ export class StayViewService {
         guestName: customers.name,
         adults: bookingRooms.adults,
         children: bookingRooms.children,
+        legIndex: bookingRooms.legIndex,
+        legUpdatedAt: bookingRooms.updatedAt,
+        // Split stays: how many dated segments this room of the reservation has, and which one
+        // this is. Counted over the whole stay, so a segment outside the window still counts.
+        segmentOf: sql<number>`(
+          select count(*) from booking_rooms s
+          where s.booking_id = booking_rooms.booking_id
+            and s.leg_index = booking_rooms.leg_index
+            and s.released_at is null
+        )::int`,
+        segmentIndex: sql<number>`(
+          select count(*) from booking_rooms s
+          where s.booking_id = booking_rooms.booking_id
+            and s.leg_index = booking_rooms.leg_index
+            and s.released_at is null
+            and s.checkin < booking_rooms.checkin
+        )::int`,
+        groupCode: bookingGroups.code,
         vip: customers.vip,
         hasNotes: sql<boolean>`exists(select 1 from booking_remarks r where r.booking_id = ${bookings.id})`,
         channel: otaReservations.channel,
@@ -342,6 +399,7 @@ export class StayViewService {
       .innerJoin(customers, eq(customers.id, bookings.customerId))
       .leftJoin(otaReservations, eq(otaReservations.bookingId, bookings.id))
       .leftJoin(businessSources, eq(businessSources.id, bookings.businessSourceId))
+      .leftJoin(bookingGroups, eq(bookingGroups.id, bookings.groupId))
       .where(
         and(
           eq(bookings.propertyId, propertyId),
@@ -362,8 +420,11 @@ export class StayViewService {
         blockFrom: maintenanceBlocks.blockFrom,
         blockTo: maintenanceBlocks.blockTo,
         reason: maintenanceBlocks.reason,
+        kind: maintenanceBlocks.kind,
+        blockedBy: users.name,
       })
       .from(maintenanceBlocks)
+      .leftJoin(users, eq(users.id, maintenanceBlocks.blockedByUserId))
       .where(
         and(
           eq(maintenanceBlocks.propertyId, propertyId),
