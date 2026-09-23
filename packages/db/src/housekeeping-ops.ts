@@ -235,6 +235,42 @@ export async function enqueueDepartureCleaning(
   }
 }
 
+/**
+ * A guest has just left this room mid-stay (a room move), so it needs turning over: it reads dirty
+ * from `date`, and housekeeping gets a departure clean. Idempotent — a retried move neither
+ * duplicates the task nor undoes a clean that already happened on a later date.
+ */
+export async function markRoomVacated(
+  tx: Tx,
+  v: { tenantId: string; propertyId: string; roomUnitId: string; date: string; bookingId: string },
+) {
+  await tx
+    .insert(housekeepingTasks)
+    .values({
+      tenantId: v.tenantId,
+      propertyId: v.propertyId,
+      roomUnitId: v.roomUnitId,
+      date: v.date,
+      kind: 'departure',
+      bookingId: v.bookingId,
+      notes: 'Room move turnover',
+    })
+    .onConflictDoNothing();
+  await tx
+    .insert(housekeepingStatus)
+    .values({
+      tenantId: v.tenantId,
+      propertyId: v.propertyId,
+      roomUnitId: v.roomUnitId,
+      date: v.date,
+      status: 'dirty',
+    })
+    .onConflictDoUpdate({
+      target: [housekeepingStatus.roomUnitId, housekeepingStatus.date],
+      set: { status: 'dirty', changedAt: new Date(), updatedAt: new Date() },
+    });
+}
+
 /** Apply due planned moves by splitting the dated room leg, preserving both sides of its history. */
 export async function applyPlannedRoomMoves(
   tx: Tx,
@@ -327,25 +363,13 @@ export async function applyPlannedRoomMoves(
           .update(roomMoves)
           .set({ status: 'completed', destinationLegId, appliedAt: new Date() })
           .where(eq(roomMoves.id, move.id));
-        await sp
-          .insert(housekeepingTasks)
-          .values({
-            tenantId,
-            propertyId,
-            roomUnitId: move.fromRoomUnitId,
-            date,
-            kind: 'departure',
-            bookingId: move.bookingId,
-            notes: 'Room move turnover',
-          })
-          .onConflictDoNothing();
-        await sp
-          .insert(housekeepingStatus)
-          .values({ tenantId, propertyId, roomUnitId: move.fromRoomUnitId, date, status: 'dirty' })
-          .onConflictDoUpdate({
-            target: [housekeepingStatus.roomUnitId, housekeepingStatus.date],
-            set: { status: 'dirty', changedAt: new Date(), updatedAt: new Date() },
-          });
+        await markRoomVacated(sp, {
+          tenantId,
+          propertyId,
+          roomUnitId: move.fromRoomUnitId,
+          date,
+          bookingId: move.bookingId,
+        });
         completed++;
       });
     } catch (error) {

@@ -12,6 +12,7 @@ import {
   type BookingLeg,
 } from '@/lib/api';
 import { useActiveProperty } from '@/components/active-property';
+import { useReservationConfig } from '@/lib/queries';
 import { useUxTask } from '@/lib/ux';
 import { useRefreshDesk } from './refresh';
 import type { DeskBooking } from './check-in-dialog';
@@ -25,8 +26,10 @@ interface Target extends DeskBooking {
 /**
  * Moving a guest to another room (UX-2).
  *
- * Only rooms of the booked type that are free for every night are offered. For a guest already
- * in house, the destination must also be ready. Open, pick, move: three presses.
+ * Only rooms of the booked type that are free for every remaining night are offered, and for a
+ * guest already in house only ready ones — the desk never picks a room the server will refuse. A
+ * change of room type is a different job (it re-prices the stay) and goes through the
+ * reservation. Open, pick, move: three presses (docs/UX-STANDARD.md §3).
  */
 export function MoveRoomDialog({
   booking,
@@ -44,19 +47,25 @@ export function MoveRoomDialog({
   const [legId, setLegId] = React.useState<string | null>(null);
   const [unitId, setUnitId] = React.useState<string | null>(null);
 
+  const config = useReservationConfig(propertyId);
+  const today = config.data?.calendarToday ?? '';
+  // An in-house guest moves from today on, so only the nights still ahead must be free.
+  const from = booking && today > booking.checkin ? today : (booking?.checkin ?? '');
   const legs = useQuery({
     queryKey: ['booking-legs', id],
     queryFn: () => getBookingLegs(id),
     enabled: open && Boolean(id),
   });
   const grid = useQuery({
-    queryKey: ['room-availability', propertyId, booking?.checkin, booking?.checkout],
-    queryFn: () =>
-      getRoomAvailability(propertyId!, { checkin: booking!.checkin, checkout: booking!.checkout }),
-    enabled: open && Boolean(propertyId && booking),
+    queryKey: ['room-availability', propertyId, from, booking?.checkout],
+    queryFn: () => getRoomAvailability(propertyId!, { checkin: from, checkout: booking!.checkout }),
+    enabled: open && Boolean(propertyId && booking && from && from < booking.checkout),
   });
 
-  const live = (legs.data ?? []).filter((l: BookingLeg) => !l.releasedAt);
+  // Segments already slept in (a stay moved before) are history, not something to move.
+  const live = (legs.data ?? []).filter(
+    (l: BookingLeg) => !l.releasedAt && (!today || l.checkout > today),
+  );
   const leg = live.find((l) => l.id === legId) ?? live[0] ?? null;
 
   React.useEffect(() => {
@@ -67,7 +76,8 @@ export function MoveRoomDialog({
   }, [open]);
 
   const move = useMutation({
-    mutationFn: () => moveRoom(id, { legId: leg!.id, toRoomUnitId: unitId! }),
+    mutationFn: () =>
+      moveRoom(id, { legId: leg!.id, toRoomUnitId: unitId!, expectedUpdatedAt: leg!.updatedAt }),
     onSuccess: () => {
       ux.complete();
       refresh();
@@ -77,26 +87,24 @@ export function MoveRoomDialog({
     },
   });
 
-  // The move endpoint requires the booked room type, and a same-day in-house move requires
-  // a ready destination. Keep the choices aligned with those server-side rules.
-  const roomTypeId = grid.data?.roomTypes.find((type) =>
-    type.units.some((unit) => unit.id === leg?.roomUnitId),
-  )?.roomId;
-  const options = (grid.data?.roomTypes ?? []).flatMap((t) =>
-    t.units
-      .filter(
-        (u) =>
-          t.roomId === roomTypeId &&
-          u.free &&
-          !u.outOfService &&
-          !u.blocked &&
-          u.id !== leg?.roomUnitId &&
-          (booking?.status !== 'CheckedIn' ||
-            u.housekeeping === 'clean' ||
-            u.housekeeping === 'inspected'),
-      )
-      .map((u) => ({ ...u, roomType: t.name })),
-  );
+  // Free rooms of the booked type (the server refuses any other), and for an in-house guest only
+  // ready ones: a same-day in-house move requires a clean (or inspected) destination.
+  const options = (grid.data?.roomTypes ?? [])
+    .filter((t) => t.units.some((u) => u.id === leg?.roomUnitId))
+    .flatMap((t) =>
+      t.units
+        .filter(
+          (u) =>
+            u.free &&
+            !u.outOfService &&
+            !u.blocked &&
+            u.id !== leg?.roomUnitId &&
+            (booking?.status !== 'CheckedIn' ||
+              u.housekeeping === 'clean' ||
+              u.housekeeping === 'inspected'),
+        )
+        .map((u) => ({ ...u, roomType: t.name })),
+    );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

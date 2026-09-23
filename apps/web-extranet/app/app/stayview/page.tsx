@@ -1,859 +1,1130 @@
-﻿'use client';
+'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowsClockwise,
+  CalendarBlank,
   CaretLeft,
   CaretRight,
-  GearSix,
-  Funnel,
-  Plus,
-  MagnifyingGlass,
-  Users,
+  DoorOpen,
   List,
-  CalendarBlank,
+  UsersThree,
+  WifiSlash,
 } from '@phosphor-icons/react';
 import {
   Button,
-  Card,
   CountedChips,
-  Input,
+  DatePicker,
+  EmptyState,
+  InlineAlert,
   PageHeader,
-  Sheet,
-  SheetContent,
   Skeleton,
+  cn,
+  toast,
   type Chip,
 } from '@yohobed/ui';
 import {
-  getStayView,
-  subscribeRoomUpdates,
   describeError,
+  getStayView,
+  moveRoom,
+  subscribeRoomUpdates,
+  type SearchReservation,
   type StayBar,
   type StayUnit,
 } from '@/lib/api';
 import { useHasFeature } from '@/lib/queries';
 import { useActiveProperty } from '@/components/active-property';
-import { TapeChart } from '@/components/stayview/tape-chart';
-import { ReservationSheet } from '@/components/stayview/reservation-panel';
-import { CalendarSettings } from '@/components/stayview/calendar-settings';
-import { QuickActions, type SelectedRange } from '@/components/stayview/quick-actions';
-import { UnitPanel } from '@/components/stayview/unit-panel';
-import {
-  useCalendarAccess,
-  useCalendarPreferences,
-} from '@/components/stayview/use-calendar-preferences';
-import {
-  addDays,
-  calendarBars,
-  DAY_WINDOWS,
-  destinationIssue,
-  EMPTY_FILTERS,
-  HK_LABEL,
-  matchesBar,
-  propertyToday,
-  SOURCE_LABEL,
-  STATUS,
-  type CalendarFilters,
-} from '@/components/stayview/calendar-model';
+import { useRefreshDesk } from '@/components/booking/refresh';
 import {
   useOnReservationCreated,
   useReservationComposer,
 } from '@/components/reservations/composer/composer-context';
+import { CalendarGrid } from '@/components/stayview/calendar-grid';
+import { StayHoverCard } from '@/components/stayview/hover-card';
+import {
+  BlockPanelBody,
+  PanelHost,
+  ReservationPanelBody,
+  UnassignedPanelBody,
+  UnitPanelBody,
+  type PanelTarget,
+} from '@/components/stayview/panels';
+import {
+  BlockDialog,
+  QuickActionsMenu,
+  RangeActionBar,
+  defaultBlockDraft,
+  saved,
+  type BlockDraft,
+  type RangeAction,
+} from '@/components/stayview/quick-actions';
+import {
+  DateChangeReview,
+  RoomMoveReview,
+  type DateProposal,
+  type MoveProposal,
+} from '@/components/stayview/review-dialogs';
+import {
+  FilterChips,
+  FiltersPopover,
+  GroupToggles,
+  LegendPopover,
+  RangeControl,
+  SettingsPopover,
+} from '@/components/stayview/controls';
+import { StaySearch } from '@/components/stayview/stay-search';
+import { MobileDayList } from '@/components/stayview/mobile-day-list';
+import { ViewSwitch } from '@/components/stayview/view-switch';
+import {
+  useCalendarAccess,
+  useCalendarPreferences,
+  useCollapsedGroups,
+} from '@/components/stayview/hooks';
+import {
+  InteractionContext,
+  createInteractionStore,
+  useInteraction,
+  type RangeSelection,
+} from '@/components/stayview/interaction/store';
+import {
+  addDays,
+  daysBetween,
+  isIsoDate,
+  todayIn,
+  windowLabel,
+} from '@/components/stayview/model/dates';
+import { groupRooms } from '@/components/stayview/model/layout';
+import {
+  EMPTY_FILTERS,
+  hasBarFilters,
+  matchesBar,
+  roomChipMatches,
+  unitVisible,
+  type CalendarFilters,
+  type RoomChip,
+} from '@/components/stayview/model/filters';
+import { barMatches } from '@/components/stayview/model/search';
+import { dayStats } from '@/components/stayview/model/stats';
+import { destinationIssue } from '@/components/stayview/model/validity';
 
-type Filter = 'all' | 'vacant' | 'occupied' | 'reserved' | 'blocked' | 'dueOut';
+/**
+ * Stay View — the front desk's workspace. The grid stays in view while the desk works: stays
+ * open in a side panel, empty nights turn into reservations or blocks where they are selected,
+ * and rooms and dates change by dragging, always through a review that says what will change.
+ */
 export default function StayViewPage() {
+  const store = React.useMemo(() => createInteractionStore(), []);
+  return (
+    <InteractionContext.Provider value={store}>
+      <StayViewScreen />
+    </InteractionContext.Provider>
+  );
+}
+
+function readUrl() {
+  if (typeof window === 'undefined') return { from: null, booking: null, unit: null };
+  const p = new URLSearchParams(window.location.search);
+  return { from: p.get('from'), booking: p.get('booking'), unit: p.get('unit') };
+}
+
+function StayViewScreen() {
   const qc = useQueryClient();
+  const refreshDesk = useRefreshDesk();
   const { propertyId, property } = useActiveProperty();
   const { openComposer } = useReservationComposer();
-  const { preferences, update, storageKey, storageError } = useCalendarPreferences(propertyId);
-  const { can } = useCalendarAccess();
-  const roomStreamEnabled = useHasFeature('room_view');
-  const today = propertyToday(property?.timezone);
-  const [from, setFrom] = React.useState('');
-  const date = from || today;
-  const [filter, setFilter] = React.useState<Filter>('all');
-  const [filters, setFilters] = React.useState<CalendarFilters>(EMPTY_FILTERS);
-  const [search, setSearch] = React.useState('');
-  const deferredSearch = React.useDeferredValue(search.trim());
-  const [selected, setSelected] = React.useState<StayBar | null>(null);
-  const [room, setRoom] = React.useState<string | null>(null);
-  const [droppedRoom, setDroppedRoom] = React.useState<string | null>(null);
-  const [proposedDates, setProposedDates] = React.useState<{
-    checkin: string;
-    checkout: string;
-  } | null>(null);
-  const [range, setRange] = React.useState<SelectedRange | null>(null);
-  const [selection, setSelection] = React.useState<SelectedRange | null>(null);
-  const [settings, setSettings] = React.useState(false);
-  const [filterPanel, setFilterPanel] = React.useState(false);
-  const [unassigned, setUnassigned] = React.useState<string | null>(null);
-  const [locateId, setLocateId] = React.useState<string>();
-  const [collapseSignal, setCollapseSignal] = React.useState<{
-    collapsed: boolean;
-    nonce: number;
-  }>();
-  const [message, setMessage] = React.useState('');
-  const [mobileList, setMobileList] = React.useState(true);
-  const [offline, setOffline] = React.useState(false);
-  const searchRef = React.useRef<HTMLInputElement>(null);
-  const pendingBooking = React.useRef<string | null>(null);
-  const to = addDays(date, preferences.days);
+  const access = useCalendarAccess();
+  const prefs = useCalendarPreferences(propertyId);
+  const p = prefs.preferences;
+  const roomStream = useHasFeature('room_view');
+  const store = React.useContext(InteractionContext)!;
+
+  // --- where the calendar is looking -------------------------------------------------------
+  const fallbackToday = todayIn(property?.timezone ?? 'UTC');
+  const [from, setFrom] = React.useState<string>('');
+  const windowFrom = from || fallbackToday;
+  const days = p.days;
+  const to = addDays(windowFrom, days);
+
   const chart = useQuery({
-    queryKey: ['stayview', propertyId, date, to],
-    queryFn: ({ signal }) => getStayView(propertyId!, date, to, signal),
-    enabled: !!propertyId,
+    queryKey: ['stayview', propertyId, windowFrom, to],
+    queryFn: ({ signal }) => getStayView(propertyId!, windowFrom, to, signal),
+    enabled: !!propertyId && prefs.loaded,
+    // Keep the old window on screen while the next loads — but never another property's.
     placeholderData: (previous) => (previous?.property.id === propertyId ? previous : undefined),
-    refetchInterval: 15000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
-  const ready =
-    chart.data?.property.id === propertyId && chart.data?.from === date && chart.data?.to === to;
-  const refresh = React.useCallback(
-    (feedback?: string) => {
-      if (feedback) setMessage(feedback);
-      void qc.invalidateQueries({ queryKey: ['stayview'] });
-      void qc.invalidateQueries({ queryKey: ['room-view'] });
-      void qc.invalidateQueries({ queryKey: ['booking-legs'] });
-    },
-    [qc],
-  );
-  const bars = React.useMemo(() => (chart.data ? calendarBars(chart.data) : []), [chart.data]);
+  const data = chart.data?.property.id === propertyId ? chart.data : undefined;
+  const settled = !!data && data.from === windowFrom && data.to === to;
+  const today = data?.today ?? fallbackToday;
+  const operatingDate = data?.operatingDate ?? today;
+  const anchor = data?.counts.date ?? windowFrom;
+
+  // Look one window either way while the desk reads this one.
   React.useEffect(() => {
-    if (!propertyId || !roomStreamEnabled) return;
-    const connection = subscribeRoomUpdates(propertyId, date, () => refresh());
-    return () => connection.abort();
-  }, [propertyId, date, roomStreamEnabled, refresh]);
-  const units = React.useMemo(
-    () => chart.data?.roomTypes.flatMap((category) => category.units) ?? [],
-    [chart.data],
+    if (!propertyId || !settled) return;
+    const t = window.setTimeout(() => {
+      for (const start of [addDays(windowFrom, -days), addDays(windowFrom, days)])
+        void qc.prefetchQuery({
+          queryKey: ['stayview', propertyId, start, addDays(start, days)],
+          queryFn: ({ signal }) => getStayView(propertyId, start, addDays(start, days), signal),
+          staleTime: 30_000,
+        });
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [propertyId, settled, windowFrom, days, qc]);
+
+  // Another desk's housekeeping change arrives by stream; everything else by the poll above.
+  React.useEffect(() => {
+    if (!propertyId || !roomStream) return;
+    const c = subscribeRoomUpdates(
+      propertyId,
+      anchor,
+      () => void qc.invalidateQueries({ queryKey: ['stayview', propertyId] }),
+    );
+    return () => c.abort();
+  }, [propertyId, roomStream, anchor, qc]);
+
+  // --- panels, reviews and selection ----------------------------------------------------------
+  const [panel, setPanel] = React.useState<PanelTarget | null>(null);
+  const [pick, setPick] = React.useState<StayBar | null>(null);
+  const [moveProposal, setMoveProposal] = React.useState<MoveProposal | null>(null);
+  const [dateProposal, setDateProposal] = React.useState<DateProposal | null>(null);
+  const [blockDraft, setBlockDraft] = React.useState<BlockDraft | null>(null);
+  const [flash, setFlash] = React.useState<{ key: string; n: number } | null>(null);
+  const [flashToday, setFlashToday] = React.useState(0);
+  const pendingLocate = React.useRef<{ bookingId: string; open: boolean } | null>(null);
+  const flashKey = React.useCallback(
+    (key: string) => setFlash((f) => ({ key, n: (f?.n ?? 0) + 1 })),
+    [],
   );
-  const activeUnit = units.find((unit) => unit.id === room) ?? null;
-  const writeUrl = React.useCallback((nextDate: string, bookingId?: string, push = false) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('from', nextDate);
-    if (bookingId) url.searchParams.set('booking', bookingId);
-    else url.searchParams.delete('booking');
-    if (push) window.history.pushState(null, '', url);
-    else window.history.replaceState(null, '', url);
-  }, []);
-  const select = React.useCallback(
-    (bar: StayBar) => {
-      setSelected(bar);
-      setRoom(null);
-      setDroppedRoom(null);
-      setProposedDates(null);
-      setLocateId(bar.id);
-      writeUrl(date, bar.bookingId);
+
+  // --- the URL: window, open reservation or room (never guest details) ------------------------
+  const writeUrl = React.useCallback(
+    (patch: { from?: string; booking?: string | null; unit?: string | null }, push = false) => {
+      const url = new URL(window.location.href);
+      if (patch.from !== undefined) url.searchParams.set('from', patch.from);
+      for (const key of ['booking', 'unit'] as const)
+        if (patch[key] !== undefined) {
+          if (patch[key]) url.searchParams.set(key, patch[key]!);
+          else url.searchParams.delete(key);
+        }
+      if (url.href === window.location.href) return;
+      if (push) window.history.pushState(null, '', url);
+      else window.history.replaceState(null, '', url);
     },
-    [date, writeUrl],
-  );
-  const closeReservation = () => {
-    setSelected(null);
-    setDroppedRoom(null);
-    setProposedDates(null);
-    writeUrl(date);
-  };
-  const navigate = React.useCallback(
-    (next: string) => {
-      setFrom(next);
-      setRange(null);
-      setSelection(null);
-      writeUrl(next, undefined, true);
-      setSelected(null);
-    },
-    [writeUrl],
+    [],
   );
   React.useEffect(() => {
     const restore = () => {
-      const params = new URLSearchParams(window.location.search);
-      const value = params.get('from');
-      if (value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)))
-        setFrom(value);
-      else setFrom('');
-      pendingBooking.current = params.get('booking');
-      setSelected(null);
+      const u = readUrl();
+      setFrom(isIsoDate(u.from) ? u.from : '');
+      if (u.booking) pendingLocate.current = { bookingId: u.booking, open: true };
+      else setPanel((p) => (p?.kind === 'bar' ? null : p));
+      if (u.unit) setPanel({ kind: 'unit', unitId: u.unit });
+      else setPanel((p) => (p?.kind === 'unit' ? null : p));
     };
     restore();
     window.addEventListener('popstate', restore);
-    const connection = () => setOffline(!navigator.onLine);
-    connection();
-    window.addEventListener('online', connection);
-    window.addEventListener('offline', connection);
-    return () => {
-      window.removeEventListener('popstate', restore);
-      window.removeEventListener('online', connection);
-      window.removeEventListener('offline', connection);
-    };
+    return () => window.removeEventListener('popstate', restore);
   }, []);
+
+  const navigate = React.useCallback(
+    (next: string) => {
+      setFrom(next);
+      store.set({ range: null });
+      writeUrl({ from: next });
+    },
+    [store, writeUrl],
+  );
+  const goToday = React.useCallback(() => {
+    navigate(today);
+    setFlashToday((n) => n + 1);
+  }, [navigate, today]);
+
+  // --- what is on screen -----------------------------------------------------------------------
+  const [chip, setChip] = React.useState<RoomChip>('all');
+  const [filters, setFilters] = React.useState<CalendarFilters>(EMPTY_FILTERS);
+  const [search, setSearch] = React.useState('');
+  const deferredSearch = React.useDeferredValue(search.trim());
   React.useEffect(() => {
-    if (pendingBooking.current && ready) {
-      const match = bars.find((bar) => bar.bookingId === pendingBooking.current);
-      if (match) {
-        setSelected(match);
-        setLocateId(match.id);
-      } else
-        setMessage('The linked reservation is not in this date window or is no longer available.');
-      pendingBooking.current = null;
-    }
-    if (selected && ready) {
-      const current =
-        bars.find((bar) => bar.id === selected.id) ??
-        bars.find((bar) => bar.bookingId && bar.bookingId === selected.bookingId);
-      if (current && current !== selected) setSelected(current);
-    }
-  }, [bars, ready]);
-  React.useEffect(() => {
-    setSelected(null);
-    setRoom(null);
-    setRange(null);
-    setSelection(null);
+    setPanel(null);
     setFilters(EMPTY_FILTERS);
-    setFilter('all');
-  }, [propertyId]);
-  useOnReservationCreated((created) => {
-    refresh('Reservation saved.');
-    const booking = created.bookings[0];
-    if (booking) pendingBooking.current = booking.id;
-  });
+    setChip('all');
+    store.set({ range: null, hover: null });
+  }, [propertyId, store]);
+
+  const units = React.useMemo(() => data?.roomTypes.flatMap((rt) => rt.units) ?? [], [data]);
+  const unitsById = React.useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
+  const allBars = React.useMemo(
+    () =>
+      data ? [...units.flatMap((u) => u.bars), ...data.unassigned, ...(data.tentative ?? [])] : [],
+    [data, units],
+  );
+  const barsById = React.useMemo(() => new Map(allBars.map((b) => [b.id, b])), [allBars]);
+  const typeName = React.useCallback(
+    (roomId?: string) => data?.roomTypes.find((rt) => rt.roomId === roomId)?.name,
+    [data],
+  );
+
+  const visibleTypes = React.useMemo(
+    () =>
+      data?.roomTypes
+        .map((rt) => ({
+          ...rt,
+          units: rt.units.filter(
+            (u) => unitVisible(u, filters) && roomChipMatches(u, chip, anchor),
+          ),
+        }))
+        .filter((rt) => rt.units.length > 0) ?? [],
+    [data, filters, chip, anchor],
+  );
+  const groups = React.useMemo(
+    () => groupRooms(visibleTypes, p.groupBy),
+    [visibleTypes, p.groupBy],
+  );
+  const stats = React.useMemo(() => (data ? dayStats(data) : []), [data]);
+  const searching = deferredSearch.length >= 2;
+  const visibleIds = React.useMemo(() => {
+    if (!hasBarFilters(filters) && !searching) return null;
+    return new Set(
+      allBars
+        .filter(
+          (b) => matchesBar(b, filters, anchor) && (!searching || barMatches(b, deferredSearch)),
+        )
+        .map((b) => b.id),
+    );
+  }, [allBars, filters, anchor, searching, deferredSearch]);
+
+  const { collapsed, setCollapsed } = useCollapsedGroups(prefs.storageKey);
+  const toggleGroup = React.useCallback(
+    (key: string) => {
+      const next = new Set(collapsed);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      setCollapsed(next);
+    },
+    [collapsed, setCollapsed],
+  );
+
+  // A reservation to find once it is on screen: a search result elsewhere, a link, a new booking.
   React.useEffect(() => {
-    if (!preferences.shortcuts) return;
-    const handler = (event: KeyboardEvent) => {
+    const want = pendingLocate.current;
+    if (!want || !settled) return;
+    const bar = allBars.find((b) => b.bookingId === want.bookingId);
+    pendingLocate.current = null;
+    if (!bar) {
+      if (want.open)
+        toast.error('That reservation is not in these dates. Search for it to jump to its stay.');
+      return;
+    }
+    const group = groups.find((g) => g.units.some((u) => u.id === bar.roomUnitId));
+    if (group && collapsed.has(group.key)) {
+      const next = new Set(collapsed);
+      next.delete(group.key);
+      setCollapsed(next);
+    }
+    flashKey(bar.bookingId!);
+    if (want.open) setPanel({ kind: 'bar', barId: bar.id, bookingId: bar.bookingId });
+  }, [allBars, settled, groups, collapsed, setCollapsed, flashKey]);
+
+  useOnReservationCreated((created) => {
+    void qc.invalidateQueries({ queryKey: ['stayview'] });
+    const first = created.bookings[0];
+    if (first) pendingLocate.current = { bookingId: first.id, open: false };
+  });
+
+  // --- permissions ------------------------------------------------------------------------------
+  const canCreate = access.can('reservation_change', 'financial_read');
+  const canBlock = access.can('reservation_change');
+  const canAssign = access.can('room_assignment');
+  const canChangeDates = access.can('reservation_change', 'financial_read');
+  const online = useOnline();
+
+  // --- opening things ---------------------------------------------------------------------------
+  const openBar = React.useCallback(
+    (bar: StayBar) => {
+      store.set({ range: null });
+      setPanel({ kind: 'bar', barId: bar.id, bookingId: bar.bookingId });
+      if (bar.kind === 'booking' && bar.bookingId)
+        writeUrl({ booking: bar.bookingId, unit: null }, true);
+    },
+    [store, writeUrl],
+  );
+  const openUnit = React.useCallback(
+    (unit: StayUnit) => {
+      store.set({ range: null });
+      setPanel({ kind: 'unit', unitId: unit.id });
+      writeUrl({ unit: unit.id, booking: null }, true);
+    },
+    [store, writeUrl],
+  );
+  const closePanel = React.useCallback(() => {
+    setPanel(null);
+    setPick(null);
+    writeUrl({ booking: null, unit: null });
+  }, [writeUrl]);
+
+  const done = React.useCallback(
+    (bookingId: string | null, message: string, undo?: () => void) => {
+      saved(message, undo);
+      refreshDesk();
+      if (bookingId) {
+        pendingLocate.current = { bookingId, open: false };
+        flashKey(bookingId);
+      }
+    },
+    [refreshDesk, flashKey],
+  );
+
+  const refuse = React.useCallback((bar: StayBar, message: string) => {
+    toast.error(message);
+    document
+      .querySelectorAll<HTMLElement>(`[data-bar-id="${CSS.escape(bar.id)}"]`)
+      .forEach((el) => {
+        delete el.dataset.shake;
+        void el.offsetWidth;
+        el.dataset.shake = 'true';
+        window.setTimeout(() => delete el.dataset.shake, 400);
+      });
+  }, []);
+
+  const proposeMove = React.useCallback(
+    (bar: StayBar, toUnitId: string) => {
+      const target = unitsById.get(toUnitId);
+      if (!target) return;
+      const origin = bar.roomUnitId ? (unitsById.get(bar.roomUnitId) ?? null) : null;
+      // A simple move of a stay not yet arrived saves at once when the desk has asked for that,
+      // with Undo; an in-house move (it splits the stay and turns a room over) is always reviewed.
       if (
-        !event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        /INPUT|TEXTAREA|SELECT/.test((event.target as HTMLElement).tagName)
+        !p.dragWarnings &&
+        origin &&
+        bar.status !== 'CheckedIn' &&
+        bar.bookingId &&
+        bar.legUpdatedAt
+      ) {
+        moveRoom(bar.bookingId, {
+          legId: bar.id,
+          toRoomUnitId: target.id,
+          expectedUpdatedAt: bar.legUpdatedAt,
+        })
+          .then(() =>
+            done(
+              bar.bookingId!,
+              `${bar.guestName ?? 'The guest'} moved to room ${target.code}`,
+              () =>
+                void getStayView(propertyId!, windowFrom, to)
+                  .then((fresh) => {
+                    const moved = fresh.roomTypes
+                      .flatMap((rt) => rt.units)
+                      .flatMap((u) => u.bars)
+                      .find((b) => b.bookingId === bar.bookingId && b.legIndex === bar.legIndex);
+                    if (!moved?.legUpdatedAt) return;
+                    return moveRoom(bar.bookingId!, {
+                      legId: moved.id,
+                      toRoomUnitId: origin.id,
+                      expectedUpdatedAt: moved.legUpdatedAt,
+                    }).then(() =>
+                      done(
+                        bar.bookingId!,
+                        `${bar.guestName ?? 'The guest'} is back in room ${origin.code}`,
+                      ),
+                    );
+                  })
+                  .catch((e) => toast.error(describeError(e, 'The move could not be undone'))),
+            ),
+          )
+          .catch((e) => {
+            toast.error(describeError(e, 'The move was not saved'));
+            refreshDesk();
+          });
+        return;
+      }
+      setMoveProposal({ bar, from: origin, to: target });
+    },
+    [unitsById, p.dragWarnings, done, refreshDesk, propertyId, windowFrom, to],
+  );
+
+  const startRangeAction = React.useCallback(
+    (action: RangeAction, range: { unitId?: string; from: string; to: string }) => {
+      store.set({ range: null });
+      const unit = range.unitId ? unitsById.get(range.unitId) : undefined;
+      if (action === 'reserve' || action === 'hold')
+        openComposer({
+          checkin: range.from,
+          nights: Math.max(1, daysBetween(range.from, range.to)),
+          roomId: unit?.roomId,
+          roomUnitId: unit?.id,
+          kind: action === 'hold' ? 'hold_confirm' : undefined,
+        });
+      else if (range.unitId)
+        setBlockDraft({ kind: action, unitId: range.unitId, from: range.from, to: range.to });
+      else setBlockDraft(defaultBlockDraft(action, units, range.from));
+    },
+    [store, unitsById, units, openComposer],
+  );
+
+  const onRange = React.useCallback(
+    (range: RangeSelection) => {
+      if (!p.selectionActions) return;
+      const unit = unitsById.get(range.unitId);
+      const start = Math.min(range.start, range.end);
+      const end = Math.max(range.start, range.end);
+      const fromDate = addDays(windowFrom, start);
+      const toDate = addDays(windowFrom, end + 1);
+      if (unit && unit.bars.some((b) => b.from < toDate && fromDate < b.to)) {
+        store.set({ range: null });
+        toast.error(`Room ${unit.code} is not free on all those nights. Select empty nights only.`);
+      }
+    },
+    [p.selectionActions, unitsById, windowFrom, store],
+  );
+
+  // Picking a stay in the Unassigned panel lights up the rooms that could take it.
+  const compatibleUnitIds = React.useMemo(() => {
+    if (!pick) return null;
+    return new Set(
+      units.filter((u) => !destinationIssue(pick, u, { today: operatingDate })).map((u) => u.id),
+    );
+  }, [pick, units, operatingDate]);
+
+  // --- keyboard ---------------------------------------------------------------------------------
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [quickOpen, setQuickOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!p.shortcuts) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement;
+      if (
+        el.closest(
+          'input, textarea, select, [contenteditable="true"], [role="dialog"] [role="combobox"]',
+        )
       )
         return;
-      const actions: Record<string, () => void> = {
-        f: () => searchRef.current?.focus(),
-        t: () => navigate(today),
-        s: () => setSettings(true),
-        q: () => setRange({ from: date, to: addDays(date, 1) }),
-        ArrowLeft: () => navigate(addDays(date, -preferences.days)),
-        ArrowRight: () => navigate(addDays(date, preferences.days)),
+      if (
+        document.querySelector('[role="dialog"][data-state="open"]:not([data-sv-panel])') &&
+        e.key !== 'Escape'
+      )
+        return;
+      const act: Record<string, () => void> = {
+        '/': () => searchRef.current?.focus(),
+        t: goToday,
+        '[': () => navigate(addDays(windowFrom, -days)),
+        ']': () => navigate(addDays(windowFrom, days)),
+        n: () => canCreate && openComposer({ checkin: anchor }),
+        '+': () => setQuickOpen(true),
+        u: () => setPanel({ kind: 'unassigned' }),
+        ',': () => setSettingsOpen(true),
       };
-      if (actions[event.key]) {
-        event.preventDefault();
-        actions[event.key]!();
+      const run = act[e.key];
+      if (run) {
+        e.preventDefault();
+        run();
+      } else if (e.key === 'Escape' && store.get().range) {
+        store.set({ range: null });
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [preferences.shortcuts, preferences.days, date, today, navigate]);
-  const chips: Chip<Filter>[] = [
-    { value: 'all', label: 'All', count: chart.data?.counts.all, tone: 'muted' },
-    { value: 'vacant', label: 'Vacant', count: chart.data?.counts.vacant, tone: 'avail' },
-    { value: 'occupied', label: 'Occupied', count: chart.data?.counts.occupied, tone: 'brand' },
-    { value: 'reserved', label: 'Reserved', count: chart.data?.counts.reserved, tone: 'info' },
-    { value: 'blocked', label: 'Blocked', count: chart.data?.counts.blocked, tone: 'closed' },
-    { value: 'dueOut', label: 'Due out', count: chart.data?.counts.dueOut, tone: 'low' },
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [p.shortcuts, goToday, navigate, windowFrom, days, canCreate, openComposer, anchor, store]);
+
+  // --- the panel's content ------------------------------------------------------------------------
+  const panelBar =
+    panel?.kind === 'bar'
+      ? (barsById.get(panel.barId) ??
+        allBars.find((b) => b.bookingId && b.bookingId === panel.bookingId))
+      : undefined;
+  const panelUnit = panel?.kind === 'unit' ? unitsById.get(panel.unitId) : undefined;
+  const selectedBookingId = panelBar?.bookingId ?? pick?.bookingId ?? null;
+  let panelTitle = 'Details';
+  let panelDescription: string | undefined;
+  let panelBody: React.ReactNode = null;
+  if (data && panel?.kind === 'bar' && panelBar) {
+    if (panelBar.kind === 'block') {
+      panelTitle = panelBar.blockKind === 'blocked' ? 'Blocked room' : 'Out of service';
+      panelDescription = panelBar.reason;
+      panelBody = (
+        <BlockPanelBody
+          bar={panelBar}
+          unit={units.find((u) => u.bars.some((b) => b.id === panelBar.id))}
+          canChange={canBlock}
+          onEdit={(bar) => {
+            const unit = units.find((u) => u.bars.some((b) => b.id === bar.id));
+            setBlockDraft({
+              block: bar,
+              kind: bar.blockKind ?? 'out_of_service',
+              unitId: unit?.id,
+              from: bar.from,
+              to: bar.to,
+            });
+          }}
+          onDone={(message) => {
+            done(null, message);
+            closePanel();
+          }}
+        />
+      );
+    } else {
+      panelTitle = panelBar.guestName ?? 'Reservation';
+      panelDescription = panelBar.reference;
+      panelBody = (
+        <ReservationPanelBody
+          bar={panelBar}
+          data={data}
+          today={operatingDate}
+          permissions={access.permissions}
+          onChangeDates={(bar) => setDateProposal({ bar, from: bar.from, to: bar.to })}
+          onShowRooms={(bar) => {
+            setPick(bar);
+            toast.message('Free rooms of this type are highlighted. Drag the stay onto one.');
+          }}
+          onDone={(id, message) => done(id, message)}
+        />
+      );
+    }
+  } else if (data && panel?.kind === 'unit' && panelUnit) {
+    panelTitle = `Room ${panelUnit.code}${panelUnit.displayName ? ` · ${panelUnit.displayName}` : ''}`;
+    panelDescription = typeName(panelUnit.roomId);
+    panelBody = (
+      <UnitPanelBody
+        unit={panelUnit}
+        typeName={typeName(panelUnit.roomId)}
+        today={today}
+        propertyId={propertyId!}
+        canHousekeeping={access.can('housekeeping')}
+        canBlock={canBlock}
+        onOpenBar={openBar}
+        onNewBlock={(unit) =>
+          setBlockDraft({ kind: 'blocked', unitId: unit.id, from: anchor, to: addDays(anchor, 1) })
+        }
+      />
+    );
+  } else if (data && panel?.kind === 'unassigned') {
+    panelTitle = 'Unassigned stays';
+    panelDescription = panel.date
+      ? `Waiting for a room on ${panel.date}`
+      : 'Waiting for a room in these dates';
+    panelBody = (
+      <UnassignedPanelBody
+        data={data}
+        date={panel.date}
+        selectedBookingId={pick?.bookingId ?? null}
+        canAssign={canAssign}
+        onPick={(bar) => {
+          setPick((current) => (current?.id === bar.id ? null : bar));
+          flashKey(bar.id);
+        }}
+        onDone={(id, message) => {
+          setPick(null);
+          done(id, message);
+        }}
+      />
+    );
+  }
+
+  const chips: Chip<RoomChip>[] = [
+    { value: 'all', label: 'All', count: data?.counts.all, tone: 'muted' },
+    { value: 'vacant', label: 'Vacant', count: data?.counts.vacant, tone: 'avail' },
+    { value: 'occupied', label: 'Occupied', count: data?.counts.occupied, tone: 'brand' },
+    { value: 'reserved', label: 'Reserved', count: data?.counts.reserved, tone: 'info' },
+    { value: 'blocked', label: 'Blocked', count: data?.counts.blocked, tone: 'closed' },
+    { value: 'dueOut', label: 'Due out', count: data?.counts.dueOut, tone: 'low' },
   ];
-  const filtered = React.useMemo(() => {
-    if (!chart.data) return undefined;
-    return {
-      ...chart.data,
-      roomTypes: chart.data.roomTypes
-        .filter((category) => !filters.category || category.roomId === filters.category)
-        .map((category) => ({
-          ...category,
-          units: category.units.filter((unit) => {
-            if (
-              (filters.floor && unit.floor !== filters.floor) ||
-              (filters.housekeeping && unit.housekeeping !== filters.housekeeping)
-            )
-              return false;
-            const on = unit.bars.filter((bar) => bar.from <= date && date < bar.to);
-            switch (filter) {
-              case 'vacant':
-                return on.length === 0 && unit.status === 'active';
-              case 'occupied':
-                return on.some((bar) => bar.status === 'CheckedIn');
-              case 'reserved':
-                return on.some((bar) => ['Approved', 'Pending'].includes(bar.status ?? ''));
-              case 'blocked':
-                return on.some((bar) => bar.kind === 'block');
-              case 'dueOut':
-                return unit.bars.some((bar) => bar.to === date);
-              default:
-                return true;
-            }
-          }),
-        }))
-        .filter((category) => category.units.length),
-    };
-  }, [chart.data, filters, filter, date]);
-  const results = React.useMemo(() => {
-    if (!deferredSearch) return [];
-    const term = deferredSearch.toLocaleLowerCase();
-    return [
-      ...bars
-        .filter((bar) =>
-          `${bar.guestName ?? ''} ${bar.reference ?? ''}`.toLocaleLowerCase().includes(term),
-        )
-        .map((bar) => ({
-          id: bar.id,
-          label: `${bar.guestName} · ${bar.reference}`,
-          detail: `${bar.from} → ${bar.to}`,
-          bar,
-        })),
-      ...units
-        .filter((unit) =>
-          `${unit.code} ${unit.displayName ?? ''}`.toLocaleLowerCase().includes(term),
-        )
-        .map((unit) => ({
-          id: unit.id,
-          label: `${unit.code} ${unit.displayName ?? ''}`,
-          detail: 'Room details',
-          unit,
-        })),
-    ].slice(0, 30);
-  }, [bars, units, deferredSearch]);
-  const activeFilters = Object.entries(filters).filter(([, value]) => Boolean(value));
-  const openRange = React.useCallback((unitId: string, start: string, end: string) => {
-    setSelected(null);
-    setRange({ unitId, from: start, to: end });
-  }, []);
-  const onMove = React.useCallback(
-    (bar: StayBar, unitId: string) => {
-      select(bar);
-      setDroppedRoom(unitId);
-    },
-    [select],
-  );
-  const onDates = React.useCallback(
-    (bar: StayBar, checkin: string, checkout: string) => {
-      select(bar);
-      setProposedDates({ checkin, checkout });
-    },
-    [select],
-  );
-  const locate = (id: string) => {
-    setFilters(EMPTY_FILTERS);
-    setFilter('all');
-    setMobileList(false);
-    setLocateId(undefined);
-    requestAnimationFrame(() => setLocateId(id));
-  };
-  const unassignedBars =
-    chart.data?.unassigned.filter(
-      (bar) =>
-        !unassigned || unassigned === 'all' || (bar.from <= unassigned && unassigned < bar.to),
-    ) ?? [];
+
+  // Phones get the day list first; the timeline is one switch away.
+  const [mobileView, setMobileView] = React.useState<'list' | 'grid'>('list');
+  const panelOpen = !!panel && !!panelBody;
+
   return (
-    <div className="calendar-workspace min-w-0">
+    <div
+      className={cn(
+        'sv-view-enter min-w-0 transition-[padding] duration-3 ease-smooth',
+        panelOpen && (p.panelWidth === 'wide' ? 'xl:pr-[37rem]' : 'xl:pr-[28rem]'),
+      )}
+    >
       <PageHeader
         eyebrow="Front desk"
         title="Stay view"
         actions={
-          <Button size="sm" variant="secondary" onClick={() => refresh('Refreshing calendar…')}>
-            Refresh
-          </Button>
+          <>
+            <ViewSwitch current="stay" />
+            <Button
+              size="sm"
+              disabled={!canCreate || !online}
+              onClick={() => openComposer({ checkin: anchor })}
+              title="New reservation (N)"
+            >
+              New reservation
+            </Button>
+          </>
         }
       />
+
+      {/* Toolbar: where, how far, find, filter, act. */}
       <div
-        className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-2"
+        className="sticky top-0 z-30 -mx-1 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-2 shadow-card"
+        role="toolbar"
         aria-label="Calendar toolbar"
       >
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Previous week / range"
-          onClick={() => navigate(addDays(date, -preferences.days))}
-        >
-          <CaretLeft size={16} />
-        </Button>
-        <Input
-          type="date"
-          className="w-36"
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Previous dates"
+            title="Previous dates ([)"
+            onClick={() => navigate(addDays(windowFrom, -days))}
+          >
+            <CaretLeft size={16} aria-hidden />
+          </Button>
+          <Button variant="secondary" size="sm" onClick={goToday} title="Today (T)">
+            Today
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Next dates"
+            title="Next dates (])"
+            onClick={() => navigate(addDays(windowFrom, days))}
+          >
+            <CaretRight size={16} aria-hidden />
+          </Button>
+        </div>
+        <DatePicker
+          value={windowFrom}
+          today={today}
           aria-label="Window start date"
-          value={date}
-          onChange={(event) => event.target.value && navigate(event.target.value)}
+          className="w-[9.5rem]"
+          onChange={(iso) => navigate(iso)}
         />
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Next week / range"
-          onClick={() => navigate(addDays(date, preferences.days))}
-        >
-          <CaretRight size={16} />
-        </Button>
-        <Button size="sm" variant="secondary" title="Today (Alt+T)" onClick={() => navigate(today)}>
-          Today
-        </Button>
-        <select
-          aria-label="Calendar days"
-          className="rounded-lg border border-line bg-surface p-2 text-xs"
-          value={preferences.days}
-          onChange={(event) => update({ days: Number(event.target.value) })}
-        >
-          {DAY_WINDOWS.map((days) => (
-            <option key={days} value={days}>
-              {days} days
-            </option>
-          ))}
-        </select>
-        <div className="relative min-w-40 flex-1">
-          <MagnifyingGlass
-            className="pointer-events-none absolute left-2 top-2.5 text-ink-3"
-            size={16}
+        <span className="hidden text-sm font-medium text-ink-2 2xl:inline">
+          {windowLabel(windowFrom, days)}
+        </span>
+        <RangeControl value={days} onChange={(d) => prefs.update({ days: d })} />
+        <StaySearch
+          propertyId={propertyId}
+          units={units}
+          lanes={data ? [...data.unassigned, ...(data.tentative ?? [])] : []}
+          value={search}
+          onChange={setSearch}
+          inputRef={searchRef}
+          onPickStay={(bar) => {
+            if (bar.bookingId) flashKey(bar.bookingId);
+            openBar(bar);
+          }}
+          onPickRoom={(unit) => {
+            flashKey(unit.id);
+            openUnit(unit);
+          }}
+          onPickRemote={(r: SearchReservation) => {
+            pendingLocate.current = { bookingId: r.id, open: true };
+            navigate(r.checkin > today ? addDays(r.checkin, -1) : r.checkin);
+          }}
+        />
+        <div className="ml-auto flex items-center gap-1">
+          <FiltersPopover
+            data={data}
+            value={filters}
+            onChange={setFilters}
+            showMoney={access.can('financial_read')}
           />
-          <Input
-            ref={searchRef}
-            aria-label="Search this calendar"
-            className="pl-8"
-            placeholder="Guest, reference or room"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setSearch('');
-            }}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setPanel({ kind: 'unassigned' })}
+            aria-label={`Unassigned stays: ${data?.unassigned.length ?? 0}`}
+            title="Unassigned stays (U)"
+          >
+            <UsersThree size={15} aria-hidden />
+            <span className="hidden 2xl:inline">Unassigned</span>
+            <span
+              className={cn(
+                'rounded-full px-1.5 font-mono text-[11px] tabular-nums',
+                (data?.unassigned.length ?? 0) > 0
+                  ? 'bg-low text-white'
+                  : 'bg-surface-2 text-ink-3',
+              )}
+            >
+              {data?.unassigned.length ?? 0}
+            </span>
+          </Button>
+          <QuickActionsMenu
+            open={quickOpen}
+            onOpenChange={setQuickOpen}
+            disabled={!online || !data}
+            canReserve={canCreate}
+            canBlock={canBlock}
+            onAction={(action) =>
+              startRangeAction(action, { from: anchor, to: addDays(anchor, 1) })
+            }
+          />
+          <GroupToggles
+            onExpand={() => setCollapsed(new Set())}
+            onCollapse={() => setCollapsed(new Set(groups.map((g) => g.key)))}
+          />
+          <LegendPopover />
+          <SettingsPopover
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            value={p}
+            onChange={prefs.update}
+            onReset={prefs.reset}
+            storageError={prefs.storageError}
           />
         </div>
-        <Button size="sm" variant="secondary" onClick={() => setFilterPanel(true)}>
-          <Funnel size={15} /> Filters{activeFilters.length ? ` (${activeFilters.length})` : ''}
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => setUnassigned('all')}>
-          <Users size={15} /> Unassigned ({chart.data?.unassigned.length ?? 0})
-        </Button>
-        <Button
-          size="sm"
-          disabled={!can('reservation_change') || !ready || offline}
-          onClick={() => setRange(selection ?? { from: date, to: addDays(date, 1) })}
-        >
-          <Plus size={15} /> Quick actions
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          title="Calendar settings (Alt+S)"
-          aria-label="Calendar settings"
-          onClick={() => setSettings(true)}
-        >
-          <GearSix size={18} />
-        </Button>
       </div>
+
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <CountedChips
           chips={chips}
-          value={filter}
-          onChange={setFilter}
+          value={chip}
+          onChange={setChip}
           loading={chart.isLoading}
           aria-label="Room status"
         />
-        <div className="flex gap-2 text-xs">
-          <select
-            aria-label="Group rooms"
-            className="rounded border border-line bg-surface p-1"
-            value={preferences.groupBy}
-            onChange={(event) => update({ groupBy: event.target.value as 'category' | 'floor' })}
-          >
-            <option value="category">Category</option>
-            <option value="floor">Floor</option>
-          </select>
-          <button
-            className="rounded px-1 hover:bg-surface-2"
-            onClick={() => setCollapseSignal({ collapsed: false, nonce: Date.now() })}
-          >
-            Expand all
-          </button>
-          <button
-            className="rounded px-1 hover:bg-surface-2"
-            onClick={() => setCollapseSignal({ collapsed: true, nonce: Date.now() })}
-          >
-            Collapse all
-          </button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="md:hidden"
-            onClick={() => setMobileList(!mobileList)}
-          >
-            {mobileList ? <CalendarBlank size={14} /> : <List size={14} />}
-            {mobileList ? 'Timeline' : 'Day list'}
-          </Button>
-        </div>
+        <FilterChips value={filters} onChange={setFilters} categoryName={typeName} />
       </div>
-      {activeFilters.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {activeFilters.map(([key, value]) => (
-            <button
-              key={key}
-              className="rounded-full bg-brand-soft px-2 py-1 text-xs text-brand-ink"
-              onClick={() => setFilters({ ...filters, [key]: key === 'balance' ? false : '' })}
-            >
-              {key}:{' '}
-              {key === 'category'
-                ? chart.data?.roomTypes.find((category) => category.roomId === value)?.name
-                : String(value)}{' '}
-              ×
-            </button>
-          ))}
-          <button className="text-xs underline" onClick={() => setFilters(EMPTY_FILTERS)}>
-            Clear all
-          </button>
-        </div>
-      )}
-      {deferredSearch && (
-        <div
-          className="mb-2 max-h-44 overflow-auto rounded-lg border border-line bg-surface p-2"
-          aria-label="Calendar search results"
-        >
-          {results.length ? (
-            results.map((result) => (
-              <button
-                key={result.id}
-                className="flex w-full justify-between gap-2 rounded p-2 text-left text-xs hover:bg-brand-soft"
-                onClick={() => {
-                  locate(result.id);
-                  if ('bar' in result) select(result.bar);
-                  else {
-                    setSelected(null);
-                    setRoom(result.unit.id);
-                  }
-                }}
-              >
-                <strong>{result.label}</strong>
-                <span className="text-ink-3">{result.detail}</span>
-              </button>
-            ))
-          ) : (
-            <p className="p-2 text-sm">
-              No matches in this window. Change dates or clear your search.
-            </p>
-          )}
-        </div>
-      )}
-      {preferences.legend && (
-        <div aria-label="Calendar legend" className="mb-2 flex flex-wrap gap-3 text-xs text-ink-2">
-          {Object.entries(STATUS).map(([key, value]) => (
-            <span key={key}>
-              <span className={`mr-1 inline-block h-2 w-2 rounded ${value.tone}`} />
-              {value.label}
-            </span>
-          ))}
-          <span>▧ Block / maintenance</span>
-          <span>★ VIP</span>
-          <span>↔ Group / split stay</span>
-          <span>$ Balance due</span>
-        </div>
-      )}
-      <div className="mb-2 flex min-h-5 items-center justify-between text-xs text-ink-3">
-        <span role="status" aria-live="polite">
-          {offline
-            ? 'Offline — changes are unavailable until connected.'
-            : chart.isFetching
-              ? 'Refreshing calendar…'
-              : message || `${chart.data?.counts.all ?? 0} rooms · Property time ${today}`}
-        </span>
-        <button className="underline" onClick={() => update({ legend: !preferences.legend })}>
-          Legend / help
-        </button>
-      </div>
+
+      <StatusLine
+        online={online}
+        fetching={chart.isFetching && !chart.isLoading}
+        businessDate={data?.businessDate}
+        today={today}
+        empty={!!data && allBars.every((b) => b.kind !== 'booking')}
+        onRefresh={() => void chart.refetch()}
+      />
+
       {chart.isError && (
-        <div
-          role="alert"
-          className="mb-3 rounded-lg border border-closed p-3 text-sm text-closed-ink"
-        >
-          {describeError(chart.error, 'Calendar could not refresh')}. Displayed information may be
-          outdated.{' '}
-          <button className="underline" onClick={() => void chart.refetch()}>
-            Retry
+        <InlineAlert tone="error" className="mb-3">
+          {describeError(chart.error, 'The calendar could not refresh')}. What you see may be out of
+          date.{' '}
+          <button
+            type="button"
+            className="font-semibold underline"
+            onClick={() => void chart.refetch()}
+          >
+            Try again
           </button>
-        </div>
+        </InlineAlert>
       )}
-      <div className="relative mb-2 h-9">
-        {selection && (
-          <div className="absolute inset-0 flex items-center gap-3 overflow-hidden rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand-ink">
-            <span>
-              {units.find((unit) => unit.id === selection.unitId)?.code} · {selection.from} →{' '}
-              {selection.to}
-            </span>
-            <button className="font-semibold underline" onClick={() => setRange(selection)}>
-              Actions for selected nights
-            </button>
-            <button aria-label="Clear selected nights" onClick={() => setSelection(null)}>
-              ×
-            </button>
-          </div>
-        )}
+
+      <div className="md:hidden mb-3 flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setMobileView(mobileView === 'list' ? 'grid' : 'list')}
+        >
+          {mobileView === 'list' ? (
+            <CalendarBlank size={14} aria-hidden />
+          ) : (
+            <List size={14} aria-hidden />
+          )}
+          {mobileView === 'list' ? 'Timeline' : 'Day list'}
+        </Button>
       </div>
-      <Card className="overflow-hidden">
-        {chart.isLoading ? (
-          <div className="space-y-2 p-4">
-            {Array.from({ length: 8 }, (_, index) => (
-              <Skeleton key={index} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : !filtered ? (
-          <p className="p-6 text-sm text-ink-3">
-            Select an accessible property to load its calendar.
-          </p>
-        ) : !filtered.roomTypes.length ? (
-          <p className="p-6 text-sm text-ink-3">
-            {chart.data?.roomTypes.length
-              ? 'No rooms match these filters.'
-              : 'No rooms configured. Add physical rooms in Property setup.'}{' '}
-            <button
-              className="underline"
-              onClick={() => {
-                setFilter('all');
-                setFilters(EMPTY_FILTERS);
-              }}
-            >
-              Clear filters
-            </button>
-          </p>
-        ) : (
-          <>
-            {mobileList && (
-              <div className="divide-y divide-line md:hidden" aria-label="Daily stay list">
-                <p className="p-3 text-xs font-semibold">
-                  {date} · Arrivals, departures and in-house
-                </p>
-                {bars
-                  .filter(
-                    (bar) => bar.from <= date && date <= bar.to && matchesBar(bar, filters, date),
-                  )
-                  .map((bar) => (
-                    <button
-                      key={bar.id}
-                      className="block w-full p-3 text-left"
-                      onClick={() => select(bar)}
-                    >
-                      <strong className="text-sm">{bar.guestName ?? bar.reason}</strong>
-                      <span className="block text-xs text-ink-3">
-                        {bar.from} → {bar.to} · {STATUS[bar.status ?? '']?.label ?? 'Blocked'}
-                      </span>
-                    </button>
-                  ))}
-                {!bars.some((bar) => bar.from <= date && date <= bar.to) && (
-                  <p className="p-4 text-sm text-ink-3">No stays for this day.</p>
-                )}
-                <Button
-                  className="m-3"
-                  size="sm"
-                  disabled={!can('reservation_change')}
-                  onClick={() => setRange({ from: date, to: addDays(date, 1) })}
-                >
-                  New reservation / block
-                </Button>
-              </div>
+
+      {!data ? (
+        chart.isError ? null : (
+          <GridSkeleton />
+        )
+      ) : data.roomTypes.length === 0 ? (
+        <EmptyState
+          icon={<DoorOpen size={28} />}
+          title="No rooms set up yet"
+          description="Add room types and numbered rooms in Property setup, and they appear here."
+          className="rounded-xl border border-line bg-surface"
+        />
+      ) : (
+        <>
+          {mobileView === 'list' && (
+            <div className="md:hidden">
+              <MobileDayList data={data} date={anchor} onOpen={openBar} />
+            </div>
+          )}
+          <div
+            className={cn(
+              'overflow-hidden rounded-xl border border-line bg-surface shadow-card transition-opacity duration-2',
+              mobileView === 'list' && 'hidden md:block',
+              !settled && 'opacity-60',
             )}
-            <div
-              className={mobileList ? 'hidden md:block' : ''}
-              style={!ready ? { opacity: 0.6, pointerEvents: 'none' } : undefined}
-              aria-busy={!ready}
-            >
-              <TapeChart
-                onRangeSelection={setSelection}
-                assignmentBar={chart.data?.unassigned.find((bar) => bar.id === selected?.id)}
-                data={filtered}
-                preferences={preferences}
-                filters={filters}
-                search={deferredSearch}
-                selectedId={selected?.bookingId}
-                groupBy={preferences.groupBy}
-                density={preferences.density}
-                today={today}
-                storageKey={storageKey}
-                locateId={locateId}
-                collapseSignal={collapseSignal}
-                onFeedback={setMessage}
-                onUnassigned={(value) => setUnassigned(value ?? 'all')}
-                onSelectBar={select}
-                onSelectUnit={(unit) => {
-                  setRoom(unit.id);
-                  setSelected(null);
-                }}
-                canMove={can('room_assignment') && !offline && !chart.isError}
-                canChangeDates={
-                  can('reservation_change', 'financial_read') && !offline && !chart.isError
-                }
-                onProposeMove={onMove}
-                onProposeDates={onDates}
-                onProposeResize={(bar, checkout) => onDates(bar, bar.from, checkout)}
-                onSelectEmptyRange={can('reservation_change') && !offline ? openRange : undefined}
-                onSelectEmpty={
-                  can('reservation_change', 'financial_read') && !offline
-                    ? (unitId, start) => {
-                        const unit = units.find((item) => item.id === unitId);
-                        openComposer({ checkin: start, roomId: unit?.roomId, roomUnitId: unitId });
-                      }
-                    : undefined
+            aria-busy={!settled}
+          >
+            {groups.length === 0 ? (
+              <EmptyState
+                title="No rooms match"
+                description="Nothing fits these filters in these dates."
+                action={
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setChip('all');
+                      setFilters(EMPTY_FILTERS);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
                 }
               />
-            </div>
-          </>
-        )}
-      </Card>
-      <ReservationSheet
-        bar={selected}
-        droppedRoom={droppedRoom}
-        proposedDates={proposedDates}
-        calendar={chart.data}
-        propertyId={propertyId}
-        currency={chart.data?.property.currency ?? ''}
-        onClose={closeReservation}
-        onChanged={() => refresh('Reservation updated.')}
-        onUpdatedBar={setSelected}
-        wide={preferences.widePanel}
-      />
-      <UnitPanel
-        key={room}
-        unit={activeUnit}
-        category={
-          chart.data?.roomTypes.find((category) => category.roomId === activeUnit?.roomId)?.name
-        }
-        today={today}
-        propertyId={propertyId}
-        onClose={() => setRoom(null)}
-        onChanged={refresh}
-        onSelect={select}
-        onBlock={(unitId) => {
-          setRoom(null);
-          setRange({ unitId, from: date, to: addDays(date, 1) });
+            ) : (
+              <CalendarGrid
+                data={data}
+                groups={groups}
+                windowFrom={data.from}
+                days={data.dates.length}
+                prefs={p}
+                stats={stats}
+                today={today}
+                operatingDate={operatingDate}
+                collapsed={collapsed}
+                visibleIds={visibleIds}
+                selectedBookingId={selectedBookingId}
+                compatibleUnitIds={compatibleUnitIds}
+                flash={flash}
+                flashToday={flashToday}
+                canAssign={canAssign && online}
+                canChangeDates={canChangeDates && online}
+                canCreate={(canCreate || canBlock) && online}
+                scrollKey={`${propertyId}:${days}`}
+                handlers={{
+                  onOpenBar: openBar,
+                  onOpenUnit: openUnit,
+                  onRange,
+                  onOpenEmpty: (unitId, date) => {
+                    if (!canCreate) return;
+                    const unit = unitsById.get(unitId);
+                    openComposer({ checkin: date, roomId: unit?.roomId, roomUnitId: unitId });
+                  },
+                  onProposeMove: proposeMove,
+                  onProposeDates: (bar, f, t) => setDateProposal({ bar, from: f, to: t }),
+                  onProposeResize: (bar, t) => setDateProposal({ bar, from: bar.from, to: t }),
+                  onRefuse: refuse,
+                  onUnassignedOn: (date) => setPanel({ kind: 'unassigned', date }),
+                  onToggleGroup: toggleGroup,
+                }}
+              />
+            )}
+          </div>
+        </>
+      )}
+
+      {data && (
+        <>
+          <StayHoverCard
+            currency={data.property.currency}
+            roomTypeName={typeName}
+            roomLabel={(id) => (id ? unitsById.get(id)?.code : undefined)}
+          />
+          <RangeActions
+            windowFrom={data.from}
+            unitsById={unitsById}
+            canReserve={canCreate && online}
+            canBlock={canBlock && online}
+            enabled={p.selectionActions}
+            onAction={startRangeAction}
+          />
+        </>
+      )}
+
+      <PanelHost
+        target={panelOpen ? panel : null}
+        width={p.panelWidth}
+        title={panelTitle}
+        description={panelDescription}
+        onClose={closePanel}
+      >
+        {panelBody}
+      </PanelHost>
+
+      <RoomMoveReview
+        proposal={moveProposal}
+        typeName={typeName}
+        today={operatingDate}
+        onClose={() => setMoveProposal(null)}
+        onDone={(id, message) => {
+          setMoveProposal(null);
+          setPick(null);
+          done(id, message);
         }}
       />
-      <QuickActions
-        range={range}
-        data={chart.data}
+      <DateChangeReview
+        proposal={dateProposal}
+        today={operatingDate}
+        currency={data?.property.currency ?? ''}
+        onClose={() => setDateProposal(null)}
+        onDone={(id, message) => {
+          setDateProposal(null);
+          done(id, message);
+        }}
+      />
+      <BlockDialog
+        draft={blockDraft}
+        units={units}
         propertyId={propertyId}
-        onClose={() => setRange(null)}
-        onSaved={refresh}
+        today={today}
+        onClose={() => setBlockDraft(null)}
+        onSaved={(unitId, message) => {
+          setBlockDraft(null);
+          done(null, message);
+          flashKey(unitId);
+        }}
       />
-      <CalendarSettings
-        open={settings}
-        onClose={() => setSettings(false)}
-        value={preferences}
-        onChange={update}
-        storageError={storageError}
-      />
-      <Sheet open={filterPanel} onOpenChange={setFilterPanel}>
-        <SheetContent
-          title="Calendar filters"
-          description="Status and source filters dim other reservations so you keep context."
-        >
-          <div className="space-y-4">
-            {(
-              [
-                [
-                  'status',
-                  'Reservation status',
-                  Object.entries(STATUS).map(([value, item]) => [value, item.label]),
-                ],
-                [
-                  'source',
-                  'Booking source',
-                  [...new Set(bars.map((bar) => bar.channel ?? bar.source).filter(Boolean))].map(
-                    (source) => [source!, SOURCE_LABEL[source!] ?? source!],
-                  ),
-                ],
-                [
-                  'category',
-                  'Room category',
-                  chart.data?.roomTypes.map((category) => [category.roomId, category.name]) ?? [],
-                ],
-                [
-                  'floor',
-                  'Floor',
-                  [...new Set(units.map((unit) => unit.floor).filter(Boolean))].map((floor) => [
-                    floor!,
-                    floor!,
-                  ]),
-                ],
-                ['housekeeping', 'Housekeeping', Object.entries(HK_LABEL)],
-                [
-                  'activity',
-                  'Daily activity',
-                  [
-                    ['arrivals', 'Arrivals'],
-                    ['departures', 'Departures'],
-                    ['inhouse', 'In house'],
-                  ],
-                ],
-              ] as [keyof CalendarFilters, string, string[][]][]
-            ).map(([key, label, options]) => (
-              <label key={key} className="block text-sm">
-                {label}
-                <select
-                  aria-label={label}
-                  className="mt-1 block w-full rounded-lg border border-line bg-surface p-2"
-                  value={String(filters[key])}
-                  onChange={(event) => setFilters({ ...filters, [key]: event.target.value })}
-                >
-                  <option value="">All</option>
-                  {options.map(([value, text]) => (
-                    <option key={value} value={value}>
-                      {text}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
-            {can('financial_read') && (
-              <label className="flex gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={filters.balance}
-                  onChange={(event) => setFilters({ ...filters, balance: event.target.checked })}
-                />
-                Balance due
-              </label>
-            )}
-            <Button variant="secondary" onClick={() => setFilters(EMPTY_FILTERS)}>
-              Clear all filters
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
-      <Sheet
-        modal={false}
-        open={unassigned !== null}
-        onOpenChange={(open) => !open && setUnassigned(null)}
-      >
-        <SheetContent
-          showOverlay={false}
-          onInteractOutside={(event) => event.preventDefault()}
-          title="Unassigned reservations"
-          description="Select a stay to locate matching rooms and review its assignment."
-        >
-          {unassignedBars.length === 0 ? (
-            <p className="text-sm text-ink-3">
-              All reservations in this selection have rooms assigned.
-            </p>
-          ) : (
-            chart.data?.roomTypes.map((category) => {
-              const pending = unassignedBars.filter((bar) => bar.roomId === category.roomId);
-              if (!pending.length) return null;
-              return (
-                <section key={category.roomId} className="mb-4">
-                  <h3 className="mb-2 text-sm font-semibold">{category.name}</h3>
-                  {pending.map((bar) => (
-                    <button
-                      className="mb-2 block w-full rounded-lg border border-line p-3 text-left hover:bg-brand-soft"
-                      key={bar.id}
-                      onClick={() => {
-                        setUnassigned(null);
-                        setFilters({ ...EMPTY_FILTERS, category: category.roomId });
-                        select(bar);
-                        const free = category.units.find((unit) => !destinationIssue(bar, unit));
-                        if (free) setLocateId(free.id);
-                      }}
-                    >
-                      <strong className="text-sm">{bar.guestName}</strong>
-                      <span className="block text-xs text-ink-3">
-                        {bar.from} → {bar.to} · {(bar.adults ?? 0) + (bar.children ?? 0)} guests ·{' '}
-                        {STATUS[bar.status ?? '']?.label} ·{' '}
-                        {SOURCE_LABEL[bar.source ?? ''] ?? bar.source}
-                      </span>
-                    </button>
-                  ))}
-                </section>
-              );
-            })
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
+}
+
+/** The action bar under selected empty nights, positioned on the selection itself. */
+function RangeActions({
+  windowFrom,
+  unitsById,
+  canReserve,
+  canBlock,
+  enabled,
+  onAction,
+}: {
+  windowFrom: string;
+  unitsById: Map<string, StayUnit>;
+  canReserve: boolean;
+  canBlock: boolean;
+  enabled: boolean;
+  onAction: (action: RangeAction, range: { unitId?: string; from: string; to: string }) => void;
+}) {
+  const range = useInteraction((s) => s.range);
+  const store = React.useContext(InteractionContext)!;
+  const [, bump] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    const grid = document.querySelector('.sv-grid');
+    if (!range?.done || !grid) return;
+    const onScroll = () => bump();
+    grid.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      grid.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [range]);
+  if (!enabled || !range?.done || typeof document === 'undefined') return null;
+  const strip = document.querySelector<HTMLElement>(`[data-unit-id="${CSS.escape(range.unitId)}"]`);
+  const grid = document.querySelector<HTMLElement>('.sv-grid');
+  if (!strip || !grid) return null;
+  const colW = Number(grid.dataset.colWidth) || 60;
+  const start = Math.min(range.start, range.end);
+  const end = Math.max(range.start, range.end);
+  const from = addDays(windowFrom, start);
+  const to = addDays(windowFrom, end + 1);
+  const unit = unitsById.get(range.unitId);
+  if (unit && unit.bars.some((b) => b.from < to && from < b.to)) return null;
+  const s = strip.getBoundingClientRect();
+  const g = grid.getBoundingClientRect();
+  const top = s.bottom + 6;
+  if (top < g.top || top > g.bottom) return null;
+  const left = Math.max(g.left + 8, Math.min(s.left + start * colW, window.innerWidth - 480));
+  return createPortal(
+    <div className="fixed z-40" style={{ top, left }}>
+      <RangeActionBar
+        range={{ unitId: range.unitId, from, to }}
+        unit={unit}
+        canReserve={canReserve}
+        canBlock={canBlock}
+        onAction={(a) => onAction(a, { unitId: range.unitId, from, to })}
+        onClear={() => store.set({ range: null })}
+      />
+    </div>,
+    document.body,
+  );
+}
+
+function StatusLine({
+  online,
+  fetching,
+  businessDate,
+  today,
+  empty,
+  onRefresh,
+}: {
+  online: boolean;
+  fetching: boolean;
+  businessDate?: string;
+  today: string;
+  empty: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <div
+      className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-3"
+      role="status"
+      aria-live="polite"
+    >
+      {!online ? (
+        <span className="inline-flex items-center gap-1.5 font-semibold text-closed-ink">
+          <WifiSlash size={13} aria-hidden /> Offline — changes are paused until you reconnect.
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="inline-flex items-center gap-1.5 hover:text-ink"
+        >
+          <ArrowsClockwise size={12} className={cn(fetching && 'animate-spin')} aria-hidden />
+          {fetching ? 'Updating…' : 'Up to date'}
+        </button>
+      )}
+      {businessDate && businessDate < today && (
+        <span className="text-low-ink">
+          Night audit last closed {businessDate} — run it to roll the business date forward.
+        </span>
+      )}
+      {empty && <span>No stays in these dates yet.</span>}
+    </div>
+  );
+}
+
+function GridSkeleton() {
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-line bg-surface"
+      aria-busy="true"
+      aria-label="Loading the calendar"
+    >
+      <div className="flex h-14 border-b border-line">
+        <div className="w-[196px] shrink-0 border-r border-line" />
+        <div className="flex flex-1 gap-3 px-3 py-3">
+          {Array.from({ length: 10 }, (_, i) => (
+            <Skeleton key={i} className="h-full flex-1" shimmer />
+          ))}
+        </div>
+      </div>
+      {Array.from({ length: 9 }, (_, i) => (
+        <div key={i} className="flex h-11 items-center border-b border-line">
+          <div className="w-[196px] shrink-0 border-r border-line px-3">
+            <Skeleton className="h-4 w-16" />
+          </div>
+          <div className="relative flex-1 px-2">
+            <Skeleton
+              className="h-6"
+              style={{ width: `${18 + ((i * 37) % 45)}%`, marginLeft: `${(i * 23) % 40}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function useOnline() {
+  const [online, setOnline] = React.useState(true);
+  React.useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
 }

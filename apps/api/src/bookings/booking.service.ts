@@ -6,7 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   bookings,
   bookingDays,
@@ -652,214 +652,293 @@ export class BookingService {
     newCheckout: string,
     reason: string,
     ctx: TransitionContext = {},
+    expectedUpdatedAt?: string,
   ) {
-    return this.dbs.withTenant(tenantId, async (tx) => {
-      const b = await this.lockBooking(tx, id);
-      if (b.status !== 'CheckedIn') {
-        throw new BadRequestException(
-          'Only an in-house stay changes its departure here; edit the reservation before arrival',
-        );
-      }
-      if (newCheckout === b.checkout) {
-        throw new BadRequestException(`${b.reference} already leaves on ${b.checkout}`);
-      }
-      const property = await this.propertyOf(tx, b.propertyId);
-      const today = await this.operatingDate(tx, b.propertyId, property.timezone);
-      if (newCheckout < today || newCheckout <= b.checkin) {
-        throw new ConflictException({
-          reason: 'departure_in_past',
-          message: `The guest cannot leave before ${today}. To let them go today, check them out.`,
-        });
-      }
+    return this.dbs.withTenant(tenantId, (tx) =>
+      this.changeDepartureWithin(tx, tenantId, id, newCheckout, reason, ctx, expectedUpdatedAt),
+    );
+  }
 
-      const now = new Date();
-      if (newCheckout > b.checkout) {
-        // Extend: price the added nights only, under the terms the stay was sold on.
-        const added = eachNight(b.checkout, newCheckout);
-        const snapshot = readPricingSnapshot(b.pricing);
-        const currentDays = await tx
-          .select({ sellingPrice: bookingDays.sellingPrice })
-          .from(bookingDays)
-          .where(eq(bookingDays.bookingId, id));
-        const [tenant] = await tx
-          .select({ mode: tenants.distributionMode })
-          .from(tenants)
-          .where(eq(tenants.id, tenantId));
-        const line = await this.pricer.priceLine(
+  /**
+   * What moving an in-house departure would do (Stay View's resize review): the new total, the
+   * difference and every night's price — computed by doing it for real in a transaction that is
+   * always rolled back, so the review shows exactly what Save will charge, including a
+   * complimentary or overridden rate that the stay keeps.
+   */
+  async changeDeparturePreview(
+    tenantId: string,
+    id: string,
+    newCheckout: string,
+    ctx: TransitionContext = {},
+  ) {
+    const preview = {
+      ok: false,
+      problem: null as Record<string, unknown> | null,
+      bookingId: id,
+      expectedUpdatedAt: '',
+      currency: '',
+      old: { checkin: '', checkout: '', amount: '0.00' },
+      proposed: { checkin: '', checkout: newCheckout, amount: '0.00', difference: '0.00' },
+      nights: [] as Array<{ date: string; amount: string; retained: boolean }>,
+    };
+    await this.rolledBack(tenantId, async (tx) => {
+      const [b] = await tx.select().from(bookings).where(eq(bookings.id, id));
+      if (!b) throw new NotFoundException('Booking not found');
+      preview.expectedUpdatedAt = b.updatedAt.toISOString();
+      preview.currency = b.currency;
+      preview.old = { checkin: b.checkin, checkout: b.checkout, amount: b.amount };
+      preview.proposed = {
+        checkin: b.checkin,
+        checkout: newCheckout,
+        amount: b.amount,
+        difference: '0.00',
+      };
+      preview.problem = await this.attempt(async () => {
+        const updated = await this.changeDepartureWithin(
           tx,
-          {
-            roomId: b.roomId,
-            occupancyId: b.occupancyId,
-            checkin: b.checkout,
-            checkout: newCheckout,
-            rooms: b.rooms,
-            policy: policyForAmend(
-              snapshot,
-              currentDays.map((d) => Number(d.sellingPrice)),
-            ),
-            unpricedMessage: 'Prices are not set for the extra nights',
-          },
-          tenant?.mode ?? 'yoho',
-        );
-        try {
-          await reserveStay(tx, b.roomId, added, b.rooms);
-        } catch (e) {
-          if (e instanceof InsufficientAvailabilityError) {
-            throw new ConflictException({
-              reason: 'insufficient_availability',
-              date: e.date,
-              message: `This room type is sold out on ${e.date}, so the stay cannot be extended past it.`,
-            });
-          }
-          throw e;
-        }
-        await enqueueOutbox(tx, {
           tenantId,
-          aggregate: 'availability',
-          aggregateId: b.roomId,
-          eventType: 'ari.availability',
-          payload: {
-            propertyId: b.propertyId,
-            roomId: b.roomId,
-            nights: added,
-            rooms: b.rooms,
-            action: 'reserve',
-            origin: 'stay_extended',
-          },
-        });
-
-        // The guest stays in their room. Each leg is stretched in its own savepoint, so a clash
-        // is reported with the room and not as a generic failure.
-        const legs = await tx
-          .select({ id: bookingRooms.id, code: roomUnits.code })
-          .from(bookingRooms)
-          .leftJoin(roomUnits, eq(roomUnits.id, bookingRooms.roomUnitId))
-          .where(
-            and(
-              eq(bookingRooms.bookingId, id),
-              isNull(bookingRooms.releasedAt),
-              eq(bookingRooms.checkout, b.checkout),
-            ),
-          );
-        for (const leg of legs) {
-          try {
-            await tx.transaction(async (sp) => {
-              await sp
-                .update(bookingRooms)
-                .set({ checkout: newCheckout, updatedAt: now })
-                .where(eq(bookingRooms.id, leg.id));
-            });
-          } catch (e) {
-            if ((e as { code?: string })?.code !== '23P01') throw e;
-            throw new ConflictException({
-              reason: 'room_taken',
-              message: `Room ${leg.code ?? ''} is booked for another guest during the extra nights. Move this guest to a free room first, then extend.`,
-            });
-          }
-        }
-
-        await tx.insert(bookingDays).values(
-          line.nights.map((n) => ({
-            tenantId,
-            bookingId: id,
-            date: n.date,
-            basePrice: n.basePrice,
-            sellingPrice: n.sellingPrice,
-            commission: n.commission,
-            tax: n.tax,
-            listSellingPrice: n.listSellingPrice,
-            rateSource: n.rateSource,
-            taxLines: n.taxLines,
-          })),
+          id,
+          newCheckout,
+          'Reviewed on the calendar',
+          ctx,
         );
-      } else {
-        // Shorten: the nights from the new departure go back on sale and off the bill.
-        const removed = eachNight(newCheckout, b.checkout);
-        const posted = await tx
-          .select({ id: folioCharges.id })
-          .from(folioCharges)
-          .innerJoin(folios, eq(folios.id, folioCharges.folioId))
-          .where(
-            and(
-              eq(folios.bookingId, id),
-              eq(folioCharges.source, 'room'),
-              isNull(folioCharges.voidedAt),
-              inArray(folioCharges.bookingDate, removed),
-            ),
-          );
-        if (posted.length) {
-          await tx
-            .update(folioCharges)
-            .set({
-              voidedAt: now,
-              voidReason: 'Stay shortened',
-              voidedByUserId: ctx.actorUserId ?? null,
-              updatedAt: now,
-            })
-            .where(
-              inArray(
-                folioCharges.id,
-                posted.map((p) => p.id),
-              ),
-            );
-        }
-        await releaseStay(tx, b.roomId, removed, b.rooms);
-        await enqueueOutbox(tx, {
-          tenantId,
-          aggregate: 'availability',
-          aggregateId: b.roomId,
-          eventType: 'ari.availability',
-          payload: {
-            propertyId: b.propertyId,
-            roomId: b.roomId,
-            nights: removed,
-            rooms: b.rooms,
-            action: 'release',
-            origin: 'stay_shortened',
-          },
-        });
-        const live = and(eq(bookingRooms.bookingId, id), isNull(bookingRooms.releasedAt));
-        await tx
-          .update(bookingRooms)
-          .set({ releasedAt: now, updatedAt: now })
-          .where(and(live, gte(bookingRooms.checkin, newCheckout)));
-        await tx
-          .update(bookingRooms)
-          .set({ checkout: newCheckout, updatedAt: now })
-          .where(and(live, gt(bookingRooms.checkout, newCheckout)));
-        await tx
-          .delete(bookingDays)
-          .where(and(eq(bookingDays.bookingId, id), inArray(bookingDays.date, removed)));
-      }
+        preview.proposed.amount = updated.amount;
+        preview.proposed.difference = (Number(updated.amount) - Number(b.amount)).toFixed(2);
+        const days = await tx
+          .select({ date: bookingDays.date, amount: bookingDays.sellingPrice })
+          .from(bookingDays)
+          .where(eq(bookingDays.bookingId, id))
+          .orderBy(asc(bookingDays.date));
+        preview.nights = days.map((d) => ({
+          date: d.date,
+          amount: d.amount,
+          retained: b.checkin <= d.date && d.date < b.checkout,
+        }));
+      });
+      preview.ok = preview.problem === null;
+    });
+    return preview;
+  }
 
-      const nights = await tx
-        .select({
-          sellingPrice: bookingDays.sellingPrice,
-          basePrice: bookingDays.basePrice,
-          tax: bookingDays.tax,
-        })
+  private async changeDepartureWithin(
+    tx: Tx,
+    tenantId: string,
+    id: string,
+    newCheckout: string,
+    reason: string,
+    ctx: TransitionContext = {},
+    expectedUpdatedAt?: string,
+  ) {
+    const b = await this.lockBooking(tx, id);
+    if (expectedUpdatedAt && b.updatedAt.toISOString() !== expectedUpdatedAt)
+      throw new ConflictException({
+        reason: 'changed',
+        message: 'This reservation changed after the review. Refresh the proposal.',
+      });
+    if (b.status !== 'CheckedIn') {
+      throw new BadRequestException(
+        'Only an in-house stay changes its departure here; edit the reservation before arrival',
+      );
+    }
+    if (newCheckout === b.checkout) {
+      throw new BadRequestException(`${b.reference} already leaves on ${b.checkout}`);
+    }
+    const property = await this.propertyOf(tx, b.propertyId);
+    const today = await this.operatingDate(tx, b.propertyId, property.timezone);
+    if (newCheckout < today || newCheckout <= b.checkin) {
+      throw new ConflictException({
+        reason: 'departure_in_past',
+        message: `The guest cannot leave before ${today}. To let them go today, check them out.`,
+      });
+    }
+
+    const now = new Date();
+    if (newCheckout > b.checkout) {
+      // Extend: price the added nights only, under the terms the stay was sold on.
+      const added = eachNight(b.checkout, newCheckout);
+      const snapshot = readPricingSnapshot(b.pricing);
+      const currentDays = await tx
+        .select({ sellingPrice: bookingDays.sellingPrice })
         .from(bookingDays)
         .where(eq(bookingDays.bookingId, id));
-      const [updated] = await tx
-        .update(bookings)
-        .set({
-          checkout: newCheckout,
-          nights: nights.length,
-          ...totalsFromNights(nights, b.rooms),
-          updatedAt: now,
-        })
-        .where(eq(bookings.id, id))
-        .returning();
-      await this.record(
+      const [tenant] = await tx
+        .select({ mode: tenants.distributionMode })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId));
+      const line = await this.pricer.priceLine(
         tx,
-        tenantId,
-        id,
-        'amended',
-        `Departure ${b.checkout} → ${newCheckout}: ${reason.trim()}`,
-        ctx,
+        {
+          roomId: b.roomId,
+          occupancyId: b.occupancyId,
+          checkin: b.checkout,
+          checkout: newCheckout,
+          rooms: b.rooms,
+          policy: policyForAmend(
+            snapshot,
+            currentDays.map((d) => Number(d.sellingPrice)),
+          ),
+          unpricedMessage: 'Prices are not set for the extra nights',
+        },
+        tenant?.mode ?? 'yoho',
       );
-      return updated;
-    });
+      try {
+        await reserveStay(tx, b.roomId, added, b.rooms);
+      } catch (e) {
+        if (e instanceof InsufficientAvailabilityError) {
+          throw new ConflictException({
+            reason: 'insufficient_availability',
+            date: e.date,
+            message: `This room type is sold out on ${e.date}, so the stay cannot be extended past it.`,
+          });
+        }
+        throw e;
+      }
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'availability',
+        aggregateId: b.roomId,
+        eventType: 'ari.availability',
+        payload: {
+          propertyId: b.propertyId,
+          roomId: b.roomId,
+          nights: added,
+          rooms: b.rooms,
+          action: 'reserve',
+          origin: 'stay_extended',
+        },
+      });
+
+      // The guest stays in their room. Each leg is stretched in its own savepoint, so a clash
+      // is reported with the room and not as a generic failure.
+      const legs = await tx
+        .select({ id: bookingRooms.id, code: roomUnits.code })
+        .from(bookingRooms)
+        .leftJoin(roomUnits, eq(roomUnits.id, bookingRooms.roomUnitId))
+        .where(
+          and(
+            eq(bookingRooms.bookingId, id),
+            isNull(bookingRooms.releasedAt),
+            eq(bookingRooms.checkout, b.checkout),
+          ),
+        );
+      for (const leg of legs) {
+        try {
+          await tx.transaction(async (sp) => {
+            await sp
+              .update(bookingRooms)
+              .set({ checkout: newCheckout, updatedAt: now })
+              .where(eq(bookingRooms.id, leg.id));
+          });
+        } catch (e) {
+          if ((e as { code?: string })?.code !== '23P01') throw e;
+          throw new ConflictException({
+            reason: 'room_taken',
+            message: `Room ${leg.code ?? ''} is booked for another guest during the extra nights. Move this guest to a free room first, then extend.`,
+          });
+        }
+      }
+
+      await tx.insert(bookingDays).values(
+        line.nights.map((n) => ({
+          tenantId,
+          bookingId: id,
+          date: n.date,
+          basePrice: n.basePrice,
+          sellingPrice: n.sellingPrice,
+          commission: n.commission,
+          tax: n.tax,
+          listSellingPrice: n.listSellingPrice,
+          rateSource: n.rateSource,
+          taxLines: n.taxLines,
+        })),
+      );
+    } else {
+      // Shorten: the nights from the new departure go back on sale and off the bill.
+      const removed = eachNight(newCheckout, b.checkout);
+      const posted = await tx
+        .select({ id: folioCharges.id })
+        .from(folioCharges)
+        .innerJoin(folios, eq(folios.id, folioCharges.folioId))
+        .where(
+          and(
+            eq(folios.bookingId, id),
+            eq(folioCharges.source, 'room'),
+            isNull(folioCharges.voidedAt),
+            inArray(folioCharges.bookingDate, removed),
+          ),
+        );
+      if (posted.length) {
+        await tx
+          .update(folioCharges)
+          .set({
+            voidedAt: now,
+            voidReason: 'Stay shortened',
+            voidedByUserId: ctx.actorUserId ?? null,
+            updatedAt: now,
+          })
+          .where(
+            inArray(
+              folioCharges.id,
+              posted.map((p) => p.id),
+            ),
+          );
+      }
+      await releaseStay(tx, b.roomId, removed, b.rooms);
+      await enqueueOutbox(tx, {
+        tenantId,
+        aggregate: 'availability',
+        aggregateId: b.roomId,
+        eventType: 'ari.availability',
+        payload: {
+          propertyId: b.propertyId,
+          roomId: b.roomId,
+          nights: removed,
+          rooms: b.rooms,
+          action: 'release',
+          origin: 'stay_shortened',
+        },
+      });
+      const live = and(eq(bookingRooms.bookingId, id), isNull(bookingRooms.releasedAt));
+      await tx
+        .update(bookingRooms)
+        .set({ releasedAt: now, updatedAt: now })
+        .where(and(live, gte(bookingRooms.checkin, newCheckout)));
+      await tx
+        .update(bookingRooms)
+        .set({ checkout: newCheckout, updatedAt: now })
+        .where(and(live, gt(bookingRooms.checkout, newCheckout)));
+      await tx
+        .delete(bookingDays)
+        .where(and(eq(bookingDays.bookingId, id), inArray(bookingDays.date, removed)));
+    }
+
+    const nights = await tx
+      .select({
+        sellingPrice: bookingDays.sellingPrice,
+        basePrice: bookingDays.basePrice,
+        tax: bookingDays.tax,
+      })
+      .from(bookingDays)
+      .where(eq(bookingDays.bookingId, id));
+    const [updated] = await tx
+      .update(bookings)
+      .set({
+        checkout: newCheckout,
+        nights: nights.length,
+        ...totalsFromNights(nights, b.rooms),
+        updatedAt: now,
+      })
+      .where(eq(bookings.id, id))
+      .returning();
+    await this.record(
+      tx,
+      tenantId,
+      id,
+      'amended',
+      `Departure ${b.checkout} → ${newCheckout}: ${reason.trim()}`,
+      ctx,
+    );
+    return updated!;
   }
 
   /** Run `fn` in a tenant transaction that is always rolled back — a dry run of the real thing. */
@@ -1787,6 +1866,7 @@ export class BookingService {
       )
         throw new BadRequestException('An in-house stay can only extend its departure date.');
       if (checkin >= checkout) throw new BadRequestException('Departure must be after arrival.');
+      if (booking.status !== 'CheckedIn') await this.assertNotSplit(tx, id);
       const line = await this.quoteAmendedNights(
         tx,
         tenantId,
@@ -1850,8 +1930,10 @@ export class BookingService {
     });
   }
 
-  amend(tenantId: string, id: string, dto: AmendBookingDto) {
-    return this.dbs.withTenant(tenantId, (tx) => this.amendWithin(tx, tenantId, id, dto));
+  amend(tenantId: string, id: string, dto: AmendBookingDto, ctx: TransitionContext = {}) {
+    return this.dbs.withTenant(tenantId, (tx) =>
+      this.amendWithin(tx, tenantId, id, dto, undefined, undefined, ctx),
+    );
   }
 
   /** Review and save are priced by the same helper; the booking version is checked under lock. */
@@ -1861,10 +1943,32 @@ export class BookingService {
     dto: AmendBookingDto,
     expectedUpdatedAt: string,
     expectedAmount: string,
+    ctx: TransitionContext = {},
   ) {
     return this.dbs.withTenant(tenantId, (tx) =>
-      this.amendWithin(tx, tenantId, id, dto, expectedUpdatedAt, expectedAmount),
+      this.amendWithin(tx, tenantId, id, dto, expectedUpdatedAt, expectedAmount, ctx),
     );
+  }
+
+  /**
+   * A stay split across rooms (a mid-stay move) has one leg per room. Shifting its dates as one
+   * block would have to decide which room each shifted night belongs to, which is a room move,
+   * not a date change — so it is refused with what to do instead, never guessed.
+   */
+  private async assertNotSplit(tx: Tx, bookingId: string) {
+    const [split] = await tx
+      .select({ legIndex: bookingRooms.legIndex })
+      .from(bookingRooms)
+      .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)))
+      .groupBy(bookingRooms.legIndex)
+      .having(sql`count(*) > 1`)
+      .limit(1);
+    if (split)
+      throw new ConflictException({
+        reason: 'split_stay',
+        message:
+          'This stay is split across rooms, so its dates cannot move as one block. Move the guest back into one room first, or change the departure from the reservation.',
+      });
   }
 
   private async amendWithin(
@@ -1874,6 +1978,7 @@ export class BookingService {
     dto: AmendBookingDto,
     expectedUpdatedAt?: string,
     expectedAmount?: string,
+    ctx: TransitionContext = {},
   ) {
     const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
     if (!b) throw new NotFoundException('Booking not found');
@@ -1921,6 +2026,7 @@ export class BookingService {
         );
       if (newCheckout <= newCheckin)
         throw new BadRequestException('checkout must be after checkin');
+      if (!inHouseExtension) await this.assertNotSplit(tx, b.id);
 
       const oldNights = eachNight(b.checkin, b.checkout);
       const newNights = eachNight(newCheckin, newCheckout);
@@ -2157,12 +2263,14 @@ export class BookingService {
     }
 
     if (changes.length === 0) throw new BadRequestException('Nothing to amend');
-    await tx.insert(bookingApprovals).values({
+    await this.record(
+      tx,
       tenantId,
-      bookingId: id,
-      action: 'amended',
-      reason: changes.join('; '),
-    });
+      id,
+      stayChanged ? 'stay_changed' : 'amended',
+      changes.join('; '),
+      ctx,
+    );
 
     const [updated] = await tx.select().from(bookings).where(eq(bookings.id, id));
     return updated;

@@ -36,6 +36,7 @@ import {
 } from '@/lib/api';
 import { useDesk } from '@/components/booking/desk-dialogs';
 import { useRefreshDesk } from '@/components/booking/refresh';
+import { actionsFor } from '@/lib/booking-actions';
 
 type Row = Pick<
   ReservationRow,
@@ -52,38 +53,7 @@ type Row = Pick<
 
 type Danger = 'no-show' | 'release' | null;
 
-/**
- * Which actions a reservation offers right now. Kept pure so every screen agrees. The server is
- * the authority (UX-STANDARD §4) — an action offered here can still be refused with a reason.
- */
-export function actionsFor(
-  row: Pick<
-    Row,
-    'status' | 'reservationKind' | 'inventoryHeld' | 'checkin' | 'checkout' | 'roomCodes'
-  >,
-  today: string,
-) {
-  const live = row.status === 'Pending' || row.status === 'Approved';
-  const kind = row.reservationKind;
-  const isHold = kind === 'hold_confirm' || kind === 'hold_unconfirm';
-  return {
-    confirm: live && kind !== 'confirm',
-    release: live && isHold,
-    checkIn:
-      row.status === 'Approved' &&
-      (kind === 'confirm' || kind === 'hold_confirm') &&
-      row.checkin <= today,
-    checkOut: row.status === 'CheckedIn',
-    takePayment: row.status === 'Approved' || row.status === 'CheckedIn',
-    changeDeparture: row.status === 'CheckedIn',
-    undoCheckIn: row.status === 'CheckedIn',
-    undoCheckOut: row.status === 'CheckedOut',
-    reinstate: (row.status === 'Cancelled' || row.status === 'NoShow') && row.checkout > today,
-    assign: live && row.inventoryHeld && row.roomCodes.length === 0,
-    noShow: row.status === 'Approved' && row.checkin < today,
-    cancel: live,
-  };
-}
+export { actionsFor } from '@/lib/booking-actions';
 
 /** Refresh every screen a reservation's change shows on. */
 export function useInvalidateReservations() {

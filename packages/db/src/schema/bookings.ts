@@ -58,6 +58,10 @@ export const bookingAction = pgEnum('booking_action', [
   'check_in_undone',
   'check_out_undone',
   'reinstated',
+  // Stay View: who put the guest in which room, and who moved their dates.
+  'room_assigned',
+  'room_moved',
+  'stay_changed',
 ]);
 
 export const customers = pgTable(

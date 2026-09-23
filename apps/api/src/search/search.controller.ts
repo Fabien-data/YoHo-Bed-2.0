@@ -1,6 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { TenantGuard } from '../tenancy/tenant.guard';
+import { TenantGuard, type TenantRequest } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { SearchService } from './search.service';
@@ -15,8 +15,9 @@ export class SearchController {
   @Get('search')
   find(
     @TenantId() tenantId: string,
+    @Req() request: TenantRequest,
     @Query(new ZodValidationPipe(searchQuerySchema)) q: SearchQueryDto,
   ) {
-    return this.search.search(tenantId, q);
+    return this.search.search(tenantId, q, request.hotelPermissions);
   }
 }

@@ -2,44 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Stay calendar uses the product palette and motion scale, including dark mode. */
-.calendar-workspace {
-  --calendar-today: var(--brand-soft);
-}
-.calendar-today {
-  background: var(--calendar-today);
-  box-shadow: inset 0 -2px var(--brand);
-}
-.calendar-viewport [data-unit-id]:focus-visible {
-  outline: 2px solid var(--brass);
-  outline-offset: -2px;
-}
-.calendar-viewport [data-unit-id]:hover {
-  background-color: var(--surface-2);
-}
-.calendar-viewport [data-leg-id] {
-  transition:
-    opacity 140ms ease,
-    box-shadow 140ms ease;
-}
-.calendar-viewport [data-selected='true'] {
-  animation: calendar-locate 240ms ease-out;
-}
-@keyframes calendar-locate {
-  from {
-    filter: brightness(1.2);
-  }
-  to {
-    filter: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .calendar-viewport [data-leg-id] {
-    transition: none;
-    animation: none;
-  }
-}
-
 /* ---------------------------------------------------------------------------
    YoHoBed design tokens — "Ink Navy & Brass".
    Light is the product default; ThemeScript stamps data-theme on <html> before
@@ -420,5 +382,562 @@ body {
   .room-rush,
   .room-status-ripple {
     animation: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Stay View calendar.
+   The grid's geometry comes from --col-w (set on .sv-grid from the measured width), so a
+   window resize or density change moves every bar without React re-rendering a row. Every
+   state below pairs a colour with a pattern or border and, in the markup, an icon and a label
+   (docs/DESIGN-SYSTEM.md; a state is never told apart by colour alone).
+--------------------------------------------------------------------------- */
+:root {
+  --cal-weekend: color-mix(in srgb, var(--ink) 2.5%, transparent);
+  --cal-today: color-mix(in srgb, var(--info) 9%, transparent);
+  --cal-today-edge: var(--info);
+  --cal-row-hover: color-mix(in srgb, var(--ink) 3%, transparent);
+  --cal-selection: color-mix(in srgb, var(--brass) 15%, transparent);
+  --cal-selection-edge: var(--brass);
+  --cal-drop-ok: color-mix(in srgb, var(--avail) 12%, transparent);
+  --cal-drop-no: color-mix(in srgb, var(--closed) 9%, transparent);
+  --cal-lift: 0 2px 4px rgba(16, 27, 45, 0.14), 0 10px 24px rgba(16, 27, 45, 0.2);
+
+  /* reservation states: fill, edge, text */
+  --stay-inhouse-bg: var(--avail);
+  --stay-inhouse-edge: color-mix(in srgb, var(--avail) 70%, black);
+  --stay-inhouse-ink: #ffffff;
+  --stay-confirmed-bg: color-mix(in srgb, var(--brand) 12%, var(--surface));
+  --stay-confirmed-edge: var(--brand);
+  --stay-confirmed-ink: var(--ink);
+  --stay-pending-bg: color-mix(in srgb, var(--low) 15%, var(--surface));
+  --stay-pending-edge: var(--low);
+  --stay-pending-ink: var(--low-ink);
+  --stay-hold-bg: color-mix(in srgb, var(--low) 10%, var(--surface));
+  --stay-hold-stripe: color-mix(in srgb, var(--low) 22%, var(--surface));
+  --stay-hold-edge: var(--low);
+  --stay-hold-ink: var(--low-ink);
+  --stay-tentative-bg: color-mix(in srgb, var(--info) 6%, var(--surface));
+  --stay-tentative-edge: var(--info);
+  --stay-tentative-ink: var(--info-ink);
+  --stay-checkedout-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
+  --stay-checkedout-edge: var(--ink-3);
+  --stay-checkedout-ink: var(--ink-2);
+  --stay-closed-bg: color-mix(in srgb, var(--closed) 10%, var(--surface));
+  --stay-closed-edge: var(--closed);
+  --stay-closed-ink: var(--closed-ink);
+  --stay-oos-a: color-mix(in srgb, var(--closed) 16%, var(--surface));
+  --stay-oos-b: color-mix(in srgb, var(--closed) 6%, var(--surface));
+  --stay-oos-edge: var(--closed);
+  --stay-oos-ink: var(--closed-ink);
+  --stay-blocked-a: color-mix(in srgb, var(--ink) 13%, var(--surface));
+  --stay-blocked-b: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --stay-blocked-edge: var(--ink-3);
+  --stay-blocked-ink: var(--ink-2);
+}
+:root[data-theme='dark'] {
+  --cal-weekend: color-mix(in srgb, var(--ink) 3%, transparent);
+  --cal-today: color-mix(in srgb, var(--info) 14%, transparent);
+  --cal-selection: color-mix(in srgb, var(--brass) 20%, transparent);
+  --cal-selection-edge: var(--brass);
+  --cal-lift: 0 2px 4px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.55);
+  --stay-confirmed-bg: color-mix(in srgb, var(--brand) 42%, var(--surface));
+  --stay-confirmed-edge: var(--brand-ink);
+  --stay-pending-bg: color-mix(in srgb, var(--low) 22%, var(--surface));
+  --stay-hold-bg: color-mix(in srgb, var(--low) 14%, var(--surface));
+  --stay-hold-stripe: color-mix(in srgb, var(--low) 28%, var(--surface));
+  --stay-tentative-bg: color-mix(in srgb, var(--info) 10%, var(--surface));
+  --stay-checkedout-bg: color-mix(in srgb, var(--ink) 10%, var(--surface));
+  --stay-closed-bg: color-mix(in srgb, var(--closed) 16%, var(--surface));
+  --stay-oos-a: color-mix(in srgb, var(--closed) 24%, var(--surface));
+  --stay-oos-b: color-mix(in srgb, var(--closed) 10%, var(--surface));
+  --stay-blocked-a: color-mix(in srgb, var(--ink) 16%, var(--surface));
+  --stay-blocked-b: color-mix(in srgb, var(--ink) 7%, var(--surface));
+}
+
+/* The strip each room's bars sit on: one node per room, the night rules drawn behind it. */
+.sv-strip {
+  position: relative;
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 calc(var(--col-w) - 1px),
+    var(--line) calc(var(--col-w) - 1px) var(--col-w)
+  );
+  transition: background-color var(--dur-1) var(--ease-smooth);
+}
+.sv-row:hover > .sv-strip,
+.sv-row:hover > .sv-label {
+  background-color: var(--cal-row-hover);
+}
+.sv-label {
+  transition: background-color var(--dur-1) var(--ease-smooth);
+}
+.sv-strip[data-drop='ok'] {
+  background-color: var(--cal-drop-ok);
+  box-shadow: inset 0 0 0 2px var(--avail);
+}
+.sv-strip[data-drop='no'] {
+  background-color: var(--cal-drop-no);
+  box-shadow: inset 0 0 0 2px var(--closed);
+}
+.sv-strip[data-compatible='true'] {
+  box-shadow: inset 3px 0 0 var(--avail);
+  background-color: var(--cal-drop-ok);
+}
+
+/* Weekend and today columns, drawn once for the whole body rather than per cell. */
+.sv-col-weekend {
+  background: var(--cal-weekend);
+}
+.sv-col-today {
+  background: var(--cal-today);
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--cal-today-edge) 55%, transparent),
+    inset -2px 0 0 color-mix(in srgb, var(--cal-today-edge) 55%, transparent);
+}
+.sv-col-today[data-flash='true'] {
+  animation: sv-today-flash 900ms var(--ease-smooth);
+}
+@keyframes sv-today-flash {
+  0%,
+  100% {
+    background: var(--cal-today);
+  }
+  30% {
+    background: color-mix(in srgb, var(--info) 26%, transparent);
+  }
+}
+.sv-date[data-today='true'] {
+  background: var(--cal-today);
+  box-shadow: inset 0 -2px 0 var(--cal-today-edge);
+}
+
+/* --- reservation and block bars ------------------------------------------ */
+.sv-bar {
+  --bar-bg: var(--stay-confirmed-bg);
+  --bar-edge: var(--stay-confirmed-edge);
+  --bar-ink: var(--stay-confirmed-ink);
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 8px 0 9px;
+  border-radius: 7px;
+  background: var(--bar-bg);
+  color: var(--bar-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bar-edge) 38%, transparent);
+  font-size: 12px;
+  line-height: 1.15;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  transition:
+    opacity var(--dur-2) var(--ease-smooth),
+    filter var(--dur-2) var(--ease-smooth),
+    box-shadow var(--dur-1) var(--ease-smooth),
+    transform var(--dur-1) var(--ease-smooth);
+}
+.sv-bar:hover {
+  filter: brightness(0.98) saturate(1.08);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bar-edge) 70%, transparent),
+    var(--shadow-1);
+}
+:root[data-theme='dark'] .sv-bar:hover {
+  filter: brightness(1.12);
+}
+/* The arrival edge: a solid lead on the first night. A continuation from before the window has
+   a square, fading edge instead, so a clipped stay never reads as a short one. */
+.sv-bar[data-arrival='true']::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--bar-edge);
+}
+.sv-bar[data-arrival='false'] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.sv-bar[data-arrival='false']::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 16px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--surface) 60%, transparent),
+    transparent
+  );
+}
+.sv-bar[data-departure='false'] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.sv-bar[data-state='inhouse'] {
+  --bar-bg: var(--stay-inhouse-bg);
+  --bar-edge: var(--stay-inhouse-edge);
+  --bar-ink: var(--stay-inhouse-ink);
+  font-weight: 600;
+}
+.sv-bar[data-state='pending'] {
+  --bar-bg: var(--stay-pending-bg);
+  --bar-edge: var(--stay-pending-edge);
+  --bar-ink: var(--stay-pending-ink);
+  box-shadow: inset 0 0 0 1px var(--bar-edge);
+  outline: 1px dashed var(--bar-edge);
+  outline-offset: -3px;
+}
+.sv-bar[data-state='hold'] {
+  --bar-bg: repeating-linear-gradient(
+    -45deg,
+    var(--stay-hold-bg) 0 6px,
+    var(--stay-hold-stripe) 6px 9px
+  );
+  --bar-edge: var(--stay-hold-edge);
+  --bar-ink: var(--stay-hold-ink);
+}
+.sv-bar[data-state='tentative'] {
+  --bar-bg: var(--stay-tentative-bg);
+  --bar-edge: var(--stay-tentative-edge);
+  --bar-ink: var(--stay-tentative-ink);
+  outline: 1px dashed var(--bar-edge);
+  outline-offset: -1px;
+}
+.sv-bar[data-state='checkedout'] {
+  --bar-bg: var(--stay-checkedout-bg);
+  --bar-edge: var(--stay-checkedout-edge);
+  --bar-ink: var(--stay-checkedout-ink);
+}
+.sv-bar[data-state='noshow'],
+.sv-bar[data-state='cancelled'] {
+  --bar-bg: var(--stay-closed-bg);
+  --bar-edge: var(--stay-closed-edge);
+  --bar-ink: var(--stay-closed-ink);
+}
+.sv-bar[data-state='out_of_service'] {
+  --bar-bg: repeating-linear-gradient(135deg, var(--stay-oos-a) 0 6px, var(--stay-oos-b) 6px 12px);
+  --bar-edge: var(--stay-oos-edge);
+  --bar-ink: var(--stay-oos-ink);
+  font-weight: 600;
+}
+.sv-bar[data-state='blocked'] {
+  --bar-bg: repeating-linear-gradient(
+    135deg,
+    var(--stay-blocked-a) 0 6px,
+    var(--stay-blocked-b) 6px 12px
+  );
+  --bar-edge: var(--stay-blocked-edge);
+  --bar-ink: var(--stay-blocked-ink);
+  font-weight: 600;
+}
+/* Colour by business source (a setting): the state still shows as the icon and label. */
+.sv-bar[data-tone]:not([data-state='inhouse']):not([data-state='out_of_service']):not(
+    [data-state='blocked']
+  ) {
+  --bar-bg: var(--tone-soft);
+  --bar-edge: var(--tone);
+  --bar-ink: var(--tone-ink);
+}
+.sv-bar[data-tone='slate'] {
+  --tone: var(--tag-slate);
+  --tone-ink: var(--tag-slate-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-slate) 16%, var(--surface));
+}
+.sv-bar[data-tone='red'] {
+  --tone: var(--tag-red);
+  --tone-ink: var(--tag-red-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-red) 16%, var(--surface));
+}
+.sv-bar[data-tone='orange'] {
+  --tone: var(--tag-orange);
+  --tone-ink: var(--tag-orange-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-orange) 16%, var(--surface));
+}
+.sv-bar[data-tone='amber'] {
+  --tone: var(--tag-amber);
+  --tone-ink: var(--tag-amber-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-amber) 16%, var(--surface));
+}
+.sv-bar[data-tone='yellow'] {
+  --tone: var(--tag-yellow);
+  --tone-ink: var(--tag-yellow-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-yellow) 16%, var(--surface));
+}
+.sv-bar[data-tone='lime'] {
+  --tone: var(--tag-lime);
+  --tone-ink: var(--tag-lime-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-lime) 16%, var(--surface));
+}
+.sv-bar[data-tone='green'] {
+  --tone: var(--tag-green);
+  --tone-ink: var(--tag-green-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-green) 16%, var(--surface));
+}
+.sv-bar[data-tone='emerald'] {
+  --tone: var(--tag-emerald);
+  --tone-ink: var(--tag-emerald-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-emerald) 16%, var(--surface));
+}
+.sv-bar[data-tone='teal'] {
+  --tone: var(--tag-teal);
+  --tone-ink: var(--tag-teal-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-teal) 16%, var(--surface));
+}
+.sv-bar[data-tone='cyan'] {
+  --tone: var(--tag-cyan);
+  --tone-ink: var(--tag-cyan-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-cyan) 16%, var(--surface));
+}
+.sv-bar[data-tone='sky'] {
+  --tone: var(--tag-sky);
+  --tone-ink: var(--tag-sky-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-sky) 16%, var(--surface));
+}
+.sv-bar[data-tone='blue'] {
+  --tone: var(--tag-blue);
+  --tone-ink: var(--tag-blue-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-blue) 16%, var(--surface));
+}
+.sv-bar[data-tone='indigo'] {
+  --tone: var(--tag-indigo);
+  --tone-ink: var(--tag-indigo-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-indigo) 16%, var(--surface));
+}
+.sv-bar[data-tone='violet'] {
+  --tone: var(--tag-violet);
+  --tone-ink: var(--tag-violet-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-violet) 16%, var(--surface));
+}
+.sv-bar[data-tone='purple'] {
+  --tone: var(--tag-purple);
+  --tone-ink: var(--tag-purple-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-purple) 16%, var(--surface));
+}
+.sv-bar[data-tone='pink'] {
+  --tone: var(--tag-pink);
+  --tone-ink: var(--tag-pink-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-pink) 16%, var(--surface));
+}
+.sv-bar[data-tone='rose'] {
+  --tone: var(--tag-rose);
+  --tone-ink: var(--tag-rose-ink);
+  --tone-soft: color-mix(in srgb, var(--tag-rose) 16%, var(--surface));
+}
+
+/* A stay not yet given a room: the Unassigned lane draws it with a dashed outline. */
+.sv-bar[data-unassigned='true'] {
+  outline: 1.5px dashed var(--bar-edge);
+  outline-offset: -2px;
+}
+
+/* Interaction states — each looks different (UX-STANDARD: hover ≠ focus ≠ selected ≠ result). */
+.sv-bar:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+  z-index: 3;
+}
+.sv-bar[data-selected='true'] {
+  z-index: 2;
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--brass),
+    var(--shadow-2);
+}
+.sv-bar[data-linked='true']:not([data-selected='true']) {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3px color-mix(in srgb, var(--brass) 70%, transparent);
+}
+.sv-bar[data-dim='true'] {
+  opacity: 0.28;
+  filter: saturate(0.5);
+}
+.sv-bar[data-flash='true'] {
+  animation: sv-flash 1.1s var(--ease-smooth);
+}
+@keyframes sv-flash {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: scale(1.04);
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 6px color-mix(in srgb, var(--brass) 55%, transparent);
+  }
+  60% {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 10px transparent;
+  }
+}
+.sv-bar[data-drag-source='true'] {
+  opacity: 0.35;
+}
+.sv-bar[data-pending='true'] {
+  opacity: 0.55;
+}
+.sv-bar[data-shake='true'] {
+  animation: sv-shake 320ms var(--ease-smooth);
+}
+@keyframes sv-shake {
+  20%,
+  60% {
+    transform: translateX(-3px);
+  }
+  40%,
+  80% {
+    transform: translateX(3px);
+  }
+}
+.sv-bar-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.sv-bar-meta {
+  flex-shrink: 0;
+  opacity: 0.82;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.sv-bar-flags {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+/* The departure handle: a quiet grip that appears on hover and focus. */
+.sv-bar-resize {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 10px;
+  cursor: ew-resize;
+  opacity: 0;
+  background: linear-gradient(
+    to right,
+    transparent 3px,
+    var(--bar-edge) 3px 4px,
+    transparent 4px 6px,
+    var(--bar-edge) 6px 7px,
+    transparent 7px
+  );
+  transition: opacity var(--dur-1) var(--ease-smooth);
+}
+.sv-bar:hover .sv-bar-resize,
+.sv-bar-resize:focus-visible {
+  opacity: 0.7;
+}
+.sv-bar-resize:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+}
+
+/* The ghost that follows a drag, lifted above the grid. */
+.sv-ghost {
+  pointer-events: none;
+  position: absolute;
+  z-index: 6;
+  box-shadow: var(--cal-lift);
+  transform: translateY(-2px);
+  transition:
+    left var(--dur-1) var(--ease-smooth),
+    top var(--dur-1) var(--ease-smooth),
+    width var(--dur-1) var(--ease-smooth);
+}
+.sv-ghost[data-issue='true'] {
+  opacity: 0.8;
+  filter: grayscale(0.4);
+}
+.sv-range {
+  pointer-events: none;
+  position: absolute;
+  z-index: 4;
+  border-radius: 6px;
+  background: var(--cal-selection);
+  box-shadow: inset 0 0 0 2px var(--cal-selection-edge);
+  animation: sv-range-in var(--dur-1) var(--ease-smooth);
+}
+.sv-range::before,
+.sv-range::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--cal-selection-edge);
+}
+.sv-range::before {
+  left: 3px;
+}
+.sv-range::after {
+  right: 3px;
+}
+@keyframes sv-range-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Room groups fold with a height transition that keeps sticky room labels working
+   (overflow: clip, unlike hidden, does not create a scroll container). */
+.sv-group-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-3) var(--ease-smooth),
+    opacity var(--dur-2) var(--ease-smooth);
+}
+.sv-group-body > div {
+  min-height: 0;
+  overflow: clip;
+}
+.sv-group-body[data-collapsed='true'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.sv-group-body[data-large='true'] {
+  transition: opacity var(--dur-2) var(--ease-smooth);
+}
+
+/* The one hover card: fades up a couple of pixels, never bounces. */
+.sv-hovercard {
+  animation: sv-card-in 150ms var(--ease-smooth);
+}
+@keyframes sv-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.99);
+  }
+}
+/* Content swapping inside the side panel without the panel closing. */
+.sv-panel-swap {
+  animation: sv-swap-in 200ms var(--ease-smooth);
+}
+@keyframes sv-swap-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+.sv-view-enter {
+  animation: sv-view-in 240ms var(--ease-smooth);
+}
+@keyframes sv-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }

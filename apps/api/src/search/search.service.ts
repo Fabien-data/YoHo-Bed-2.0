@@ -1,6 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { bookingRooms, bookings, customers, properties, roomUnits, type Tx } from '@yohobed/db';
+import {
+  bookingRooms,
+  bookings,
+  customers,
+  properties,
+  roomUnits,
+  type HotelPermission,
+  type Tx,
+} from '@yohobed/db';
 import { phoneNeedle } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
 import { propertyBusinessDate } from '../common/local-date';
@@ -21,7 +29,12 @@ import type { SearchQueryDto } from './dto';
 export class SearchService {
   constructor(private readonly dbs: DatabaseService) {}
 
-  search(tenantId: string, q: SearchQueryDto) {
+  /**
+   * `permissions` is set for a hotel-created role (undefined for owners and legacy staff). Such a
+   * role only sees guests who stayed at the property it searched, and without `financial_read`
+   * it gets no money and no contact details.
+   */
+  search(tenantId: string, q: SearchQueryDto, permissions?: HotelPermission[]) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const term = q.q.trim();
       if (term.length < 2)
@@ -35,9 +48,17 @@ export class SearchService {
 
       const [reservations, guests, rooms] = await Promise.all([
         this.reservations(tx, q.propertyId, term, today, q.limit),
-        this.guests(tx, term, q.limit),
+        this.guests(tx, term, q.limit, permissions ? q.propertyId : null),
         this.rooms(tx, q.propertyId, term, today),
       ]);
+      if (permissions && !permissions.includes('financial_read'))
+        return {
+          query: term,
+          today,
+          reservations: reservations.map((r) => ({ ...r, amount: null, guestPhone: null })),
+          guests: guests.map((g) => ({ ...g, email: null, phone: null })),
+          rooms,
+        };
       return { query: term, today, reservations, guests, rooms };
     });
   }
@@ -110,7 +131,7 @@ export class SearchService {
   }
 
   /** Guests matching the term, with how many stays they have had. */
-  private guests(tx: Tx, term: string, limit: number) {
+  private guests(tx: Tx, term: string, limit: number, onlyProperty: string | null) {
     const like = `%${term}%`;
     const digits = phoneNeedle(term);
     return tx
@@ -130,7 +151,11 @@ export class SearchService {
       })
       .from(customers)
       .where(
-        sql`(
+        and(
+          onlyProperty
+            ? sql`exists (select 1 from bookings pb where pb.customer_id = customers.id and pb.property_id = ${onlyProperty})`
+            : undefined,
+          sql`(
           ${customers.name} ilike ${like}
           or ${customers.email} ilike ${like}
           or ${customers.companyName} ilike ${like}
@@ -141,6 +166,7 @@ export class SearchService {
               : sql``
           }
         )`,
+        ),
       )
       .orderBy(desc(customers.vip), customers.name)
       .limit(limit);

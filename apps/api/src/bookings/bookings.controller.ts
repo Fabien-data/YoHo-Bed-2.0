@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -30,6 +31,8 @@ import {
   type BulkDto,
   cancelSchema,
   changeDepartureSchema,
+  changeDeparturePreviewSchema,
+  type ChangeDeparturePreviewDto,
   type ChangeDepartureDto,
   checkInSchema,
   checkOutSchema,
@@ -234,6 +237,19 @@ export class BookingsController {
     return this.bookings.switchToCleanRooms(tenantId, id);
   }
 
+  /** What extending or shortening an in-house stay would cost, from a dry run (Stay View). */
+  @Get(':id/change-departure/preview')
+  changeDeparturePreview(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(changeDeparturePreviewSchema)) q: ChangeDeparturePreviewDto,
+  ) {
+    return this.bookings.changeDeparturePreview(tenantId, id, q.checkout, actor(user, role, ip));
+  }
+
   /** Extend or shorten an in-house stay (UX-1b). */
   @Post(':id/change-departure')
   @HttpCode(200)
@@ -251,6 +267,7 @@ export class BookingsController {
       dto.checkout,
       dto.reason,
       actor(user, role, ip),
+      dto.expectedUpdatedAt,
     );
   }
 
@@ -303,10 +320,13 @@ export class BookingsController {
   @Patch(':id')
   amend(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(amendBookingSchema)) dto: AmendBookingDto,
   ) {
-    return this.bookings.amend(tenantId, id, dto);
+    return this.bookings.amend(tenantId, id, dto, actor(user, role, ip));
   }
 
   @Post(':id/stay-change/preview')
@@ -321,6 +341,9 @@ export class BookingsController {
   @Post(':id/stay-change')
   commitStayChange(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(stayChangeCommitSchema)) dto: StayChangeCommitDto,
   ) {
@@ -330,6 +353,7 @@ export class BookingsController {
       { checkin: dto.checkin, checkout: dto.checkout },
       dto.expectedUpdatedAt,
       dto.expectedAmount,
+      actor(user, role, ip),
     );
   }
 }

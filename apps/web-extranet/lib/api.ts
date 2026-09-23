@@ -789,10 +789,16 @@ export function reinstateBooking(id: string, reason: string): Promise<Booking> {
   });
 }
 
-export function changeDeparture(id: string, checkout: string, reason: string): Promise<Booking> {
+export function changeDeparture(
+  id: string,
+  checkout: string,
+  reason: string,
+  /** From a reviewed proposal: refused if the reservation changed since. */
+  expectedUpdatedAt?: string,
+): Promise<Booking> {
   return apiFetch(`/bookings/${id}/change-departure`, {
     method: 'POST',
-    body: JSON.stringify({ checkout, reason }),
+    body: JSON.stringify({ checkout, reason, expectedUpdatedAt }),
   });
 }
 
@@ -952,13 +958,6 @@ export function overrideFxRate(body: { base: string; rate: number; note?: string
 // --- Stay view (the tape chart) ---------------------------------------------
 
 export interface StayBar {
-  hasNotes?: boolean;
-  amount?: string;
-  balance?: string;
-  roomId?: string;
-  adults?: number;
-  children?: number;
-  vip?: boolean;
   kind: 'booking' | 'block';
   id: string;
   from: string;
@@ -982,6 +981,25 @@ export interface StayBar {
   sourceColor?: string | null;
   /** On a tentative bar: the room the guest asked for. */
   preferredRoomUnitId?: string | null;
+  /** The booked room type; the physical room (null while unassigned). */
+  roomId?: string;
+  roomUnitId?: string | null;
+  adults?: number;
+  children?: number;
+  vip?: boolean;
+  hasNotes?: boolean;
+  /** Money only reaches roles with financial_read. */
+  amount?: string;
+  balance?: string;
+  /** Which room of the reservation this is, and the leg's version for safe edits. */
+  legIndex?: number;
+  legUpdatedAt?: string;
+  /** A stay moved mid-way: this segment's place among `of` dated segments. */
+  segment?: { index: number; of: number };
+  groupCode?: string | null;
+  /** On a block: maintenance (out of service) or held back from sale (blocked). */
+  blockKind?: 'out_of_service' | 'blocked';
+  blockedBy?: string | null;
 }
 
 export interface StayUnit {
@@ -1020,6 +1038,11 @@ export interface StayView {
   property: { id: string; name: string; code: string | null; currency: string; timezone?: string };
   from: string;
   to: string;
+  /** The property's calendar today (its own timezone). */
+  today: string;
+  /** The date the desk works to: the later of today and the night-audit business date. */
+  operatingDate: string;
+  businessDate: string;
   dates: string[];
   roomTypes: StayRoomType[];
   unassigned: Array<StayBar & { roomId: string }>;
@@ -1027,12 +1050,16 @@ export interface StayView {
   tentative?: Array<StayBar & { roomId: string }>;
   footer: StayFooter[];
   counts: {
+    /** The day the chips describe: today when it is on screen, else the window's first day. */
+    date: string;
     all: number;
     vacant: number;
     occupied: number;
     reserved: number;
     blocked: number;
     dueOut: number;
+    dirty?: number;
+    tentative?: number;
   };
 }
 
@@ -1043,6 +1070,27 @@ export function getStayView(
   signal?: AbortSignal,
 ): Promise<StayView> {
   return apiFetch<StayView>(`/stayview?propertyId=${propertyId}&from=${from}&to=${to}`, { signal });
+}
+
+/** What moving an in-house departure would do — a dry run of the real change. */
+export interface DepartureChangeReview {
+  ok: boolean;
+  problem: { reason: string; message?: string } | null;
+  bookingId: string;
+  expectedUpdatedAt: string;
+  currency: string;
+  old: { checkin: string; checkout: string; amount: string };
+  proposed: { checkin: string; checkout: string; amount: string; difference: string };
+  nights: Array<{ date: string; amount: string; retained: boolean }>;
+}
+
+export function previewDepartureChange(
+  bookingId: string,
+  checkout: string,
+): Promise<DepartureChangeReview> {
+  return apiFetch<DepartureChangeReview>(
+    `/bookings/${bookingId}/change-departure/preview?checkout=${checkout}`,
+  );
 }
 
 export interface BookingLeg {
@@ -1262,9 +1310,18 @@ export function updateRoomUnit(
   return apiFetch(`/room-units/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+/** Out of service = maintenance; blocked = a sound room held back from sale. */
+export type BlockKind = 'out_of_service' | 'blocked';
+
 export function createBlock(
   propertyId: string,
-  body: { roomUnitId: string; blockFrom: string; blockTo: string; reason: string },
+  body: {
+    roomUnitId: string;
+    blockFrom: string;
+    blockTo: string;
+    reason: string;
+    kind?: BlockKind;
+  },
 ): Promise<unknown> {
   return apiFetch(`/properties/${propertyId}/blocks`, {
     method: 'POST',
@@ -1274,7 +1331,7 @@ export function createBlock(
 
 export function updateBlock(
   id: string,
-  body: { blockFrom?: string; blockTo?: string; reason?: string },
+  body: { blockFrom?: string; blockTo?: string; reason?: string; kind?: BlockKind },
 ): Promise<unknown> {
   return apiFetch(`/blocks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }

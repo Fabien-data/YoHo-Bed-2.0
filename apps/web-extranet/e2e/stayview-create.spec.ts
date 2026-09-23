@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * A new reservation from the tape chart (Development Phase 02, Sprint 3): double-click an empty
- * night and the Quick Reservation opens for that room, from that date.
+ * A new reservation from the tape chart: double-click an empty night and the Quick Reservation
+ * opens for that room, from that date; or select empty nights and use the action bar.
  */
 
 async function signIn(page: Page) {
@@ -15,47 +15,57 @@ async function signIn(page: Page) {
 
 const dmy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
-test('double-clicking an empty night opens a reservation for that room and date', async ({
-  page,
-}) => {
-  await signIn(page);
-  await page.goto('/app/stayview');
-  const strip = page.locator('[data-unit-id]').first();
-  await expect(strip).toBeVisible();
-
-  // Find a night on some room with no bar on it — the demo data books some rooms already.
-  const target = await page.evaluate(() => {
-    const COL = 92;
+/** An empty night on some room, on screen, clear of every bar. */
+async function emptyNight(page: Page, skipColumns = 2) {
+  return page.evaluate((skip) => {
+    const grid = document.querySelector<HTMLElement>('.sv-grid')!;
+    const col = Number(grid.dataset.colWidth);
     for (const el of Array.from(document.querySelectorAll<HTMLElement>('[data-unit-id]'))) {
       const box = el.getBoundingClientRect();
-      const bars = Array.from(el.querySelectorAll('button')).map((b) => b.getBoundingClientRect());
-      const cols = Math.floor(box.width / COL);
-      // Skip the first two columns: the window starts on today, which may already be past.
-      for (let i = 2; i < cols; i++) {
-        const x = box.left + i * COL + COL / 2;
+      const bars = Array.from(el.querySelectorAll('[data-bar-id]')).map((b) =>
+        b.getBoundingClientRect(),
+      );
+      const cols = Math.floor(box.width / col);
+      // Skip the first columns: the window starts on today, which may already be past.
+      for (let i = skip; i < cols - 1; i++) {
+        const x = box.left + i * col + col / 2;
         const y = box.top + box.height / 2;
-        // Only a cell the mouse can actually reach without scrolling.
         if (x > window.innerWidth - 10 || y > window.innerHeight - 10) continue;
-        if (!bars.some((b) => x >= b.left && x <= b.right)) {
+        const nextX = x + col;
+        if (
+          !bars.some((b) => (x >= b.left && x <= b.right) || (nextX >= b.left && nextX <= b.right))
+        ) {
           return {
-            unitId: el.dataset.unitId!,
             code: el.dataset.unitCode!,
             index: i,
             x,
-            y: box.top + box.height / 2,
+            y,
+            col,
+            from: grid.dataset.windowFrom!,
           };
         }
       }
     }
     return null;
-  });
-  expect(target).not.toBeNull();
+  }, skipColumns);
+}
 
-  // The column's date, from the header — the chart starts on the window's first date.
-  const from = await page.getByLabel('Window start date').inputValue();
-  const d = new Date(`${from}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + target!.index);
-  const date = d.toISOString().slice(0, 10);
+function addDays(iso: string, days: number) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+test('double-clicking an empty night opens a reservation for that room and date', async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto('/app/stayview');
+  await expect(page.locator('[data-unit-id]').first()).toBeVisible();
+
+  const target = await emptyNight(page);
+  expect(target).not.toBeNull();
+  const date = addDays(target!.from, target!.index);
 
   await page.mouse.dblclick(target!.x, target!.y);
   const sheet = page.getByRole('dialog', { name: 'Quick Reservation' });
@@ -65,4 +75,44 @@ test('double-clicking an empty night opens a reservation for that room and date'
   await expect(sheet.getByRole('combobox', { name: 'Rate type, room 1' })).not.toHaveText(
     '-Select-',
   );
+});
+
+test('selecting empty nights offers reserve, hold and block right there', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/app/stayview');
+  await expect(page.locator('[data-unit-id]').first()).toBeVisible();
+  const target = await emptyNight(page);
+  expect(target).not.toBeNull();
+
+  // Drag across two nights of one room.
+  await page.mouse.move(target!.x, target!.y);
+  await page.mouse.down();
+  await page.mouse.move(target!.x + target!.col, target!.y, { steps: 4 });
+  await page.mouse.up();
+
+  const bar = page.getByRole('toolbar', { name: new RegExp(`Selected: room ${target!.code}`) });
+  await expect(bar).toBeVisible();
+  await expect(bar.getByText('2 nights')).toBeVisible();
+  for (const name of ['Reserve', 'Hold', 'Block', 'Out of service'])
+    await expect(bar.getByRole('button', { name })).toBeVisible();
+
+  await bar.getByRole('button', { name: 'Reserve' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Quick Reservation' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByLabel('Check-in date')).toHaveValue(
+    dmy(addDays(target!.from, target!.index)),
+  );
+  await expect(sheet.getByRole('combobox', { name: 'Room, room 1' })).toHaveText(target!.code);
+});
+
+test('Escape clears a selection of nights', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/app/stayview');
+  await expect(page.locator('[data-unit-id]').first()).toBeVisible();
+  const target = await emptyNight(page);
+  await page.mouse.click(target!.x, target!.y);
+  const bar = page.getByRole('toolbar', { name: /Selected: room/ });
+  await expect(bar).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(bar).toBeHidden();
 });

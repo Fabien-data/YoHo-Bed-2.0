@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Ip, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
@@ -6,7 +6,7 @@ import type { AuthPrincipal } from '../auth/dto';
 import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { bulkSchema as bulkAssignSchema } from '../bookings/dto';
-import { RoomUnitsService } from './room-units.service';
+import { RoomUnitsService, type DeskActor } from './room-units.service';
 import {
   assignRoomsSchema,
   bulkRoomUnitsSchema,
@@ -21,6 +21,11 @@ import {
   type MoveRoomDto,
   type UpdateRoomUnitDto,
 } from './dto';
+
+/** Who made a room change, for the reservation's trail. */
+function desk(user: AuthPrincipal, ip: string): DeskActor {
+  return { userId: user.sub, ip: ip || null };
+}
 
 /** Physical rooms of a property: /properties/:propertyId/room-units */
 @Controller('properties/:propertyId/room-units')
@@ -94,10 +99,12 @@ export class RoomUnitsController {
   @HttpCode(200)
   assign(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Ip() ip: string,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignRoomsSchema)) dto: AssignRoomsDto,
   ) {
-    return this.units.assign(tenantId, id, dto);
+    return this.units.assign(tenantId, id, dto, desk(user, ip));
   }
 
   /** Fill every unassigned leg with the lowest-numbered free room. Partial success is reported. */
@@ -106,15 +113,22 @@ export class RoomUnitsController {
   @HttpCode(200)
   bulkAssign(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Ip() ip: string,
     @Body(new ZodValidationPipe(bulkAssignSchema)) dto: { ids: string[] },
   ) {
-    return this.units.bulkAutoAssign(tenantId, dto.ids);
+    return this.units.bulkAutoAssign(tenantId, dto.ids, desk(user, ip));
   }
 
   @Post('bookings/:id/auto-assign')
   @HttpCode(200)
-  autoAssign(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.units.autoAssign(tenantId, id);
+  autoAssign(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @Ip() ip: string,
+    @Param('id') id: string,
+  ) {
+    return this.units.autoAssign(tenantId, id, desk(user, ip));
   }
 
   @Get('bookings/:id/room-moves')
@@ -128,10 +142,11 @@ export class RoomUnitsController {
   move(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthPrincipal,
+    @Ip() ip: string,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(moveRoomSchema)) dto: MoveRoomDto,
   ) {
-    return this.units.move(tenantId, id, user.sub, dto);
+    return this.units.move(tenantId, id, desk(user, ip), dto);
   }
 
   @Post('room-moves/exchange')
@@ -140,9 +155,10 @@ export class RoomUnitsController {
   exchange(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthPrincipal,
+    @Ip() ip: string,
     @Body(new ZodValidationPipe(exchangeRoomsSchema)) dto: ExchangeRoomsDto,
   ) {
-    return this.units.exchange(tenantId, user.sub, dto);
+    return this.units.exchange(tenantId, desk(user, ip), dto);
   }
 
   @Post('room-moves/:id/stop')

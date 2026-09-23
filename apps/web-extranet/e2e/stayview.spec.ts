@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
  * The tape chart is the screen a hotelier judges the product on, and the riskiest rendering code
  * in the program — absolute positioning over a CSS-drawn grid. These assert the things a unit
  * test cannot: that it actually paints, that the sticky room column survives horizontal scroll,
- * and that clicking a bar opens the detail slide-over.
+ * and that clicking a bar opens the side panel without hiding the grid.
  */
 
 const OWNER_EMAIL = 'owner@demo.yohobed.test';
@@ -36,20 +36,23 @@ test('renders the chart with rooms, dates and the counted chips', async ({ page 
   }
 
   // The seeded demo property has five numbered rooms.
-  await expect(page.getByText('01', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('[data-unit-label]').first()).toBeVisible();
   await expect(page.getByText(/available inventory/i)).toBeVisible();
   await expect(page.getByText(/occupancy/i).first()).toBeVisible();
+  // Today is marked in the header.
+  await expect(page.getByRole('columnheader', { name: /today/i })).toBeVisible();
 });
 
 test('pages the date window forwards and back', async ({ page }) => {
-  const dateInput = page.getByLabel(/window start date/i);
-  const start = await dateInput.inputValue();
+  const grid = page.getByRole('region', { name: 'Stay calendar' });
+  await expect(grid).toBeVisible();
+  const start = await grid.getAttribute('data-window-from');
 
-  await page.getByRole('button', { name: /next week/i }).click();
-  await expect(dateInput).not.toHaveValue(start);
+  await page.getByRole('button', { name: 'Next dates' }).click();
+  await expect(grid).not.toHaveAttribute('data-window-from', start!);
 
-  await page.getByRole('button', { name: /previous week/i }).click();
-  await expect(dateInput).toHaveValue(start);
+  await page.getByRole('button', { name: 'Previous dates' }).click();
+  await expect(grid).toHaveAttribute('data-window-from', start!);
 });
 
 test('filters the chart down to vacant rooms', async ({ page }) => {
@@ -71,11 +74,15 @@ test('keeps the calendar usable on tablet and narrow screens', async ({ page }) 
     const closeNavigation = page.getByRole('button', { name: 'Close navigation' });
     if (await closeNavigation.isVisible()) await closeNavigation.click();
     if (viewport.width < 768) {
+      // A phone gets the day's list first; the timeline is one switch away.
       await expect(page.getByLabel('Daily stay list')).toBeVisible();
       await page.getByRole('button', { name: 'Timeline', exact: true }).click();
     }
     await expect(page.getByRole('region', { name: 'Stay calendar' })).toBeVisible();
-    await expect(page.getByLabel('Calendar days')).toHaveValue('14');
+    await expect(page.getByRole('radio', { name: '14 days' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
@@ -84,13 +91,18 @@ test('keeps the calendar usable on tablet and narrow screens', async ({ page }) 
 });
 
 test('keeps the room column pinned while the dates scroll', async ({ page }) => {
-  const roomLabel = page.getByText('01', { exact: true }).first();
+  // Thirty nights overflow the width, so the grid scrolls sideways.
+  await page.getByRole('radio', { name: '30 days' }).click();
+  const roomLabel = page.locator('[data-unit-label]').first();
   await expect(roomLabel).toBeVisible();
 
   const before = await roomLabel.boundingBox();
-  await page.evaluate(() => {
-    document.querySelector('.overflow-x-auto')?.scrollBy({ left: 600 });
+  const scrolled = await page.evaluate(() => {
+    const grid = document.querySelector<HTMLElement>('.sv-grid')!;
+    grid.scrollBy({ left: 600 });
+    return grid.scrollLeft;
   });
+  expect(scrolled).toBeGreaterThan(0);
   await page.waitForTimeout(200);
   const after = await roomLabel.boundingBox();
 
@@ -98,19 +110,23 @@ test('keeps the room column pinned while the dates scroll', async ({ page }) => 
   expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeLessThan(4);
 });
 
-test('opens the reservation slide-over from a bar', async ({ page }) => {
-  // The demo data books stays around the day it was seeded, so look in the window that opens.
-  // Count only once the chart has settled: counting straight after a window change caught a bar
-  // from the old window, which then vanished while the click waited for it.
-  await expect(page.locator('[data-unit-id]').first()).toBeVisible();
-  const bar = page.locator('button', { hasText: /Direct|OTA|YoHo/ }).first();
+test('opens a stay in the side panel and keeps the grid usable', async ({ page }) => {
+  const bar = page.locator('.sv-grid [data-bar-id][data-state]').first();
   if ((await bar.count()) === 0) test.skip(true, 'no bars in the seeded window');
 
   await bar.click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByText(/rooms/i).first()).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /auto-assign/i })).toBeVisible();
+  const panel = page.getByRole('dialog');
+  await expect(panel).toBeVisible();
+  await expect(
+    panel.getByRole('heading', { name: 'Rooms' }).or(panel.getByText(/channels see the room/i)),
+  ).toBeVisible();
+  // The grid behind stays interactive: the room-status chips still respond.
+  await page
+    .getByRole('tablist', { name: /room status/i })
+    .getByRole('tab', { name: /all/i })
+    .click();
+  await expect(panel).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('reviews a keyboard resize before saving and respects reduced motion', async ({ page }) => {
@@ -121,7 +137,7 @@ test('reviews a keyboard resize before saving and respects reduced motion', asyn
   const config = await (
     await page.request.get(`${API}/properties/${property.id}/reservation-config`, { headers })
   ).json();
-  const checkin = addDays(config.today, 6);
+  const checkin = addDays(config.calendarToday ?? config.today, 6);
   const checkout = addDays(checkin, 2);
   const availability = await (
     await page.request.get(
@@ -161,19 +177,18 @@ test('reviews a keyboard resize before saving and respects reduced motion', asyn
   const booking = created.bookings[0];
 
   try {
-    await page.getByLabel(/window start date/i).fill(checkin);
+    await page.goto(`/app/stayview?from=${checkin}`);
     const handle = page.getByRole('button', {
       name: `Resize ${booking.reference} checkout`,
       exact: true,
     });
-    await expect(handle).toBeVisible();
+    await handle.focus();
     await handle.press('ArrowRight');
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/Departure moved on the calendar/)).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Auto-assign rooms' })).toBeDisabled();
     await expect(dialog.getByLabel('Review stay change')).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Save reviewed change' })).toBeVisible();
+    await expect(dialog.getByText(/agreed rate kept/).first()).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Save reviewed change' })).toBeEnabled();
   } finally {
     await page.request.post(`${API}/bookings/${booking.id}/cancel`, { headers });
   }
