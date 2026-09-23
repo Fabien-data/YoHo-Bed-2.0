@@ -1520,6 +1520,77 @@ export function subscribeRoomUpdates(
   return controller;
 }
 
+/** How a live stream is doing, for a small status line. */
+export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'off';
+
+/**
+ * Stay View's live stream (GET /stay-updates): `onChange` whenever something the calendar draws
+ * changed for this property — by any desk, the worker or a channel — and once more after every
+ * (re)connect, since changes may have been missed. Reconnects with backoff; stops for good on a
+ * refused token or access (a 403 must not be retried forever).
+ */
+export function subscribeStayUpdates(
+  propertyId: string,
+  handlers: { onChange: () => void; onStatus?: (status: StreamStatus) => void },
+): AbortController {
+  const controller = new AbortController();
+  const status = (s: StreamStatus) => handlers.onStatus?.(s);
+  const connect = async () => {
+    let attempt = 0;
+    status('connecting');
+    while (!controller.signal.aborted) {
+      try {
+        const token = getToken();
+        const res = await fetch(
+          `${API_BASE}/stay-updates?propertyId=${encodeURIComponent(propertyId)}`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal },
+        );
+        if (res.status === 401) {
+          endSessionIfTokenRejected(res.status, token);
+          status('off');
+          return;
+        }
+        if (res.status === 403 || res.status === 404) {
+          status('off');
+          return;
+        }
+        if (!res.ok || !res.body) throw new Error(`Stay update stream returned ${res.status}`);
+        attempt = 0;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() ?? '';
+          for (const event of events) {
+            const type = event
+              .split('\n')
+              .find((line) => line.startsWith('event: '))
+              ?.slice(7);
+            if (type === 'ready') {
+              status('live');
+              handlers.onChange();
+            } else if (type === 'change' || type === 'resync') handlers.onChange();
+          }
+        }
+      } catch {
+        if (controller.signal.aborted) break;
+      }
+      // The server ends a stream after 15 minutes: reconnect at once; after a failure, back off.
+      status('reconnecting');
+      const delay =
+        attempt === 0 ? 300 : Math.min(30_000, 1_000 * 2 ** attempt) * (0.7 + Math.random() * 0.6);
+      attempt++;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  };
+  void connect();
+  return controller;
+}
+
 export function getHouseSummary(propertyId: string, date: string): Promise<HouseSummary> {
   return apiFetch<HouseSummary>(`/house-status/summary?propertyId=${propertyId}&date=${date}`);
 }

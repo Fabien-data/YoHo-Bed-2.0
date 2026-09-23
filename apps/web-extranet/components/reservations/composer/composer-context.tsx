@@ -58,7 +58,9 @@ export function ReservationComposerProvider({ children }: { children: React.Reac
       },
       takeHandoff: () => {
         const d = handoff.current;
-        handoff.current = null;
+        // Cleared on the next tick, not now: React's development double-run of the full page's
+        // mount effect must see the same draft twice, or the second mount starts blank.
+        if (d) setTimeout(() => (handoff.current = null), 0);
         return d;
       },
     }),

@@ -83,6 +83,7 @@ import { useReservationComposer } from '@/components/reservations/composer/compo
 import { todayISO } from '@/lib/format';
 import { useEntitlements, useTenantRole } from '@/lib/queries';
 import Link from 'next/link';
+import { ViewSwitch } from '@/components/stayview/view-switch';
 
 const STATE_LABEL: Record<RoomState, string> = {
   Vacant: 'Vacant',
@@ -336,6 +337,7 @@ export default function RoomViewPage() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <ViewSwitch current="room" />
           <Input
             type="date"
             value={date}

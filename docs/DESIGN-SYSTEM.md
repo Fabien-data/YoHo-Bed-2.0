@@ -98,7 +98,7 @@ Primitives: `Button` (primary/secondary/ghost/outline/danger · sm/md/icon · `l
 `Badge` (tones; leading dot), `Kbd`, `Skeleton` (+`shimmer`), `EmptyState` (default tray glyph),
 `PageHeader`, `Sheet` (right slide-over — the default detail/edit surface), `Dialog` (centered —
 palette, confirmations), `Menu` (+styled submenus), `Popover`, `Tooltip` (`chip` inverted default;
-`variant="panel"` for rich hover cards).
+`variant="panel"` for rich hover cards), `ContextMenu` (right-click; a shortcut, never the only way).
 
 Patterns: `CountedChips` (active = dark navy filled pill), `DataGrid` (TanStack; `surface-2` header
 band, optional sticky header), `MoneyFooter` (Total/Paid/red Balance), `MetricFooter`,
@@ -138,6 +138,50 @@ Changes to existing components:
   `stickyFirstColumn`, `density="compact"` for wide operational lists, and `minWidth` below which
   it scrolls sideways. The scroll box is `relative`, so nothing inside it (a screen-reader-only
   label) can widen the page on a phone.
+
+### The Stay View calendar (`components/stayview/`)
+
+The calendar has its own small visual language, defined once in `globals.css` (section "Stay View
+calendar") and driven by data attributes, so the grid never re-renders to change a highlight:
+
+- **States.** `.sv-bar[data-state]` is one of `inhouse`, `confirmed`, `pending`, `hold`, `tentative`,
+  `checkedout`, `noshow`, `cancelled`, `out_of_service` or `blocked`. Each state has fill, edge and
+  ink tokens (`--stay-*`) for both themes. In-house is the only solid fill. Pending is dashed,
+  a hold is striped, and blocks are hatched (Blocked in neutral, Out of service in red). Every
+  state also carries its Phosphor icon (`STATE_ICON`) and a label (`STATE_META`), because colour
+  is never the only signal.
+- **Geometry.** The column width is `--col-w`, set on `.sv-grid` from the measured width: the
+  window fits the screen, down to a minimum per density, then scrolls sideways. Bars are placed
+  with `calc(var(--col-w) * n)`. A solid 3px leading edge marks the arrival night. A square,
+  faded edge means the stay began before the window. Rounded ends are real arrivals and
+  departures.
+- **Interaction states**, each one different:
+
+  | State                      | How it shows                                               |
+  | -------------------------- | ---------------------------------------------------------- |
+  | hover                      | brightness plus hairline                                   |
+  | keyboard focus             | brass outline                                              |
+  | selected                   | brass ring plus lift                                       |
+  | linked split-stay segments | thin brass ring                                            |
+  | search or located result   | brass pulse (`data-flash`)                                 |
+  | dimmed by a filter         | 28% opacity                                                |
+  | drag source                | 35% opacity                                                |
+  | drop target                | `data-drop="ok\|no"`: green or red tint with an inset line |
+  | selected nights            | brass-tinted range with end handles                        |
+  | today                      | an info-blue column                                        |
+
+- **Motion** uses the existing `--dur-*` and `--ease-smooth`:
+  - a 150ms hover card that fades and rises 3px
+  - a 200ms content swap inside the side panel
+  - group folding by grid-rows height (opacity only above 30 rooms)
+  - a one-off flash and shake
+  - reduced motion collapses all of it through the global rule
+- **Surfaces**:
+  - a single non-modal right panel (`PanelHost`) whose content switches in place
+  - filters, settings and the legend in popovers
+  - reviews in centred dialogs
+  - a context menu (`ContextMenu`, new in the kit) that only repeats what those surfaces already
+    offer
 
 Conventions:
 
