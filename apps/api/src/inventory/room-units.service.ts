@@ -27,6 +27,7 @@ import type {
 } from './dto';
 import { localToday } from '../common/local-date';
 import { assertRoomsReadyForCheckIn } from '../housekeeping/readiness';
+import { runBulk } from '../bookings/bulk';
 
 /** Postgres raises this when the anti-double-booking exclusion constraint refuses a row. */
 const EXCLUSION_VIOLATION = '23P01';
@@ -695,6 +696,11 @@ export class RoomUnitsService {
    * Partial success is deliberate: assigning three of four rooms and reporting the shortfall is
    * more useful at a front desk than refusing to assign any.
    */
+  /** Auto-assign rooms to a selection of stays (UX-2); each one stands or falls on its own. */
+  bulkAutoAssign(tenantId: string, bookingIds: string[]) {
+    return runBulk(bookingIds, (id) => this.autoAssign(tenantId, id));
+  }
+
   async autoAssign(tenantId: string, bookingId: string) {
     return this.dbs.withTenant(tenantId, async (tx) => {
       const booking = await this.loadAssignable(tx, bookingId);

@@ -51,6 +51,7 @@ import {
 } from './draft';
 import { LINE_GRID, RoomLine } from './room-line';
 import { GuestFields } from './guest-fields';
+import { useDesk } from '@/components/booking/desk-dialogs';
 import { ApprovalDialog } from './approval-dialog';
 import {
   CATEGORY_LABEL,
@@ -91,6 +92,7 @@ export function QuickReservationSheet({
   const cfg = config.data;
   // Timed from opening to Reserve (UX-STANDARD budget: new guest ≤ 7C+2T).
   const uxTask = useUxTask('reservation.quick', open);
+  const desk = useDesk();
 
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [pristine, setPristine] = React.useState<string>('');
@@ -102,6 +104,8 @@ export function QuickReservationSheet({
   const [triedSubmit, setTriedSubmit] = React.useState(false);
   /** Reserve was pressed while the price was still being re-quoted: book once it lands. */
   const [pendingSubmit, setPendingSubmit] = React.useState(false);
+  /** Reserve AND check in: a walk-in, done in one sheet (UX-2). */
+  const checkInAfter = React.useRef(false);
   const idempotencyKey = React.useRef('');
 
   // A fresh draft each time the sheet opens, from the property's own date and times.
@@ -211,6 +215,20 @@ export function QuickReservationSheet({
       uxTask.complete();
       onCreated(r);
       onOpenChange(false);
+      // A walk-in: hand the new stay straight to the check-in dialog, which does the room, the
+      // ID and the deposit (UX-1b).
+      const first = r.bookings[0];
+      if (checkInAfter.current && first) {
+        desk('check-in', {
+          id: first.id,
+          reference: first.reference ?? r.reference,
+          guestName: r.guest.name,
+          checkin: draft!.stay.checkin,
+          checkout: draft!.stay.checkout,
+          currency: r.currency,
+        });
+      }
+      checkInAfter.current = false;
     },
     onError: (e) => {
       const explained = explain(e);
@@ -356,11 +374,29 @@ export function QuickReservationSheet({
               <Button type="button" variant="outline" onClick={() => requestClose(false)}>
                 Cancel
               </Button>
+              {/* A stay starting today is a walk-in: book and check in without a second screen. */}
+              {draft.stay.checkin === cfg.today && takesRooms && (
+                <Button
+                  type="submit"
+                  form="quick-reservation"
+                  variant="secondary"
+                  loading={save.isPending || pendingSubmit}
+                  disabled={save.isPending || pendingSubmit}
+                  onClick={() => {
+                    checkInAfter.current = true;
+                  }}
+                >
+                  Reserve &amp; check in
+                </Button>
+              )}
               <Button
                 type="submit"
                 form="quick-reservation"
                 loading={save.isPending || pendingSubmit}
                 disabled={save.isPending || pendingSubmit}
+                onClick={() => {
+                  checkInAfter.current = false;
+                }}
               >
                 Reserve
               </Button>

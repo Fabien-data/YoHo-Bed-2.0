@@ -5,11 +5,14 @@ import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   CaretDown,
+  DoorOpen,
   DownloadSimple,
   FunnelSimple,
   ListDashes,
   MagnifyingGlass,
   Plus,
+  SignIn,
+  SignOut,
   SquaresFour,
   User,
   UsersThree,
@@ -55,6 +58,8 @@ import {
 import { displayMealCode, formatDate } from '@yohobed/locale';
 import {
   ApiError,
+  bulkDeskAction,
+  type BulkResult,
   downloadReservationsCsv,
   getReservationGroups,
   getReservations,
@@ -133,29 +138,43 @@ function ReservationsScreen() {
   const cfg = config.data;
   const { openComposer, openFullPage } = useReservationComposer();
 
-  const [date, setDate] = React.useState<string | null>(null);
+  const [date, setDate] = React.useState<string | null>(() => params.get('date'));
   const [tab, setTab] = React.useState<ReservationTab>(() => {
     const t = params.get('tab') as ReservationTab | null;
     return t && RESERVATION_TABS.has(t) ? t : 'all';
   });
   const [groupTab, setGroupTab] = React.useState<GroupTab>('upcoming');
   const [search, setSearch] = React.useState(() => params.get('q') ?? '');
-  const [mode, setMode] = React.useState<'individual' | 'group'>('individual');
-  const [layout, setLayout] = React.useState<'list' | 'cards'>('list');
-  const [kind, setKind] = React.useState<ReservationKindFilter | 'any'>('any');
+  // The list's shape lives in the URL (UX-2), so a tab, a search or a filter survives going to a
+  // reservation and coming back — and can be sent to a colleague as a link.
+  const [mode, setMode] = React.useState<'individual' | 'group'>(() =>
+    params.get('mode') === 'group' ? 'group' : 'individual',
+  );
+  const [layout, setLayout] = React.useState<'list' | 'cards'>(() =>
+    params.get('view') === 'cards' ? 'cards' : 'list',
+  );
+  const [kind, setKind] = React.useState<ReservationKindFilter | 'any'>(
+    () => (params.get('kind') as ReservationKindFilter | null) ?? 'any',
+  );
   const [sourceId, setSourceId] = React.useState<string | null>(null);
   const [segmentId, setSegmentId] = React.useState<string | null>(null);
-  const [mine, setMine] = React.useState(false);
+  const [mine, setMine] = React.useState(() => params.get('mine') === '1');
   const [group, setGroup] = React.useState<{ id: string; code: string } | null>(null);
   const [page, setPage] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(25);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = React.useState<Set<string>>(new Set());
-  const [openId, setOpenId] = React.useState<string | null>(null);
+  // Opened from a link (the palette, a colleague's URL) or by clicking a row; either way it is
+  // what the URL says, so the sheet survives a refresh.
+  const [openId, setOpenId] = React.useState<string | null>(() => params.get('bookingId'));
+  const [section] = React.useState<string | null>(() => params.get('section'));
   const [cardFor, setCardFor] = React.useState<string | null>(null);
   const [groupName, setGroupName] = React.useState('');
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
+  const [bulkResult, setBulkResult] = React.useState<(BulkResult & { action: string }) | null>(
+    null,
+  );
   const columns = useColumnVisibility('reservations', HIDDEN_BY_DEFAULT);
   const refresh = useInvalidateReservations();
   const q = useDebounced(search.trim(), 250);
@@ -163,6 +182,24 @@ function ReservationsScreen() {
 
   // The hotel's own date, once its config has loaded.
   const day = date ?? cfg?.today ?? null;
+
+  // Keep the URL in step with the list. `replace`, not `push`: changing a tab is not a page a
+  // desk agent should have to press Back through.
+  React.useEffect(() => {
+    const next = new URLSearchParams();
+    if (tab !== 'all') next.set('tab', tab);
+    if (search.trim()) next.set('q', search.trim());
+    if (mode !== 'individual') next.set('mode', mode);
+    if (layout !== 'list') next.set('view', layout);
+    if (kind !== 'any') next.set('kind', kind);
+    if (mine) next.set('mine', '1');
+    if (date) next.set('date', date);
+    if (openId) next.set('bookingId', openId);
+    if (openId && section) next.set('section', section);
+    const qs = next.toString();
+    const url = qs ? `/app/reservations?${qs}` : '/app/reservations';
+    window.history.replaceState(null, '', url);
+  }, [tab, search, mode, layout, kind, mine, date, openId]);
 
   // Anything that changes the rows goes back to page 1 and drops the selection.
   React.useEffect(() => {
@@ -225,6 +262,36 @@ function ReservationsScreen() {
       toast.success(`Group ${g.code} made`, { description: `${g.memberCount} reservations` });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not make the group'),
+  });
+
+  /**
+   * One desk action over the selection (UX-2). What went through is said plainly; what was
+   * refused is listed with the reason the single action would have given, so the desk can fix
+   * those few by hand rather than guess which of twelve failed.
+   */
+  const bulk = useMutation({
+    mutationFn: (action: 'check-in' | 'check-out' | 'assign-rooms') =>
+      bulkDeskAction(action, [...selected]).then((r) => ({ action, ...r })),
+    onSuccess: (r) => {
+      refresh();
+      const what =
+        r.action === 'check-in'
+          ? 'checked in'
+          : r.action === 'check-out'
+            ? 'checked out'
+            : 'given rooms';
+      if (r.failed === 0) {
+        setSelected(new Set());
+        toast.success(`${r.done} ${r.done === 1 ? 'reservation' : 'reservations'} ${what}`);
+      } else {
+        setSelected(new Set(r.results.filter((x) => !x.ok).map((x) => x.id)));
+        toast.error(`${r.done} ${what}, ${r.failed} refused`, {
+          description: r.results.find((x) => !x.ok)?.message,
+        });
+      }
+      setBulkResult(r);
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not do that'),
   });
 
   if (!cfg || !day) {
@@ -668,6 +735,34 @@ function ReservationsScreen() {
         <Card className="mb-4 flex flex-wrap items-center gap-3 p-3">
           <UsersThree size={16} className="text-ink-2" />
           <span className="text-sm font-semibold text-ink">{selected.size} selected</span>
+          {/* The same desk action across the selection (UX-2): a coach party, a morning's
+              departures. Each stay stands or falls on its own; the refusals are listed. */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={bulk.isPending && bulk.variables === 'check-in'}
+              onClick={() => bulk.mutate('check-in')}
+            >
+              <SignIn size={14} /> Check in
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={bulk.isPending && bulk.variables === 'check-out'}
+              onClick={() => bulk.mutate('check-out')}
+            >
+              <SignOut size={14} /> Check out
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={bulk.isPending && bulk.variables === 'assign-rooms'}
+              onClick={() => bulk.mutate('assign-rooms')}
+            >
+              <DoorOpen size={14} /> Give rooms
+            </Button>
+          </div>
           <Input
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
@@ -688,6 +783,36 @@ function ReservationsScreen() {
           {selected.size < 2 && (
             <span className="text-xs text-ink-3">Select at least two to group them.</span>
           )}
+        </Card>
+      )}
+
+      {/* What the selection refused, and why — the few to settle by hand (UX-2). */}
+      {bulkResult && bulkResult.failed > 0 && (
+        <Card className="mb-4 border-low p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-ink">
+              {bulkResult.failed} of {bulkResult.done + bulkResult.failed} could not be done
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setBulkResult(null)}>
+              Dismiss
+            </Button>
+          </div>
+          <ul className="flex flex-col gap-1.5 text-sm">
+            {bulkResult.results
+              .filter((r) => !r.ok)
+              .map((r) => (
+                <li key={r.id} className="flex flex-wrap items-baseline gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(r.id)}
+                    className="font-mono text-xs font-semibold text-brand-ink underline decoration-dotted underline-offset-2"
+                  >
+                    {byId.get(r.id)?.reference ?? r.reference ?? 'Reservation'}
+                  </button>
+                  <span className="text-ink-2">{r.message}</span>
+                </li>
+              ))}
+          </ul>
         </Card>
       )}
 
@@ -785,7 +910,7 @@ function ReservationsScreen() {
         money={(v) => money(v, openRow?.currency)}
         onClose={() => setOpenId(null)}
         onCard={(id) => setCardFor(id)}
-        initialTab={params.get('section') === 'folio' ? 'folio' : 'details'}
+        initialTab={section === 'folio' ? 'folio' : 'details'}
       />
       <Sheet open={cardFor !== null} onOpenChange={(o) => !o && setCardFor(null)}>
         <SheetContent title="Registration card" wide>

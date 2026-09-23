@@ -3,6 +3,7 @@
 import {
   ArrowCounterClockwise,
   CalendarPlus,
+  DoorOpen,
   SignIn,
   SignOut,
   Wallet,
@@ -36,6 +37,11 @@ export function DeskActionBar({ booking, status }: { booking: DeskTarget; status
       {(arriving || inHouse) && (
         <Button size="sm" variant="secondary" onClick={() => desk('take-payment', booking)}>
           <Wallet size={14} /> Take payment
+        </Button>
+      )}
+      {(arriving || inHouse) && (
+        <Button size="sm" variant="secondary" onClick={() => desk('move-room', booking)}>
+          <DoorOpen size={14} /> Move room
         </Button>
       )}
       {inHouse && (

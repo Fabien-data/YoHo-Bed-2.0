@@ -86,7 +86,7 @@ export default function CommsPage() {
     <div>
       <PageHeader
         eyebrow="Distribution"
-        title="Messages & templates"
+        title="Guest messages"
         description="Confirmation emails are generated from these templates when a booking is created. Edit the wording per language; guests and staff get in-app notifications too (the bell, top-right)."
         actions={
           <div className="flex gap-1.5">

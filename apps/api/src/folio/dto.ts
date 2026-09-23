@@ -94,6 +94,14 @@ export const createParticularSchema = z.object({
 });
 export type CreateParticularDto = z.infer<typeof createParticularSchema>;
 
+/** Edit a catalogue item (UX-2): its price, its tax, or take it out of use. The code never changes. */
+export const updateParticularSchema = createParticularSchema
+  .omit({ propertyId: true, code: true })
+  .partial()
+  .extend({ active: z.boolean().optional() })
+  .strict();
+export type UpdateParticularDto = z.infer<typeof updateParticularSchema>;
+
 export const unsettledQuerySchema = z.object({
   propertyId: z.string().uuid(),
 });

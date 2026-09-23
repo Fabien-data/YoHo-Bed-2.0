@@ -26,6 +26,8 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { BookingService, type TransitionContext } from './booking.service';
 import {
   amendBookingSchema,
+  bulkSchema,
+  type BulkDto,
   cancelSchema,
   changeDepartureSchema,
   type ChangeDepartureDto,
@@ -74,6 +76,35 @@ export class BookingsController {
     @Body(new ZodValidationPipe(createBookingSchema)) dto: CreateBookingDto,
   ) {
     return this.bookings.createWalkIn(tenantId, dto);
+  }
+
+  /**
+   * The same action across a selection (UX-2). Declared BEFORE the `:id` routes: `:id` would
+   * otherwise swallow "bulk". Each stay stands or falls on its own, and the answer says which
+   * ones were refused and why.
+   */
+  @Post('bulk/check-in')
+  @HttpCode(200)
+  bulkCheckIn(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
+    @Body(new ZodValidationPipe(bulkSchema)) dto: BulkDto,
+  ) {
+    return this.bookings.bulk(tenantId, 'check-in', dto.ids, actor(user, role, ip));
+  }
+
+  @Post('bulk/check-out')
+  @HttpCode(200)
+  bulkCheckOut(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
+    @Body(new ZodValidationPipe(bulkSchema)) dto: BulkDto,
+  ) {
+    return this.bookings.bulk(tenantId, 'check-out', dto.ids, actor(user, role, ip));
   }
 
   @Post(':id/approve')

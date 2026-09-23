@@ -51,6 +51,29 @@ export interface SheetContentProps extends React.ComponentPropsWithoutRef<
    * grid while the tape chart behind it stays in view. Full width on a phone.
    */
   size?: 'default' | 'wide' | 'half';
+  /**
+   * Where the keyboard lands when the sheet opens. By default the first field of the body, so a
+   * desk agent can start typing straight away — Radix would otherwise focus the Close button,
+   * which is the first thing in the DOM and about twenty Tab stops from the guest's name
+   * (docs/UX-STANDARD.md §3). Mark a specific control with `data-autofocus` to choose it, or pass
+   * `false` for a sheet that is read, not filled in.
+   */
+  autoFocusField?: boolean;
+}
+
+/** The control a sheet should open on: the marked one, else the first thing worth typing into. */
+function firstField(body: HTMLElement | null): HTMLElement | null {
+  if (!body) return null;
+  const marked = body.querySelector<HTMLElement>('[data-autofocus]');
+  if (marked) return marked;
+  const candidates = body.querySelectorAll<HTMLElement>(
+    'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [role="combobox"]:not([disabled]), button:not([disabled])',
+  );
+  for (const el of candidates) {
+    if (el.getAttribute('aria-hidden') === 'true' || el.tabIndex < 0) continue;
+    return el;
+  }
+  return null;
 }
 
 export const SheetContent = React.forwardRef<
@@ -67,12 +90,14 @@ export const SheetContent = React.forwardRef<
     showOverlay = true,
     wide,
     size = 'default',
+    autoFocusField = true,
     className,
     children,
     ...props
   },
   ref,
 ) {
+  const bodyRef = React.useRef<HTMLDivElement>(null);
   return (
     <DialogPrimitive.Portal>
       {showOverlay && (
@@ -96,6 +121,14 @@ export const SheetContent = React.forwardRef<
           size === 'half' && side !== 'bottom' && 'sm:max-w-3xl lg:w-1/2 lg:max-w-none',
           className,
         )}
+        onOpenAutoFocus={(e) => {
+          if (!autoFocusField) return;
+          const field = firstField(bodyRef.current);
+          if (!field) return;
+          e.preventDefault();
+          field.focus();
+          if (field instanceof HTMLInputElement && field.type !== 'checkbox') field.select();
+        }}
         {...props}
       >
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
@@ -126,7 +159,9 @@ export const SheetContent = React.forwardRef<
           </DialogPrimitive.Close>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {children}
+        </div>
 
         {footer && <div className="border-t border-line bg-surface-2 px-5 py-3">{footer}</div>}
       </DialogPrimitive.Content>

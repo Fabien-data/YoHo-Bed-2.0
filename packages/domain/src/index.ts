@@ -30,3 +30,4 @@ export * from './smart-property';
 export * from './tax-engine';
 export * from './levies';
 export * from './compliance';
+export * from './phone-search';
