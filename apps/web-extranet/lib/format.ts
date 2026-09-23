@@ -8,6 +8,14 @@ function symbolOf(currency?: string | null): string {
 }
 
 /**
+ * How a currency's digits are grouped: India writes 1,00,000 (lakh grouping), everyone else
+ * 100,000 (Development Phase 02, Sprint 7).
+ */
+export function numberLocale(currency?: string | null): string {
+  return currency === 'INR' ? 'en-IN' : 'en-US';
+}
+
+/**
  * Full money in a given currency: "Rs 24,390.24", "$ 1,240.00". Currency defaults to LKR so any
  * legacy call `money(v)` is unchanged. Conversion to a display currency is layered on top by
  * `useMoney()` (components/currency.tsx) — this formatter just renders a value in one currency.
@@ -19,7 +27,7 @@ export function money(v?: string | number | null, currency: CurrencyCode | strin
   return (
     symbolOf(currency) +
     ' ' +
-    n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    n.toLocaleString(numberLocale(currency), { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   );
 }
 
@@ -31,7 +39,7 @@ export function moneyShort(
   if (v === undefined || v === null || v === '') return '—';
   const n = typeof v === 'string' ? Number(v) : v;
   if (Number.isNaN(n)) return '—';
-  return symbolOf(currency) + ' ' + Math.round(n).toLocaleString('en-US');
+  return symbolOf(currency) + ' ' + Math.round(n).toLocaleString(numberLocale(currency));
 }
 
 /** Today as 'YYYY-MM-DD' in the user's LOCAL timezone (toISOString would lag before 05:30 LKT). */

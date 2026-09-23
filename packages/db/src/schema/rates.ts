@@ -97,6 +97,12 @@ export const rateCalendar = pgTable(
     basePrice: numeric('base_price', { precision: 12, scale: 2 }).notNull(),
     commission: numeric('commission', { precision: 12, scale: 2 }).notNull(),
     sellingPrice: numeric('selling_price', { precision: 12, scale: 2 }).notNull(),
+    /**
+     * The pre-tax price (Sprint 7), stored for `exclusive_forward` properties, which price from it
+     * and charge taxes on top. `selling_price` stays the tax-inclusive figure for every reader.
+     * Null on the legacy path.
+     */
+    netPrice: numeric('net_price', { precision: 12, scale: 2 }),
     /** Owner-set last-minute discount % on the selling price for near-term stays (0 = none). */
     lastMinuteDropPct: numeric('last_minute_drop_pct', { precision: 5, scale: 2 })
       .notNull()

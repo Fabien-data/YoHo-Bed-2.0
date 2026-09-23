@@ -9,6 +9,7 @@ import {
   rateCalendar,
   rateCodes,
   ratePlans,
+  resolveForwardTaxesForDates,
   resolveTaxComponentsForDates,
   resolveTaxRatesForDates,
   rooms,
@@ -21,6 +22,7 @@ import {
   complimentaryNight,
   discountPercent,
   exemptNight,
+  forwardNight,
   overrideNight,
   overridePrices,
   roundMoney,
@@ -100,6 +102,8 @@ export interface PricedLine {
   propertyId: string;
   currency: string;
   timezone: string;
+  /** Which tax engine priced it: a typed rate is before tax under `exclusive_forward`. */
+  taxMode: 'inclusive_legacy' | 'exclusive_forward';
   rooms: number;
   nights: PricedNight[];
   /** Totals for the line (× rooms), as the booking row stores them. */
@@ -151,6 +155,7 @@ export class ReservationPricer {
         rateName: rateCodes.name,
         currency: properties.currency,
         timezone: properties.timezone,
+        taxMode: properties.taxMode,
         accommodates: occupancies.accommodates,
       })
       .from(occupancies)
@@ -244,6 +249,12 @@ export class ReservationPricer {
       );
     }
     const byDate = new Map(priceRows.map((r) => [r.date, r]));
+
+    // India and Malaysia: taxes charged on top of a pre-tax price (tax engine v2).
+    if (occ.taxMode === 'exclusive_forward') {
+      const f = await this.forwardNights(tx, input, mode, occ, nights, byDate, label);
+      return this.summarise(input, occ, audience, f.priced, f.totals, input.policy ?? {});
+    }
 
     // Untaxed properties resolve to zero rates, so taxes = 0.
     const taxByDate = await resolveTaxRatesForDates(tx, occ.propertyId, nights);
@@ -345,6 +356,37 @@ export class ReservationPricer {
         ...(smartQuote ? { smartQuote } : {}),
       });
     }
+    return this.summarise(
+      input,
+      occ,
+      audience,
+      priced,
+      { amount, totalBase, taxes, listAmount },
+      policy,
+    );
+  }
+
+  /** The line's totals and summary, from its priced nights — shared by both tax engines. */
+  private summarise(
+    input: PriceLineInput,
+    occ: {
+      roomName: string;
+      ratePlanId: string;
+      rateCode: string;
+      rateName: string;
+      accommodates: number;
+      marketSegmentId: string | null;
+      propertyId: string;
+      currency: string;
+      timezone: string;
+      taxMode: string;
+    },
+    audience: RateAudience,
+    priced: PricedNight[],
+    totals: { amount: number; totalBase: number; taxes: number; listAmount: number },
+    policy: PricingPolicy,
+  ): PricedLine {
+    const { amount, totalBase, taxes, listAmount } = totals;
     const commissionable = amount - taxes;
 
     const sources = new Set(priced.map((n) => n.rateSource));
@@ -369,6 +411,7 @@ export class ReservationPricer {
       propertyId: occ.propertyId,
       currency: occ.currency,
       timezone: occ.timezone,
+      taxMode: occ.taxMode === 'exclusive_forward' ? 'exclusive_forward' : 'inclusive_legacy',
       rooms: input.rooms,
       nights: priced,
       amount: money(amount),
@@ -381,6 +424,113 @@ export class ReservationPricer {
       raw: { amount, taxes, commissionable },
       ...(smart ? { policyVersion: smart.policyVersion } : {}),
     };
+  }
+
+  /**
+   * Nights priced forward (tax engine v2): the calendar's pre-tax `net_price`, less any
+   * last-minute drop, is the list price; an override or contract rate replaces it with another
+   * pre-tax price (India and Malaysia quote rooms before tax); then each tax is computed on top,
+   * India's GST slab chosen on that discounted pre-tax value per room per night.
+   *
+   * Everything is to the cent, so the totals are exact sums — no legacy float drift to preserve.
+   */
+  private async forwardNights(
+    tx: Tx,
+    input: PriceLineInput,
+    mode: DistributionModeLike,
+    occ: { propertyId: string; ratePlanId: string },
+    nights: string[],
+    byDate: Map<string, typeof rateCalendar.$inferSelect>,
+    label: string,
+  ): Promise<{
+    priced: PricedNight[];
+    totals: { amount: number; totalBase: number; taxes: number; listAmount: number };
+  }> {
+    const taxesByDate = await resolveForwardTaxesForDates(tx, occ.propertyId, nights);
+    const list = nights.map((d) => {
+      const p = byDate.get(d)!;
+      if (p.netPrice === null) {
+        throw new BadRequestException({
+          reason: 'net_price_missing',
+          message: `${label}The price for ${d} was set before this property's taxes were set up. Set the rates for those dates again.`,
+        });
+      }
+      const net = applyLastMinuteDrop(Number(p.netPrice), Number(p.lastMinuteDropPct));
+      // `selling` is what targetPrices scales from: here the pre-tax list price.
+      return { date: d, p, net, selling: net };
+    });
+
+    const policy = input.policy ?? {};
+    const target = await this.targetPrices(tx, policy, input, occ.ratePlanId, list, label);
+
+    const priced: PricedNight[] = [];
+    let amount = 0;
+    let totalBase = 0;
+    let taxes = 0;
+    let listAmount = 0;
+    for (let i = 0; i < list.length; i++) {
+      const { date: d, p, net: listNet } = list[i]!;
+      const rates = taxesByDate.get(d) ?? [];
+      const listNight = forwardNight(listNet, rates);
+
+      let base: number | string;
+      let commission: number | string;
+      let net: number;
+      let source: RateSource;
+      if (policy.complimentary) {
+        base = 0;
+        commission = 0;
+        net = 0;
+        source = 'complimentary';
+      } else {
+        const t = target?.[i];
+        if (t === undefined || t.price === listNet) {
+          base = p.basePrice;
+          commission = p.commission;
+          net = listNet;
+          source = 'calendar';
+        } else {
+          const scaled = overrideNight(
+            {
+              base: Number(p.basePrice),
+              commission: Number(p.commission),
+              selling: listNet,
+              tax: 0,
+            },
+            t.price,
+            0,
+            mode,
+          );
+          base = scaled.base;
+          commission = scaled.commission;
+          net = t.price;
+          source = t.source;
+        }
+      }
+
+      let night = forwardNight(net, rates);
+      if (policy.taxExempt && !policy.complimentary) {
+        const exempt = exemptNight(night.selling, night.tax, night.lines);
+        night = { ...night, selling: exempt.selling, tax: exempt.tax, lines: exempt.lines };
+      }
+
+      amount = roundMoney(amount + night.selling * input.rooms);
+      totalBase = roundMoney(totalBase + Number(base) * input.rooms);
+      taxes = roundMoney(taxes + night.tax * input.rooms);
+      listAmount = roundMoney(listAmount + listNight.selling * input.rooms);
+
+      priced.push({
+        date: d,
+        basePrice: typeof base === 'string' ? base : money(base),
+        commission: typeof commission === 'string' ? commission : money(commission),
+        sellingPrice: money(night.selling),
+        tax: money(night.tax),
+        listSellingPrice: money(listNight.selling),
+        rateSource: source,
+        taxLines: night.lines,
+      });
+    }
+    return { priced, totals: { amount, totalBase, taxes, listAmount } };
   }
 
   /**

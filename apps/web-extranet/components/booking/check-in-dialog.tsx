@@ -36,6 +36,7 @@ import { useActiveProperty } from '@/components/active-property';
 import { useUxTask } from '@/lib/ux';
 import { ReasonDialog } from './reason-dialog';
 import { TakePaymentForm } from './take-payment-form';
+import { RegisterCapture } from './register-capture';
 import { useRefreshDesk } from './refresh';
 
 const PRINT_CARD_KEY = 'yhb_print_card_at_checkin';
@@ -172,6 +173,7 @@ export function CheckInDialog({
                 {problem && (
                   <Problem
                     problem={problem}
+                    bookingId={booking!.id}
                     customerId={p.customerId}
                     busy={switchClean.isPending}
                     onSwitchClean={() => switchClean.mutate()}
@@ -306,6 +308,7 @@ function RoomsLine({ rooms }: { rooms: Array<{ code: string; housekeeping: strin
 /** Each refusal becomes the choice that fixes it. */
 function Problem({
   problem,
+  bookingId,
   customerId,
   busy,
   onSwitchClean,
@@ -314,6 +317,7 @@ function Problem({
   onFixed,
 }: {
   problem: DeskProblem;
+  bookingId: string;
   customerId: string;
   busy: boolean;
   onSwitchClean: () => void;
@@ -338,6 +342,16 @@ function Problem({
       );
     case 'documents_required':
       return <IdCapture customerId={customerId} message={problem.message} onSaved={onFixed} />;
+    case 'registration_required':
+      return (
+        <RegisterCapture
+          bookingId={bookingId}
+          customerId={customerId}
+          message={problem.message}
+          missing={problem.missing ?? []}
+          onSaved={onFixed}
+        />
+      );
     case 'no_show':
       return (
         <InlineAlert tone="warn">

@@ -20,11 +20,16 @@ import {
 } from '@yohobed/db';
 import {
   FOLIO_INVOICE_KINDS,
+  INDIA_ACCOMMODATION_SAC,
+  displayTaxLines,
   documentNumber,
   fiscalYear,
+  inInvoiceSerial,
   invoiceTitle,
+  isGstin,
   isLkTin,
   lkInvoiceSerial,
+  rupeeRoundOff,
   lkSerialPeriod,
   roundMoney,
   summariseTaxes,
@@ -131,13 +136,23 @@ export class InvoicesService {
 
     const profile = profileOf(property);
     const payer = withPayerOverrides(await payerOf(tx, folio, booking!), dto.payer);
+    // A B2B GST invoice carries the buyer's GSTIN; a wrong one would be rejected by the buyer's
+    // input-tax claim, so it is checked here rather than printed as typed.
+    if (profile === 'in_gst' && payer.taxId && !isGstin(payer.taxId)) {
+      throw new BadRequestException({
+        reason: 'invalid_gstin',
+        message: `"${payer.taxId}" is not a valid GSTIN (15 characters, starting with the state code).`,
+      });
+    }
     const groups: Array<{ kind: InvoiceKind; lines: BuiltLine[] }> =
       profile === 'lk_vat'
         ? [
             { kind: 'tax_invoice' as const, lines: lines.filter(hasVat) },
             { kind: 'bill' as const, lines: lines.filter((l) => !hasVat(l)) },
           ].filter((g) => g.lines.length > 0)
-        : [{ kind: 'invoice', lines }];
+        : profile === 'in_gst'
+          ? [{ kind: 'tax_invoice', lines }]
+          : [{ kind: 'invoice', lines }];
 
     const issued = [];
     for (const g of groups) {
@@ -366,36 +381,49 @@ export class InvoicesService {
       const fy = fiscalYear(date, property.fyStartMonth);
       const month = lkSerialPeriod(date);
       const lk = profileOf(property) === 'lk_vat';
+      const india = profileOf(property) === 'in_gst';
       return {
         profile: profileOf(property),
         date,
         series: rows,
         next: [
-          ...(lk
+          ...(india
             ? [
                 {
                   docType: 'tax_invoice',
-                  period: month,
-                  number: lkInvoiceSerial(date, property.branchCode, nextOf('tax_invoice', month)),
-                },
-                {
-                  docType: 'bill',
                   period: fy,
-                  number: documentNumber('bill', fy, nextOf('bill', fy)),
+                  number: inInvoiceSerial(fy, nextOf('tax_invoice', fy), property.invoicePrefix),
                 },
               ]
-            : [
-                {
-                  docType: 'invoice',
-                  period: fy,
-                  number: documentNumber(
-                    'invoice',
-                    fy,
-                    nextOf('invoice', fy),
-                    property.invoicePrefix,
-                  ),
-                },
-              ]),
+            : lk
+              ? [
+                  {
+                    docType: 'tax_invoice',
+                    period: month,
+                    number: lkInvoiceSerial(
+                      date,
+                      property.branchCode,
+                      nextOf('tax_invoice', month),
+                    ),
+                  },
+                  {
+                    docType: 'bill',
+                    period: fy,
+                    number: documentNumber('bill', fy, nextOf('bill', fy)),
+                  },
+                ]
+              : [
+                  {
+                    docType: 'invoice',
+                    period: fy,
+                    number: documentNumber(
+                      'invoice',
+                      fy,
+                      nextOf('invoice', fy),
+                      property.invoicePrefix,
+                    ),
+                  },
+                ]),
           {
             docType: 'credit_note',
             period: fy,
@@ -488,7 +516,16 @@ export class InvoicesService {
     const date = (await propertyBusinessDate(tx, property.id, property.timezone)).date;
     const fy = fiscalYear(date, property.fyStartMonth);
     let number: string;
-    if (a.kind === 'tax_invoice') {
+    if (a.kind === 'tax_invoice' && a.profile === 'in_gst') {
+      // India: one series per financial year, restarting each April, at most 16 characters.
+      const n = await nextDocumentNumber(tx, {
+        tenantId: actor.tenantId,
+        propertyId: property.id,
+        docType: 'tax_invoice',
+        period: fy,
+      });
+      number = inInvoiceSerial(fy, n, property.invoicePrefix);
+    } else if (a.kind === 'tax_invoice') {
       const n = await nextDocumentNumber(tx, {
         tenantId: actor.tenantId,
         propertyId: property.id,
@@ -511,9 +548,17 @@ export class InvoicesService {
     const fxQuote = a.profile === 'lk_vat' && a.currency !== 'LKR' ? 'LKR' : null;
     const fxRate = fxQuote ? await fxRateOn(tx, a.currency, fxQuote, date) : null;
 
-    const amount = sumMoney(a.lines.map((l) => l.amount));
-    const taxTotal = sumMoney(a.lines.map((l) => l.tax));
-    const posted = a.lines.map((l) => l.postedFor).filter((d): d is string => Boolean(d));
+    const lines = forProfile(a.profile, a.lines);
+    const exact = sumMoney(lines.map((l) => l.amount));
+    const taxTotal = sumMoney(lines.map((l) => l.tax));
+    // India rounds the invoice to the rupee and shows the difference (subtotal + tax + rounding
+    // = amount); everyone else invoices to the cent.
+    const { rounded, roundOff } =
+      a.profile === 'in_gst' && a.kind !== 'proforma'
+        ? rupeeRoundOff(exact)
+        : { rounded: exact, roundOff: 0 };
+    const amount = rounded;
+    const posted = lines.map((l) => l.postedFor).filter((d): d is string => Boolean(d));
     const lastPosted = posted.length ? posted.reduce((m, d) => (d > m ? d : m)) : null;
     const supplyDate =
       lastPosted && lastPosted < date
@@ -541,9 +586,10 @@ export class InvoicesService {
         fiscalYear: fy,
         invoiceDate: date,
         supplyDate,
-        subtotal: money(roundMoney(amount - taxTotal)),
+        subtotal: money(roundMoney(exact - taxTotal)),
         taxTotal: money(taxTotal),
-        taxSummary: summariseTaxes(a.lines),
+        rounding: money(roundOff),
+        taxSummary: summariseTaxes(lines),
         fxRate,
         fxQuote,
         notes: a.notes,
@@ -551,7 +597,7 @@ export class InvoicesService {
       })
       .returning();
     await tx.insert(invoiceLines).values(
-      a.lines.map((l, i) => ({
+      lines.map((l, i) => ({
         tenantId: actor.tenantId,
         invoiceId: inv!.id,
         sort: i,
@@ -562,6 +608,7 @@ export class InvoicesService {
         net: money(l.net),
         tax: money(l.tax),
         taxLines: l.taxLines,
+        hsnSac: l.hsnSac ?? null,
         postedFor: l.postedFor,
         folioChargeId: l.folioChargeId,
       })),
@@ -610,7 +657,28 @@ export class InvoicesService {
   }
 }
 
-/** Sri Lanka's gazette profile applies to a hotel there with a TIN; anyone else gets a plain invoice. */
-export function profileOf(p: Pick<Property, 'countryCode' | 'taxIds'>): InvoiceProfile {
-  return p.countryCode === 'LK' && isLkTin(p.taxIds?.tin) ? 'lk_vat' : 'generic';
+/**
+ * Which rules a hotel's documents follow: Sri Lanka's gazette with a TIN; India's GST with a GSTIN
+ * and Malaysia's SST with an SST number — both only once the property charges tax forward (a
+ * regional tax preset applied); anyone else gets a plain invoice.
+ */
+export function profileOf(p: Pick<Property, 'countryCode' | 'taxIds' | 'taxMode'>): InvoiceProfile {
+  if (p.countryCode === 'LK' && isLkTin(p.taxIds?.tin)) return 'lk_vat';
+  const forward = p.taxMode === 'exclusive_forward';
+  if (forward && p.countryCode === 'IN' && isGstin(p.taxIds?.gstin)) return 'in_gst';
+  if (forward && p.countryCode === 'MY' && p.taxIds?.sstNo?.trim()) return 'my_sst';
+  return 'generic';
+}
+
+/**
+ * Lines as a profile prints them: India's GST as CGST + SGST halves and its room nights under
+ * SAC 996311. Amounts are unchanged; only how the taxes are named and split.
+ */
+function forProfile(profile: InvoiceProfile, lines: BuiltLine[]): BuiltLine[] {
+  if (profile !== 'in_gst') return lines;
+  return lines.map((l) => ({
+    ...l,
+    taxLines: displayTaxLines(l.taxLines),
+    hsnSac: l.hsnSac ?? (l.source === 'room' ? INDIA_ACCOMMODATION_SAC : null),
+  }));
 }

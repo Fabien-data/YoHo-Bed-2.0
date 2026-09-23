@@ -23,22 +23,34 @@ export interface ErApiResponse {
   rates?: Record<string, number>;
 }
 
-/** Convert an open.er-api.com base=LKR response into "1 base = N LKR" rows for our tracked currencies. */
-export function ratesToLkrFromErApi(json: ErApiResponse): ExchangeRateInput[] {
+/**
+ * Convert an open.er-api.com base=LKR response into "1 base = N LKR" rows for our tracked
+ * currencies. A currency the provider left out (or quoted as nonsense) is skipped and named in
+ * `missing` — its last known rate stays in force — rather than throwing away every other rate.
+ * Only a response with no usable rate at all is an error.
+ */
+export function ratesToLkrFromErApi(json: ErApiResponse): ExchangeRateInput[] & {
+  missing?: string[];
+} {
   if (json.result !== 'success' || json.base_code !== 'LKR' || !json.rates) {
     throw new Error(
       `Unexpected FX provider response (result=${json.result}, base=${json.base_code})`,
     );
   }
-  const out: ExchangeRateInput[] = [];
+  const out: ExchangeRateInput[] & { missing?: string[] } = [];
+  const missing: string[] = [];
   for (const code of SUPPORTED_CURRENCIES) {
     if (code === 'LKR') continue; // pivot: implicitly 1, never stored
     const perLkr = json.rates[code];
     if (!perLkr || perLkr <= 0 || !Number.isFinite(perLkr)) {
-      throw new Error(`Missing/invalid FX rate for ${code} (perLkr=${perLkr})`);
+      missing.push(code);
+      continue;
     }
     out.push({ base: code, rate: 1 / perLkr, source: 'auto' });
   }
+  if (out.length === 0)
+    throw new Error(`No usable FX rate in the response (${missing.join(', ')})`);
+  if (missing.length) out.missing = missing;
   return out;
 }
 
@@ -74,6 +86,10 @@ export async function fetchAndStoreRates(
       `[fx] stored ${rows.length} rate(s): ` +
         rows.map((r) => `${r.base}=${r.rate.toFixed(4)}`).join(' '),
     );
+    const missing = (rows as { missing?: string[] }).missing;
+    if (missing?.length) {
+      console.warn(`[fx] provider gave no rate for ${missing.join(', ')}; keeping the last known`);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[fx] rate refresh failed (keeping last known rates): ${msg}`);

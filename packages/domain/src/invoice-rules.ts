@@ -29,7 +29,46 @@ export type InvoiceKind = (typeof INVOICE_KINDS)[number];
 /** The documents a folio window is invoiced with; at most one of each is live at a time. */
 export const FOLIO_INVOICE_KINDS: readonly InvoiceKind[] = ['tax_invoice', 'invoice', 'bill'];
 
-export type InvoiceProfile = 'lk_vat' | 'generic';
+/**
+ * - `lk_vat` — Sri Lanka, Gazette 2481/22 (Sprint 6).
+ * - `in_gst` — India (Sprint 7): a TAX INVOICE with supplier and buyer GSTIN, place of supply,
+ *   SAC 996311, GST printed as CGST + SGST, a serial of at most 16 characters that restarts each
+ *   April, and the total rounded to the rupee.
+ * - `my_sst` — Malaysia (Sprint 7): the SST registration number, and the Tourism Tax on its own
+ *   line with the TTx number.
+ * - `generic` — anyone else.
+ */
+export type InvoiceProfile = 'lk_vat' | 'generic' | 'in_gst' | 'my_sst';
+
+/** India's accommodation services code, printed on a GST tax invoice. */
+export const INDIA_ACCOMMODATION_SAC = '996311';
+
+/** The longest invoice number India's GST rules allow. */
+export const IN_SERIAL_MAX = 16;
+
+/**
+ * An Indian GST invoice number: `INV/26-27/000042` — prefix, the financial year's two-digit
+ * years, then the running number of that year's series. At most 16 characters (CGST Rule 46);
+ * the prefix is shortened to fit, never the number.
+ */
+export function inInvoiceSerial(fy: string, n: number, prefix?: string | null): string {
+  if (!Number.isInteger(n) || n < 1) throw new Error(`bad serial number ${n}`);
+  const years = /^\d{4}-\d{2}$/.test(fy) ? `${fy.slice(2, 4)}-${fy.slice(5, 7)}` : fy.slice(-5);
+  const own = (prefix ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const digits = String(n).padStart(6, '0');
+  const room = IN_SERIAL_MAX - years.length - digits.length - 2;
+  if (room < 1) throw new Error(`invoice number ${n} does not fit in ${IN_SERIAL_MAX} characters`);
+  const head = (own || 'INV').slice(0, room);
+  return `${head}/${years}/${digits}`;
+}
+
+/** An Indian GSTIN: 2-digit state code, 10-character PAN, entity digit, Z, check character. */
+export function isGstin(value: string | null | undefined): boolean {
+  return /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test((value ?? '').trim().toUpperCase());
+}
 
 /** Who is on the invoice — the supplier or the purchaser — frozen at issue. */
 export interface InvoiceParty {
@@ -44,6 +83,10 @@ export interface InvoiceParty {
   taxId?: string | null;
   registrationNo?: string | null;
   branchCode?: string | null;
+  /** India: the GST state code — the place of supply for a hotel stay (Sprint 7). */
+  stateCode?: string | null;
+  /** Malaysia: the Tourism Tax registration number, printed beside the TTx line (Sprint 7). */
+  ttxNo?: string | null;
 }
 
 const MONTHS = [

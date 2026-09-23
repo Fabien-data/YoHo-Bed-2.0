@@ -485,6 +485,21 @@ CREATE POLICY tenant_isolation ON booking_transfers
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- Malaysia and India money and compliance (Development Phase 02, Sprint 7). stay_registrations
+-- holds where foreign guests came from and their Form C filings.
+
+ALTER TABLE property_levies ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON property_levies;
+CREATE POLICY tenant_isolation ON property_levies
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE stay_registrations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON stay_registrations;
+CREATE POLICY tenant_isolation ON stay_registrations
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 -- Which tenants have reservation-lifecycle work due: a hold past its release time, a hold inside
 -- its reminder window, or an unconfirmed booking past its arrival day at a property that releases
 -- those. The worker runs without a tenant context, so under RLS it can see no bookings at all;

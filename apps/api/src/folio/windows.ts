@@ -9,7 +9,8 @@ import { bookings, folios, type Tx } from '@yohobed/db';
  * how "room and tax to the company, extras to the guest" works without splitting a single night.
  */
 
-export type RoutedSource = 'manual' | 'pos' | 'inclusion';
+/** `levy` (Sprint 7): a window may claim the tourism tax; unclaimed, it stays on window 1. */
+export type RoutedSource = 'manual' | 'pos' | 'inclusion' | 'levy';
 
 export interface WindowPayer {
   payerType: 'guest' | 'company' | 'travel_agent';

@@ -75,6 +75,7 @@ import { resolveGuest, type ResolvedGuest } from './guest-resolver';
 import { BookingService } from '../bookings/booking.service';
 import { assertRoomsReadyForCheckIn } from '../housekeeping/readiness';
 import { ensureWindow } from '../folio/windows';
+import { levyEstimate } from '../folio/levies';
 import { buildVoucher, queueVoucher } from '../vouchers/voucher';
 import {
   assertCityLedger,
@@ -119,6 +120,8 @@ interface Prepared {
   holdUntil: Date | null;
   origin: BookingOrigin;
   businessSourceId: string | null;
+  /** The source collects Malaysia's tourism tax itself, so the hotel must not (Sprint 7). */
+  levyCollectedByChannel: boolean;
   ledgerAccountId: string | null;
   salesPersonId: string | null;
   marketSegmentId: string | null;
@@ -219,6 +222,20 @@ export class ReservationService {
         },
         approvalsRequired: p.approvalsRequired,
         reasonRequired: p.reasonRequired,
+        /** Typed rates are before tax when the property charges tax on top (Sprint 7). */
+        taxMode: p.property.taxMode,
+        // Levies the stay will owe on top of the price — Malaysia's tourism tax, charged per
+        // room per night stayed on the folio, never inside the rate (Sprint 7).
+        levies: await levyEstimate(tx, {
+          propertyId: p.property.id,
+          currency: p.property.currency,
+          checkin: dto.checkin,
+          checkout: dto.checkout,
+          residency: p.residency,
+          levyExempt: false,
+          collectedByChannel: p.levyCollectedByChannel,
+          rooms: p.lines.length,
+        }),
       };
     });
   }
@@ -521,6 +538,7 @@ export class ReservationService {
           holdUntil: p.holdUntil,
           origin: p.origin,
           residency: p.residency,
+          levyCollectedByChannel: p.levyCollectedByChannel,
           arrivalTime: dto.arrivalTime ? `${dto.arrivalTime}:00` : null,
           departureTime: dto.departureTime ? `${dto.departureTime}:00` : null,
           marketSegmentId: p.marketSegmentId,
@@ -1217,6 +1235,7 @@ export class ReservationService {
       holdUntil,
       origin,
       businessSourceId: source?.id ?? null,
+      levyCollectedByChannel: source?.collectsTourismTax ?? false,
       ledgerAccountId: account?.id ?? null,
       salesPersonId: dto.salesPersonId ?? null,
       marketSegmentId,

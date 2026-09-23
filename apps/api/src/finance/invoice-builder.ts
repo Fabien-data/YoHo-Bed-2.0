@@ -14,6 +14,7 @@ import {
   type Tx,
 } from '@yohobed/db';
 import {
+  isResidency,
   roundMoney,
   scaleTaxLines,
   splitProportional,
@@ -23,6 +24,7 @@ import {
   type TaxLine,
 } from '@yohobed/domain';
 import { ConflictException } from '@nestjs/common';
+import { levyEstimate } from '../folio/levies';
 
 /**
  * What goes on a document (Development Phase 02, Sprint 6), read from the folio — never recomputed.
@@ -44,6 +46,10 @@ export interface BuiltLine {
   taxLines: TaxLine[];
   postedFor: string | null;
   folioChargeId: string | null;
+  /** Where the line came from: room nights get India's SAC code; a levy prints its number. */
+  source?: 'room' | 'manual' | 'pos' | 'inclusion' | 'levy' | null;
+  /** India's HSN/SAC code for the line (Sprint 7). */
+  hsnSac?: string | null;
 }
 
 type Property = typeof properties.$inferSelect;
@@ -131,6 +137,7 @@ export async function folioLines(
       taxLines: reconcile(lines, tax),
       postedFor: c.postedFor,
       folioChargeId: c.id,
+      source: c.source,
     };
   });
 
@@ -172,6 +179,7 @@ export function roomNightLines(
       taxLines: reconcile(lines, tax),
       postedFor: d.date,
       folioChargeId: null,
+      source: 'room' as const,
     };
   });
 }
@@ -253,6 +261,31 @@ export async function proformaLines(
       folioChargeId: null,
     });
   }
+
+  // Levies the stay will owe if stayed in full — Malaysia's tourism tax (Sprint 7).
+  for (const levy of await levyEstimate(tx, {
+    propertyId: booking.propertyId,
+    currency: booking.currency,
+    checkin: booking.checkin,
+    checkout: booking.checkout,
+    residency: isResidency(booking.residency) ? booking.residency : null,
+    levyExempt: booking.levyExempt,
+    collectedByChannel: booking.levyCollectedByChannel,
+    rooms: booking.rooms,
+  })) {
+    lines.push({
+      description: `${levy.name} (${levy.nights} night${levy.nights === 1 ? '' : 's'})`,
+      quantity: roundMoney(levy.amount / levy.unit),
+      unitPrice: levy.unit,
+      amount: levy.amount,
+      net: levy.amount,
+      tax: 0,
+      taxLines: [],
+      postedFor: null,
+      folioChargeId: null,
+      source: 'levy',
+    });
+  }
   return lines;
 }
 
@@ -275,6 +308,9 @@ export function supplierOf(p: Property): InvoiceParty {
     taxId: ids.tin ?? ids.gstin ?? ids.sstNo ?? null,
     registrationNo: ids.sltdaRegNo ?? ids.brn ?? null,
     branchCode: p.branchCode,
+    // Sprint 7: India's GST state code (place of supply) and Malaysia's Tourism Tax number.
+    stateCode: p.stateCode,
+    ttxNo: ids.ttxNo ?? null,
   };
 }
 

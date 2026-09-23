@@ -7,6 +7,7 @@ import {
   CreditCard,
   Gauge,
   GearSix,
+  IdentificationCard,
   Money,
   MoonStars,
   Receipt,
@@ -40,6 +41,8 @@ export interface NavItem {
   docsUrl: string;
   /** Subscription feature key from @yohobed/domain. Omit for always-available items. */
   feature?: string;
+  /** Shown only when the active property is in one of these countries (ISO alpha-2). */
+  countries?: string[];
 }
 
 export interface NavGroup {
@@ -90,6 +93,14 @@ export const NAV: NavGroup[] = [
         label: 'Check-in & walk-ins',
         icon: ClipboardText,
         docsUrl: 'https://app.notion.com/p/3aa8dc222455817c99a4feb8f4ad73c3',
+      },
+      // India's Form C: foreign guests registered with immigration within 24 hours (Sprint 7).
+      {
+        href: '/app/compliance',
+        label: 'Form C',
+        icon: IdentificationCard,
+        docsUrl: 'PLACEHOLDER',
+        countries: ['IN'],
       },
     ],
   },

@@ -27,3 +27,6 @@ export * from './residency';
 export * from './reservation-options';
 export * from './invoice-rules';
 export * from './smart-property';
+export * from './tax-engine';
+export * from './levies';
+export * from './compliance';

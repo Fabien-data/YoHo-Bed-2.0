@@ -25,6 +25,10 @@ export interface TaxLine {
   rate: number;
   amount: number;
   exemptible: boolean;
+  /** The tax's short code (SC, SST, GST…) — forward-priced taxes only (Sprint 7). */
+  code?: string;
+  /** How it prints: `gst_split` prints as CGST + SGST halves (`displayTaxLines`). */
+  group?: 'gst_split';
 }
 
 /**

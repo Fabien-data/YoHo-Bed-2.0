@@ -26,17 +26,23 @@ describe('ratesToLkrFromErApi', () => {
     ).toThrow();
   });
 
-  it('throws if a tracked currency rate is missing or non-positive (never a silent zero)', () => {
+  it('skips a missing or non-positive rate and names it — never a silent zero, never all-or-nothing', () => {
+    // One currency the provider left out must not throw away every other rate (Sprint 7: MYR
+    // joined the list); the skipped one keeps its last known rate.
+    const rows = ratesToLkrFromErApi({
+      result: 'success',
+      base_code: 'LKR',
+      rates: { USD: 0.0033, INR: 0, GBP: 0.0026, EUR: 0.003 },
+    });
+    expect(rows.map((r) => r.base).sort()).toEqual(['EUR', 'GBP', 'USD']);
+    expect(rows.every((r) => r.rate > 0)).toBe(true);
+    expect(rows.missing).toEqual(['INR', 'MYR']);
+  });
+
+  it('throws when the response has no usable rate at all', () => {
     expect(() =>
-      ratesToLkrFromErApi({ result: 'success', base_code: 'LKR', rates: { USD: 0.0033 } }),
-    ).toThrow(/INR/);
-    expect(() =>
-      ratesToLkrFromErApi({
-        result: 'success',
-        base_code: 'LKR',
-        rates: { USD: 0.0033, INR: 0, GBP: 0.0026, EUR: 0.003 },
-      }),
-    ).toThrow(/INR/);
+      ratesToLkrFromErApi({ result: 'success', base_code: 'LKR', rates: { USD: 0 } }),
+    ).toThrow(/No usable FX rate/);
   });
 });
 

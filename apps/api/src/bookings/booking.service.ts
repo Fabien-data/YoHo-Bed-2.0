@@ -60,6 +60,8 @@ import { ConfigService } from '@nestjs/config';
 import { BillingService } from '../billing/billing.service';
 import { StepUpService } from '../auth/step-up.service';
 import { settleAtCheckout } from '../folio/settlement';
+import { reconcileLevies, voidAllLevies } from '../folio/levies';
+import { assertRegistered } from '../compliance/compliance.service';
 import { DatabaseService } from '../database/database.service';
 import { MailerService } from '../email/mailer.service';
 import {
@@ -938,6 +940,8 @@ export class BookingService {
         .set({ status: 'Approved', checkedInAt: null, updatedAt: new Date() })
         .where(eq(bookings.id, b.id))
         .returning();
+      // Nothing was stayed, so no tourism tax is owed (Sprint 7).
+      await voidAllLevies(tx, b.id, 'Check-in undone', ctx.actorUserId ?? null);
       await this.record(tx, tenantId, b.id, 'check_in_undone', reason, ctx);
       return updated;
     });
@@ -1236,6 +1240,11 @@ export class BookingService {
         await releaseBookingInventory(tx, b, { from: operating, origin: 'early_checkout' });
       }
 
+      // Levies for exactly the nights stayed (Sprint 7): what night audit did not post is posted
+      // now — a Starter hotel has no night audit — and a night not stayed is voided. Before the
+      // settlement and the balance check, so the guest settles the tourism tax too.
+      await reconcileLevies(tx, tenantId, updated!, operating, ctx.actorUserId ?? null);
+
       const { features } = await this.billing.entitlements(tenantId, tx);
       if (features.cashiering)
         await settleAtCheckout(tx, tenantId, updated!, ctx.actorUserId ?? null);
@@ -1441,6 +1450,9 @@ export class BookingService {
         });
       }
     }
+
+    // Malaysia's Registration of Guests Act (Sprint 7): the register is complete before the key.
+    if (property.settings.requireGuestRegistration) await assertRegistered(tx, b, b.reference);
   }
 
   /**

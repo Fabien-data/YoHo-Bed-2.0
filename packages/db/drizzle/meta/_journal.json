@@ -288,6 +288,13 @@
       "when": 1790137351197,
       "tag": "0040_little_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790157554539,
+      "tag": "0041_busy_speed_demon",
+      "breakpoints": true
     }
   ]
 }

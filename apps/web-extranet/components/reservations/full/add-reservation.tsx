@@ -753,7 +753,10 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
                   <span>Room</span>
                   <span>Adult</span>
                   <span>Child</span>
-                  <span className="text-right">Rate ({currency}) · tax inc.</span>
+                  <span className="text-right">
+                    Rate ({currency}) ·{' '}
+                    {quote.data?.taxMode === 'exclusive_forward' ? 'before tax' : 'tax inc.'}
+                  </span>
                   <span />
                 </div>
                 <span className="w-6 shrink-0" />
@@ -772,6 +775,7 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
                           grid={grid.data}
                           takesRooms={takesRooms}
                           quote={quote.data?.lines[i]}
+                          beforeTax={quote.data?.taxMode === 'exclusive_forward'}
                           money={money}
                           error={
                             lineErrors[i] ??

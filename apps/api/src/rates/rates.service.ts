@@ -6,6 +6,8 @@ import {
   sellingPrice,
   sellingFromCommissionable,
   applyLastMinuteDrop,
+  forwardNight,
+  roundMoney,
   type CommissionStructure,
 } from '@yohobed/domain';
 import {
@@ -21,6 +23,7 @@ import {
   commissionSlabs,
   ariHistory,
   enqueueOutbox,
+  resolveForwardTaxesForDates,
   resolveTaxRatesForDates,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
@@ -85,6 +88,7 @@ export class RatesService {
           roomId: rooms.id,
           commissionType: properties.commissionType,
           commissionPercentage: properties.commissionPercentage,
+          taxMode: properties.taxMode,
           distributionMode: tenants.distributionMode,
         })
         .from(occupancies)
@@ -168,7 +172,7 @@ export class RatesService {
     tx: Tx,
     tenantId: string,
     occupancyId: string,
-    ctx: { propertyId: string; roomId: string },
+    ctx: { propertyId: string; roomId: string; taxMode: string },
     from: string,
     to: string,
     base: number,
@@ -177,16 +181,26 @@ export class RatesService {
     actorEmail?: string,
   ) {
     const dates = dateRangeInclusive(from, to);
-    const taxByDate = await resolveTaxRatesForDates(tx, ctx.propertyId, dates);
+    // Tax engine v2 (Sprint 7): an India/Malaysia property keeps the pre-tax price and charges
+    // its taxes on top; `selling_price` is still stored tax-inclusive for every reader.
+    const forward = ctx.taxMode === 'exclusive_forward';
+    const taxByDate = forward ? null : await resolveTaxRatesForDates(tx, ctx.propertyId, dates);
+    const forwardByDate = forward
+      ? await resolveForwardTaxesForDates(tx, ctx.propertyId, dates)
+      : null;
 
     let firstSelling = commissionable;
     for (const date of dates) {
-      const selling = sellingFromCommissionable(commissionable, taxByDate.get(date)!);
+      const net = forward ? roundMoney(commissionable) : null;
+      const selling = forward
+        ? forwardNight(net!, forwardByDate!.get(date) ?? []).selling
+        : sellingFromCommissionable(commissionable, taxByDate!.get(date)!);
       if (date === dates[0]) firstSelling = selling;
       const values = {
         basePrice: base.toFixed(2),
         commission: commission.toFixed(2),
         sellingPrice: selling.toFixed(2),
+        netPrice: net === null ? null : net.toFixed(2),
       };
       await tx
         .insert(rateCalendar)
@@ -217,6 +231,67 @@ export class RatesService {
       actorEmail: actorEmail ?? null,
     });
     return { updated: dates.length, base, selling: firstSelling, commission };
+  }
+
+  /**
+   * Re-derive every stored price of a property from `from` on, after its tax setup changed
+   * (applying a regional tax preset, Sprint 7). Base and commission are the owner's and never
+   * change; the tax-exclusive amount is re-derived exactly as `setPriceRange` derives it, then
+   * taxed by the property's current engine. Past dates keep the prices they were sold at.
+   * Runs in the caller's transaction; returns the number of calendar rows re-priced.
+   */
+  async repriceFrom(tx: Tx, propertyId: string, from: string): Promise<number> {
+    const [p] = await tx
+      .select({
+        taxMode: properties.taxMode,
+        commissionType: properties.commissionType,
+        distributionMode: tenants.distributionMode,
+      })
+      .from(properties)
+      .innerJoin(tenants, eq(tenants.id, properties.tenantId))
+      .where(eq(properties.id, propertyId));
+    if (!p) throw new NotFoundException('Property not found');
+
+    const rows = await tx
+      .select({
+        id: rateCalendar.id,
+        date: rateCalendar.date,
+        basePrice: rateCalendar.basePrice,
+        commission: rateCalendar.commission,
+      })
+      .from(rateCalendar)
+      .innerJoin(occupancies, eq(occupancies.id, rateCalendar.occupancyId))
+      .innerJoin(ratePlans, eq(ratePlans.id, occupancies.ratePlanId))
+      .where(and(eq(ratePlans.propertyId, propertyId), sql`${rateCalendar.date} >= ${from}`));
+    if (rows.length === 0) return 0;
+
+    const dates = [...new Set(rows.map((r) => r.date))];
+    const forward = p.taxMode === 'exclusive_forward';
+    const taxByDate = forward ? null : await resolveTaxRatesForDates(tx, propertyId, dates);
+    const forwardByDate = forward ? await resolveForwardTaxesForDates(tx, propertyId, dates) : null;
+
+    for (const r of rows) {
+      const base = Number(r.basePrice);
+      // The same tax-exclusive amount setPriceRange stored: the base for a standalone hotel, else
+      // the base and YoHo's commission grossed up for the OTA margin.
+      const commissionable =
+        p.distributionMode === 'standalone'
+          ? base
+          : sellingPrice(base, Number(r.commission), OTA_RATE);
+      const net = forward ? roundMoney(commissionable) : null;
+      const selling = forward
+        ? forwardNight(net!, forwardByDate!.get(r.date) ?? []).selling
+        : sellingFromCommissionable(commissionable, taxByDate!.get(r.date)!);
+      await tx
+        .update(rateCalendar)
+        .set({
+          sellingPrice: selling.toFixed(2),
+          netPrice: net === null ? null : net.toFixed(2),
+          updatedAt: sql`now()`,
+        })
+        .where(eq(rateCalendar.id, r.id));
+    }
+    return rows.length;
   }
 
   // --- Rate plans / occupancies / seasons / last-minute drops (Compartment B) ------

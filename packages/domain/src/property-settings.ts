@@ -45,6 +45,12 @@ export interface PropertySettings {
   /** Refuse check-in until the guest's identity document is recorded. */
   requireDocumentsAtCheckin: boolean;
   /**
+   * Refuse check-in until the stay's registration is complete (Sprint 7): Malaysia's Registration
+   * of Guests Act 1965 asks for the guest's name, address, occupation, sex, nationality, ID with
+   * its place and date of issue, and where they arrived from. The Malaysia preset turns it on.
+   */
+  requireGuestRegistration: boolean;
+  /**
    * What check-out does with an unpaid guest balance (UX-STANDARD §4). `block` (the default)
    * refuses until it is paid, moved to the city ledger, or an owner overrides with a reason;
    * `allow` lets the desk check out and leaves the balance on the folio to chase.
@@ -63,6 +69,7 @@ export const DEFAULT_PROPERTY_SETTINGS: PropertySettings = {
   unconfirmedPolicy: 'never',
   rateControl: { staffMaxDiscountPct: 0, staffCanComp: false },
   requireDocumentsAtCheckin: false,
+  requireGuestRegistration: false,
   checkoutBalancePolicy: 'block',
   kindOverrides: {},
   titles: null,
@@ -126,6 +133,10 @@ export function resolvePropertySettings(raw: unknown): PropertySettings {
       typeof r.requireDocumentsAtCheckin === 'boolean'
         ? r.requireDocumentsAtCheckin
         : d.requireDocumentsAtCheckin,
+    requireGuestRegistration:
+      typeof r.requireGuestRegistration === 'boolean'
+        ? r.requireGuestRegistration
+        : d.requireGuestRegistration,
     checkoutBalancePolicy: r.checkoutBalancePolicy === 'allow' ? 'allow' : d.checkoutBalancePolicy,
     kindOverrides,
     titles: titles && titles.length > 0 ? titles : null,

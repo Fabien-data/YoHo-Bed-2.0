@@ -85,6 +85,11 @@ export function renderInvoicePdf(
 ): Promise<Buffer> {
   return createPdf((pdf) => {
     const lk = inv.profile === 'lk_vat';
+    const india = inv.profile === 'in_gst';
+    const malaysia = inv.profile === 'my_sst';
+    // What the taxpayer number is called on this document.
+    const taxIdLabel = lk ? 'TIN' : india ? 'GSTIN' : malaysia ? 'SST No.' : 'Tax ID';
+    const pct = (rate: number) => `${Number((rate * 100).toFixed(2))}%`;
     const date = (value: string | null | undefined) => {
       if (!value) return '—';
       const [year, month, day] = value.slice(0, 10).split('-');
@@ -123,8 +128,10 @@ export function renderInvoicePdf(
         write([value.city, value.country].filter(Boolean).join(', '));
       if (value.phone) write(value.phone);
       if (value.email) write(value.email);
-      if (value.taxId) write(`TIN ${value.taxId}`, true);
+      if (value.taxId) write(`${taxIdLabel} ${value.taxId}`, true);
       if (value.registrationNo) write(`Reg. ${value.registrationNo}`);
+      if (india && value.stateCode) write(`State code ${value.stateCode}`);
+      if (malaysia && value.ttxNo) write(`TTx No. ${value.ttxNo}`, true);
     };
 
     pdf
@@ -155,6 +162,10 @@ export function renderInvoicePdf(
     }
     if (inv.booking) {
       pdf.text(`Stay  ${date(inv.booking.checkin)} to ${date(inv.booking.checkout)}`, 48, pdf.y);
+    }
+    if (india) {
+      pdf.text(`Place of supply  ${inv.placeOfSupply ?? '—'}`, 48, pdf.y);
+      pdf.text('SAC 996311 — accommodation services', 48, pdf.y);
     }
     if (inv.original) pdf.text(`Against invoice  ${inv.original.number}`, 48, pdf.y);
     if (inv.creditReason) pdf.text(`Reason  ${inv.creditReason}`, 48, pdf.y);
@@ -188,7 +199,8 @@ export function renderInvoicePdf(
         tableHeader();
       }
       const y = pdf.y;
-      const lineVat = vat(line.taxLines);
+      // Sri Lanka's tax invoice separates VAT; everyone else shows the line's whole tax.
+      const lineVat = lk ? vat(line.taxLines) : Number(line.tax);
       const cells = [
         line.description,
         String(Number(line.quantity)),
@@ -218,12 +230,14 @@ export function renderInvoicePdf(
     pdf.moveDown(1);
     const taxTotal = vat(inv.taxSummary);
     const totals = [
-      [`Total value of supply (excl. ${lk ? 'VAT' : 'tax'})`, money(Number(inv.amount) - taxTotal)],
-      ...(inv.taxSummary ?? []).map((tax) => [
-        `${tax.name} ${(tax.rate * 100).toFixed(0)}%`,
-        money(tax.amount),
-      ]),
-      ...(Number(inv.rounding) !== 0 ? [['Rounding', money(inv.rounding)]] : []),
+      [
+        `Total value of supply (excl. ${lk ? 'VAT' : 'tax'})`,
+        money(lk ? Number(inv.amount) - taxTotal : inv.subtotal),
+      ],
+      ...(inv.taxSummary ?? []).map((tax) => [`${tax.name} ${pct(tax.rate)}`, money(tax.amount)]),
+      ...(Number(inv.rounding) !== 0
+        ? [[india ? 'Round off' : 'Rounding', money(inv.rounding)]]
+        : []),
       ['Total', `${inv.currency} ${money(inv.amount)}`],
     ];
     for (const [label, value] of totals) {

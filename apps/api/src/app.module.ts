@@ -3,6 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { RequestErrorFilter, RequestIdMiddleware } from './common/request-id';
 import { UxModule } from './ux/ux.module';
+import { ComplianceModule } from './compliance/compliance.module';
 import { validateEnv } from './config/env';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
@@ -68,6 +69,7 @@ import { HealthController } from './health/health.controller';
     ReservationsModule,
     VouchersModule,
     UxModule,
+    ComplianceModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: RequestErrorFilter }],

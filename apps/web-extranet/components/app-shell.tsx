@@ -176,7 +176,8 @@ export function AppShell({
           i.href === '/app/housekeeping' ||
           i.href === '/app/profile') &&
         customRouteVisible(i.href) &&
-        (!i.feature || entitlements?.features[i.feature] !== false),
+        (!i.feature || entitlements?.features[i.feature] !== false) &&
+        (!i.countries || i.countries.includes(property?.countryCode ?? '')),
     ),
   })).filter((g) => g.items.length > 0);
 
