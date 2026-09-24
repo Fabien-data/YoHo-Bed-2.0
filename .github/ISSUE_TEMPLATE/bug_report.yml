@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in the PMS does not work as expected.
+labels: [bug]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dashboard
+        - Stay View / Room View
+        - Reservations
+        - Front desk (check-in / check-out)
+        - Housekeeping
+        - Cashiering / folios / night audit
+        - Finance / invoices
+        - Rates, inventory and channel manager
+        - Setup and configuration
+        - Staff console
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The steps to reproduce the problem.
+      placeholder: |
+        1. Open Stay View
+        2. Drag booking 2609240012 to room 210
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include any error message, and a screenshot if you can.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Environment, browser and hotel.
+      placeholder: Testing server, Chrome 128, Lagoon Crest Hotel
