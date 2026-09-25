@@ -180,20 +180,47 @@ export async function reconcileArrivalPreparation(
   return created;
 }
 
-/** Called inside check-out's transaction so the room and task change together. */
+/**
+ * Called inside check-out's transaction so the room and task change together.
+ *
+ * Only the rooms the guest is leaving now: for each room of the booking, its latest dated segment.
+ * An earlier segment of a split stay is a room the guest moved out of days ago — it was turned
+ * over at the move (`markRoomVacated`), and dirtying it again would undo that cleaning.
+ *
+ * `departedOn` is for a check-out recorded after the departure day (the automatic check-out of a
+ * stay nobody checked out). Then a room is only made dirty if nothing has happened to it since the
+ * guest was due to leave: no housekeeping record from that day on, and nobody else in it now.
+ * Otherwise the late check-out would undo a cleaning, or dirty a room a new guest is using.
+ */
 export async function enqueueDepartureCleaning(
   tx: Tx,
   tenantId: string,
   propertyId: string,
   bookingId: string,
   date: string,
+  opts: { departedOn?: string } = {},
 ) {
-  const legs = await tx
-    .select({ roomUnitId: bookingRooms.roomUnitId })
+  const segments = await tx
+    .select({
+      legIndex: bookingRooms.legIndex,
+      checkin: bookingRooms.checkin,
+      roomUnitId: bookingRooms.roomUnitId,
+    })
     .from(bookingRooms)
     .where(and(eq(bookingRooms.bookingId, bookingId), isNull(bookingRooms.releasedAt)));
-  for (const leg of legs) {
+  const current = new Map<number, (typeof segments)[number]>();
+  for (const s of segments) {
+    const seen = current.get(s.legIndex);
+    if (!seen || s.checkin > seen.checkin) current.set(s.legIndex, s);
+  }
+  for (const leg of current.values()) {
     if (!leg.roomUnitId) continue;
+    if (
+      opts.departedOn &&
+      opts.departedOn < date &&
+      (await roomUsedSince(tx, leg.roomUnitId, bookingId, opts.departedOn, date))
+    )
+      continue;
     const [inserted] = await tx
       .insert(housekeepingTasks)
       .values({
@@ -233,6 +260,36 @@ export async function enqueueDepartureCleaning(
         set: { status: 'dirty', changedAt: new Date(), updatedAt: new Date() },
       });
   }
+}
+
+/**
+ * Has anything happened to a room since `since` — a housekeeping record on or after that day, or
+ * another guest staying in it on `today`? Decides whether a late check-out may still dirty it.
+ */
+async function roomUsedSince(
+  tx: Tx,
+  roomUnitId: string,
+  bookingId: string,
+  since: string,
+  today: string,
+): Promise<boolean> {
+  const [row] = (await tx.execute(sql`
+    select exists (
+             select 1 from housekeeping_status hs
+              where hs.room_unit_id = ${roomUnitId} and hs.date >= ${since}::date
+           )
+        or exists (
+             select 1 from booking_rooms br
+               join bookings b on b.id = br.booking_id
+              where br.room_unit_id = ${roomUnitId}
+                and br.booking_id <> ${bookingId}
+                and br.released_at is null
+                and b.status = 'CheckedIn'
+                and br.checkin <= ${today}::date
+                and br.checkout > ${today}::date
+           ) as used
+  `)) as unknown as Array<{ used: boolean }>;
+  return Boolean(row?.used);
 }
 
 /**

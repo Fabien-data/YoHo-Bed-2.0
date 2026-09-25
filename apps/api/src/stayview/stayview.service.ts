@@ -19,7 +19,9 @@ import {
   users,
   type Tx,
 } from '@yohobed/db';
+import { nightAuditDueAt, resolvePropertySettings } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
+import { deskBalance, extrasSql, paidSql } from '../bookings/balance';
 import { eachNight } from '../common/dates';
 import { localToday, propertyBusinessDate } from '../common/local-date';
 
@@ -51,7 +53,10 @@ export interface StayBar {
   roomId?: string;
   adults?: number;
   children?: number;
+  /** A VIP stay or a VIP guest: the crown. */
   vip?: boolean;
+  /** The desk flagged this stay VIP (2026-09-26), as opposed to the guest's profile. */
+  vipStay?: boolean;
   hasNotes?: boolean;
   amount?: string;
   balance?: string;
@@ -69,6 +74,14 @@ export interface StayBar {
   /** On a block: what it is for. */
   blockKind?: 'out_of_service' | 'blocked';
   blockedBy?: string | null;
+}
+
+/** A stay leaving a room on the chips' day — shown on the room even when its bar is off screen. */
+export interface StayDeparture {
+  bookingId: string;
+  reference: string;
+  guestName: string;
+  balanceDue?: boolean;
 }
 
 /**
@@ -101,9 +114,11 @@ export class StayViewService {
           code: properties.code,
           currency: properties.currency,
           timezone: properties.timezone,
+          settings: properties.settings,
         })
         .from(properties)
         .where(eq(properties.id, propertyId));
+      const settings = resolvePropertySettings(property?.settings);
       // The hotel's own today, in its timezone — the browser's clock may be elsewhere. The chips,
       // housekeeping and "due out" describe today whenever today is on screen, otherwise the
       // window's first day.
@@ -183,6 +198,45 @@ export class StayViewService {
         );
       const dueOut = dueOutRow?.n ?? 0;
 
+      // Who leaves each room on that day. A departure on the window's first day has no night in
+      // the window, so its bar is not drawn — the room still has to say "due out", or the Due out
+      // chip would find the count but hide every room (owner brief, 2026-09-26).
+      const departureRows = await tx
+        .select({
+          roomUnitId: bookingRooms.roomUnitId,
+          bookingId: bookings.id,
+          reference: bookings.reference,
+          guestName: customers.name,
+          amount: bookings.amount,
+          discount: bookings.discount,
+          paid: paidSql(bookings.id),
+          extras: extrasSql(bookings.id),
+        })
+        .from(bookingRooms)
+        .innerJoin(bookings, eq(bookings.id, bookingRooms.bookingId))
+        .innerJoin(customers, eq(customers.id, bookings.customerId))
+        .where(
+          and(
+            eq(bookings.propertyId, propertyId),
+            isNull(bookingRooms.releasedAt),
+            eq(bookingRooms.checkout, anchor),
+            eq(bookingRooms.checkout, bookings.checkout),
+            eq(bookings.status, 'CheckedIn'),
+          ),
+        );
+      const departuresByUnit = new Map<string, StayDeparture[]>();
+      for (const d of departureRows) {
+        if (!d.roomUnitId) continue;
+        const list = departuresByUnit.get(d.roomUnitId) ?? [];
+        list.push({
+          bookingId: d.bookingId,
+          reference: d.reference,
+          guestName: d.guestName,
+          ...(showFinancial ? { balanceDue: deskBalance(d).due } : {}),
+        });
+        departuresByUnit.set(d.roomUnitId, list);
+      }
+
       // --- index everything by the keys the assembly needs -----------------
       const barsByUnit = new Map<string, StayBar[]>();
       const unassigned: StayBar[] = [];
@@ -190,6 +244,7 @@ export class StayViewService {
       // are on the hotel's radar, but they occupy nothing and are never counted as sold.
       const tentative: Array<StayBar & { roomId: string }> = [];
       for (const l of legRows) {
+        const money = deskBalance(l);
         const bar: StayBar = {
           kind: 'booking',
           id: l.legId,
@@ -202,7 +257,7 @@ export class StayViewService {
           source: l.source,
           channel: l.channel,
           groupId: l.groupId,
-          balanceDue: showFinancial ? Number(l.amount) > Number(l.paid ?? 0) : undefined,
+          balanceDue: showFinancial ? money.due : undefined,
           reservationKind: l.reservationKind,
           holdUntil: l.holdUntil?.toISOString() ?? null,
           sourceCode: l.sourceCode,
@@ -211,9 +266,11 @@ export class StayViewService {
           adults: l.adults,
           children: l.children,
           vip: l.vip,
+          vipStay: l.vipStay,
           hasNotes: l.hasNotes,
-          amount: showFinancial ? l.amount : undefined,
-          balance: showFinancial ? (Number(l.amount) - Number(l.paid ?? 0)).toFixed(2) : undefined,
+          // The bill's total — the room after any coupon, plus extras — like the Reservations list.
+          amount: showFinancial ? money.total : undefined,
+          balance: showFinancial ? money.balance : undefined,
           roomUnitId: l.roomUnitId,
           legIndex: l.legIndex,
           legUpdatedAt: l.legUpdatedAt.toISOString(),
@@ -269,6 +326,7 @@ export class StayViewService {
             housekeeping: housekeepingByUnit.get(u.id)?.status ?? 'clean',
             housekeepingNotes: housekeepingByUnit.get(u.id)?.remarks ?? null,
             bars: barsByUnit.get(u.id) ?? [],
+            departures: departuresByUnit.get(u.id) ?? [],
           })),
       }));
 
@@ -313,6 +371,21 @@ export class StayViewService {
           tentative: tentative.filter((t) => t.from <= anchor && anchor < t.to).length,
           dirty,
           dueOut,
+          // Rooms whose guest owes money on that day: staying, arriving or leaving. Money, so
+          // only for those who may see it.
+          paymentDue: showFinancial
+            ? this.paymentDueRooms(anchor, legRows, departureRows)
+            : undefined,
+        },
+        /** How the day closes by itself, so the calendar can say so instead of nagging. */
+        dayClose: {
+          autoCheckout: settings.autoCheckout,
+          nightAudit: settings.nightAudit.mode,
+          auditTime: settings.nightAudit.time,
+          auditDueAt:
+            settings.nightAudit.mode === 'auto' && business.source === 'night_audit'
+              ? nightAuditDueAt(business.date, settings.nightAudit.time)
+              : null,
         },
       };
     });
@@ -343,6 +416,33 @@ export class StayViewService {
     };
   }
 
+  /** Rooms with a guest who owes money on `date` — staying that night, or leaving that morning. */
+  private paymentDueRooms(
+    date: string,
+    legs: Awaited<ReturnType<StayViewService['legsInWindow']>>,
+    departures: Array<{
+      roomUnitId: string | null;
+      amount: string;
+      discount: string;
+      paid: string;
+      extras: string;
+    }>,
+  ): number {
+    const rooms = new Set<string>();
+    for (const l of legs)
+      if (
+        l.roomUnitId &&
+        l.inventoryHeld &&
+        (l.status === 'Approved' || l.status === 'Pending' || l.status === 'CheckedIn') &&
+        l.checkin <= date &&
+        date < l.checkout &&
+        deskBalance(l).due
+      )
+        rooms.add(l.roomUnitId);
+    for (const d of departures) if (d.roomUnitId && deskBalance(d).due) rooms.add(d.roomUnitId);
+    return rooms.size;
+  }
+
   /** Occupying legs overlapping the window, with just enough of the booking to draw a bar. */
   private legsInWindow(tx: Tx, propertyId: string, from: string, to: string) {
     return tx
@@ -364,11 +464,9 @@ export class StayViewService {
         source: bookings.source,
         groupId: bookings.groupId,
         amount: bookings.amount,
-        paid: sql<string>`coalesce((
-          select sum(case when p.direction = 'received' then p.amount else -p.amount end)
-          from payments p
-          where p.booking_id = ${bookings.id}
-        ), 0)`,
+        discount: bookings.discount,
+        paid: paidSql(bookings.id),
+        extras: extrasSql(bookings.id),
         guestName: customers.name,
         adults: bookingRooms.adults,
         children: bookingRooms.children,
@@ -390,7 +488,8 @@ export class StayViewService {
             and s.checkin < booking_rooms.checkin
         )::int`,
         groupCode: bookingGroups.code,
-        vip: customers.vip,
+        vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
+        vipStay: bookings.isVip,
         hasNotes: sql<boolean>`exists(select 1 from booking_remarks r where r.booking_id = ${bookings.id})`,
         channel: otaReservations.channel,
       })

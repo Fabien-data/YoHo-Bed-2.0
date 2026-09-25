@@ -20,6 +20,13 @@ export type CommissionPlan = (typeof COMMISSION_PLANS)[number];
 export const UNCONFIRMED_POLICIES = ['never', 'arrival_day_end'] as const;
 export type UnconfirmedPolicy = (typeof UNCONFIRMED_POLICIES)[number];
 
+export const NIGHT_AUDIT_MODES = ['auto', 'manual'] as const;
+export type NightAuditMode = (typeof NIGHT_AUDIT_MODES)[number];
+
+/** 'HH:MM', 24-hour. */
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const isHhMm = (v: unknown): v is string => typeof v === 'string' && HHMM.test(v);
+
 export interface KindOverride {
   label?: string;
   color?: TagColor;
@@ -56,6 +63,18 @@ export interface PropertySettings {
    * `allow` lets the desk check out and leaves the balance on the folio to chase.
    */
   checkoutBalancePolicy: 'block' | 'allow';
+  /**
+   * Check a stay out by itself once its departure day is over and nobody did (owner brief,
+   * 2026-09-26). The room turns dirty and gets its departure clean, exactly as a desk check-out
+   * does; a balance the guest still owes stays on the bill for the desk to collect.
+   */
+  autoCheckout: boolean;
+  /**
+   * How the business day closes. `auto` runs the night audit by itself at `time` (the hotel's
+   * clock): a time before noon closes the previous day that morning (02:00 closes yesterday), a
+   * time from noon on closes the same day that evening (23:30). `manual` leaves it to the owner.
+   */
+  nightAudit: { mode: NightAuditMode; time: string };
   /** Renamed or recoloured reservation kinds. Behaviour never changes. */
   kindOverrides: Partial<Record<ReservationKind, KindOverride>>;
   /** Replaces the country's default title list when set. */
@@ -71,6 +90,8 @@ export const DEFAULT_PROPERTY_SETTINGS: PropertySettings = {
   requireDocumentsAtCheckin: false,
   requireGuestRegistration: false,
   checkoutBalancePolicy: 'block',
+  autoCheckout: true,
+  nightAudit: { mode: 'auto', time: '02:00' },
   kindOverrides: {},
   titles: null,
 };
@@ -138,7 +159,51 @@ export function resolvePropertySettings(raw: unknown): PropertySettings {
         ? r.requireGuestRegistration
         : d.requireGuestRegistration,
     checkoutBalancePolicy: r.checkoutBalancePolicy === 'allow' ? 'allow' : d.checkoutBalancePolicy,
+    autoCheckout: typeof r.autoCheckout === 'boolean' ? r.autoCheckout : d.autoCheckout,
+    nightAudit: {
+      mode: r.nightAudit?.mode === 'manual' ? 'manual' : d.nightAudit.mode,
+      time: isHhMm(r.nightAudit?.time) ? r.nightAudit.time : d.nightAudit.time,
+    },
     kindOverrides,
     titles: titles && titles.length > 0 ? titles : null,
   };
+}
+
+/**
+ * When the automatic night audit closes `businessDate`, as a wall-clock moment in the hotel's
+ * own time ('YYYY-MM-DDTHH:MM'). A morning time closes the day that has just ended; an evening
+ * time closes the day still under way. Compared as strings, so no timezone maths is needed: the
+ * caller formats "now" in the hotel's timezone the same way.
+ */
+export function nightAuditDueAt(businessDate: string, time: string): string {
+  const t = isHhMm(time) ? time : DEFAULT_PROPERTY_SETTINGS.nightAudit.time;
+  if (t >= '12:00') return `${businessDate}T${t}`;
+  const d = new Date(`${businessDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return `${d.toISOString().slice(0, 10)}T${t}`;
+}
+
+/** 'YYYY-MM-DDTHH:MM' for an instant, on a timezone's wall clock. A bad zone falls back to UTC. */
+export function wallClockIn(timezone: string | null | undefined, at: Date = new Date()): string {
+  const format = (timeZone: string) => {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      })
+        .formatToParts(at)
+        .map((p) => [p.type, p.value]),
+    );
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+  };
+  try {
+    return format(timezone ?? 'UTC');
+  } catch {
+    return format('UTC');
+  }
 }

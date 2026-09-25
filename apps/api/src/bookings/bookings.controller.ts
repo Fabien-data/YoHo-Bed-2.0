@@ -27,6 +27,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { BookingService, type TransitionContext } from './booking.service';
 import {
   amendBookingSchema,
+  setVipSchema,
   bulkSchema,
   type BulkDto,
   cancelSchema,
@@ -42,6 +43,7 @@ import {
   stayChangePreviewSchema,
   stayChangeCommitSchema,
   type AmendBookingDto,
+  type SetVipDto,
   type CancelDto,
   type CheckInDto,
   type CheckOutDto,
@@ -315,6 +317,20 @@ export class BookingsController {
   @TenantRoles('OWNER')
   void(@TenantId() tenantId: string, @CurrentUser() user: AuthPrincipal, @Param('id') id: string) {
     return this.bookings.void(tenantId, id, user.sub);
+  }
+
+  /** VIP on or off (2026-09-26): a label only, so anyone at the desk may set it. */
+  @Post(':id/vip')
+  @HttpCode(200)
+  setVip(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthPrincipal,
+    @CurrentTenantRole() role: TenantRole | undefined,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(setVipSchema)) dto: SetVipDto,
+  ) {
+    return this.bookings.setVip(tenantId, id, dto.vip, actor(user, role, ip));
   }
 
   @Patch(':id')

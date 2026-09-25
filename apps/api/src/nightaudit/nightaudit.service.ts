@@ -19,7 +19,10 @@ import {
   users,
   type Tx,
 } from '@yohobed/db';
+import { nightAuditDueAt, resolvePropertySettings } from '@yohobed/domain';
 import { DatabaseService } from '../database/database.service';
+import { BookingService } from '../bookings/booking.service';
+import { MailerService } from '../email/mailer.service';
 import { CashieringService } from '../cashiering/cashiering.service';
 import { postInclusionsForNight } from '../folio/inclusions';
 import { postLeviesForNight } from '../folio/levies';
@@ -35,7 +38,11 @@ function nextDay(iso: string): string {
 
 @Injectable()
 export class NightAuditService {
-  constructor(private readonly dbs: DatabaseService) {}
+  constructor(
+    private readonly dbs: DatabaseService,
+    private readonly desk: BookingService,
+    private readonly mailer: MailerService,
+  ) {}
 
   /** The property's current business date, seeded to today the first time it is asked for. */
   businessDate(tenantId: string, propertyId: string) {
@@ -127,8 +134,14 @@ export class NightAuditService {
         ),
       );
 
-    // Pre-checks (UX-1a): what the auditor should settle before the date moves. The run never
-    // checks anyone out, so an in-house guest past their departure stays in house — flagged here.
+    // Pre-checks (UX-1a): what the auditor should settle before the date moves. An in-house guest
+    // past their departure is checked out by the run when the property checks overdue stays out
+    // automatically (the default since 2026-09-26); otherwise they stay in house, flagged here.
+    const [property] = await tx
+      .select({ settings: properties.settings })
+      .from(properties)
+      .where(eq(properties.id, propertyId));
+    const settings = resolvePropertySettings(property?.settings);
     const overstays = await tx
       .select({
         id: bookings.id,
@@ -163,6 +176,17 @@ export class NightAuditService {
     return {
       date,
       nextDate: nextDay(date),
+      /** Overstays are checked out by the run (their rooms turn dirty), not left in house. */
+      autoCheckout: settings.autoCheckout,
+      /** How the day closes, and — when it closes by itself — at what hotel time it will. */
+      schedule: {
+        mode: settings.nightAudit.mode,
+        time: settings.nightAudit.time,
+        dueAt:
+          settings.nightAudit.mode === 'auto'
+            ? nightAuditDueAt(date, settings.nightAudit.time)
+            : null,
+      },
       roomsToCharge: dueCharges.length,
       chargesToPost: money(charges),
       taxesToPost: money(taxes),
@@ -191,9 +215,10 @@ export class NightAuditService {
     userId: string | null,
     ip: string | null,
     keep: string[] = [],
+    opts: { trigger?: 'manual' | 'auto' } = {},
   ) {
     const kept = new Set(keep);
-    return this.dbs.withTenant(tenantId, async (tx) => {
+    const run = await this.dbs.withTenant(tenantId, async (tx) => {
       const bd = await this.ensureBusinessDate(tx, tenantId, propertyId);
       const date = bd.currentDate;
 
@@ -304,6 +329,29 @@ export class NightAuditService {
         }
       }
 
+      // 2b. Check out the stays still in house past their departure, when the property checks
+      //     overdue stays out automatically (owner brief, 2026-09-26): the room turns dirty and
+      //     gets its departure clean, and a balance stays on the bill for the desk to collect.
+      //     Each in its own savepoint, so a stay that cannot be checked out stays in house, on
+      //     the record with the reason, and the day still closes.
+      const checkedOut: string[] = [];
+      const notCheckedOut: Array<{ reference: string; reason: string }> = [];
+      if (p.autoCheckout) {
+        for (const o of p.overstays) {
+          try {
+            const done = await tx.transaction((sp) =>
+              this.desk.autoCheckOutWithin(sp, tenantId, o.id),
+            );
+            if (done) checkedOut.push(o.reference);
+          } catch (e) {
+            notCheckedOut.push({
+              reference: o.reference,
+              reason: e instanceof Error ? e.message : 'the check-out was refused',
+            });
+          }
+        }
+      }
+
       // 3. Close any till left open — the date cannot roll under a live shift.
       const drawersClosed = await CashieringService.forceCloseOpenSessions(tx, propertyId, userId);
 
@@ -335,13 +383,19 @@ export class NightAuditService {
               leviesPosted: levies,
               noShowReferences: p.unarrived.filter((u) => !kept.has(u.id)).map((u) => u.reference),
               keptAsLateArrivals: p.unarrived.filter((u) => kept.has(u.id)).map((u) => u.reference),
-              overstays: p.overstays.map((o) => o.reference),
+              checkedOutAutomatically: checkedOut,
+              // Still in house after the run: automatic check-out off, or refused (with why).
+              overstays: p.overstays
+                .map((o) => o.reference)
+                .filter((ref) => !checkedOut.includes(ref)),
+              notCheckedOut,
               tillsClosedUncounted: drawersClosed,
               holdsReleased: swept.released.map((r) => r.reference),
               unconfirmedCancelled: swept.expired.map((r) => r.reference),
             },
             runByUserId: userId,
             runFromIp: ip,
+            trigger: opts.trigger ?? 'manual',
           })
           .returning();
         return run;
@@ -354,6 +408,9 @@ export class NightAuditService {
         throw e;
       }
     });
+    // After commit: the guest emails the automatic check-outs queued (thank-you, review invite).
+    this.mailer.deliverQueuedSafe(tenantId);
+    return run;
   }
 
   /** The Night Audit Log. */
@@ -371,6 +428,7 @@ export class NightAuditService {
           drawersClosed: nightAuditRuns.drawersClosed,
           summary: nightAuditRuns.summary,
           runFromIp: nightAuditRuns.runFromIp,
+          trigger: nightAuditRuns.trigger,
           runBy: users.name,
           createdAt: nightAuditRuns.createdAt,
         })

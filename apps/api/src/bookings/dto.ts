@@ -87,6 +87,10 @@ export const reasonRequiredSchema = z.object({
 export type ReasonRequiredDto = z.infer<typeof reasonRequiredSchema>;
 
 /** Amend (Compartment G): guest details and/or the stay. Empty string clears email/phone. */
+/** Flag a reservation VIP, or clear it (2026-09-26). */
+export const setVipSchema = z.object({ vip: z.boolean() }).strict();
+export type SetVipDto = z.infer<typeof setVipSchema>;
+
 export const amendBookingSchema = z
   .object({
     customerName: z.string().min(1).max(200).optional(),

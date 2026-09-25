@@ -36,9 +36,62 @@ export async function seedDefaultMasters(
     .select({ n: count() })
     .from(marketSegments)
     .where(eq(marketSegments.tenantId, tenantId));
-  if ((row?.n ?? 0) > 0) return false;
+  if ((row?.n ?? 0) > 0) {
+    await ensureLaterSources(tx, tenantId, country);
+    return false;
+  }
   await applyRegionPreset(tx, tenantId, country);
   return true;
+}
+
+/**
+ * Business sources added to the presets after tenants had been seeded, by short code. A tenant
+ * seeded before one existed gets it on the next migrate — once: never when the tenant already has
+ * that code, or a source of the same name it made itself.
+ */
+export const LATER_SOURCE_CODES = ['SOC'] as const;
+
+export async function ensureLaterSources(
+  tx: Tx | Database,
+  tenantId: string,
+  country?: string | null,
+): Promise<number> {
+  const preset = presetFor(country);
+  const existing = await tx
+    .select({ code: businessSources.shortCode, name: businessSources.name })
+    .from(businessSources)
+    .where(eq(businessSources.tenantId, tenantId));
+  const codes = new Set(existing.map((s) => s.code.toUpperCase()));
+  const names = new Set(existing.map((s) => s.name.trim().toLowerCase()));
+  const segments = await tx
+    .select({ id: marketSegments.id, code: marketSegments.code })
+    .from(marketSegments)
+    .where(eq(marketSegments.tenantId, tenantId));
+  const segmentByCode = new Map(segments.map((s) => [s.code, s.id]));
+
+  let added = 0;
+  for (const code of LATER_SOURCE_CODES) {
+    const index = preset.businessSources.findIndex((s) => s.shortCode === code);
+    const seed = preset.businessSources[index];
+    if (!seed || codes.has(code) || names.has(seed.name.toLowerCase())) continue;
+    const inserted = await tx
+      .insert(businessSources)
+      .values({
+        tenantId,
+        shortCode: seed.shortCode,
+        name: seed.name,
+        category: seed.category,
+        palette: seed.palette,
+        defaultMarketSegmentId: segmentByCode.get(seed.defaultSegment) ?? null,
+        // Just before the entry that follows it in the preset, so it lands in the preset's order
+        // among the sources the tenant was seeded with.
+        sort: (index + 1) * 10 - 5,
+      })
+      .onConflictDoNothing({ target: [businessSources.tenantId, businessSources.shortCode] })
+      .returning({ id: businessSources.id });
+    added += inserted.length;
+  }
+  return added;
 }
 
 /**

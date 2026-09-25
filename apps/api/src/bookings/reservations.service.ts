@@ -25,6 +25,7 @@ import {
   type Tx,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
+import { deskBalance, extrasSql, paidSql } from './balance';
 import type {
   MakeGroupDto,
   MergeGroupsDto,
@@ -316,23 +317,14 @@ export class ReservationsService {
         guestTitle: customers.title,
         guestEmail: customers.email,
         guestPhone: customers.phone,
-        vip: customers.vip,
+        // A VIP stay (the desk's flag, 2026-09-26) or a VIP guest (their profile) — both crown it.
+        vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
+        vipStay: bookings.isVip,
         createdAt: bookings.createdAt,
         createdByUserId: bookings.createdByUserId,
         createdByName: users.name,
-        // Paid is what came in, less anything given back.
-        paid: sql<string>`coalesce((
-          select sum(case when p.direction = 'received' then p.amount else -p.amount end)
-          from payments p
-          where p.booking_id = ${bookings.id}
-        ), 0)::text`,
-        // Anything on the bill besides the room: minibar, laundry, a restaurant ticket.
-        extras: sql<string>`coalesce((
-          select sum(fc.total)
-          from folio_charges fc
-          join folios f on f.id = fc.folio_id
-          where f.booking_id = ${bookings.id} and fc.voided_at is null and fc.source <> 'room'
-        ), 0)::text`,
+        paid: paidSql(bookings.id),
+        extras: extrasSql(bookings.id),
         adults: sql<number>`coalesce((
           select sum(br.adults) from booking_rooms br
           where br.booking_id = ${bookings.id} and br.released_at is null
@@ -780,15 +772,8 @@ export class ReservationsService {
 function shapeRow<T extends { amount: string; discount: string; paid: string; extras: string }>(
   r: T,
 ) {
-  // The room at its sold price (after any coupon), plus anything else on the bill.
-  const total = Number(r.amount) - Number(r.discount) + Number(r.extras);
-  const balance = total - Number(r.paid);
-  return {
-    ...r,
-    total: total.toFixed(2),
-    balance: balance.toFixed(2),
-    balanceDue: balance > 0.004,
-  };
+  const { total, balance, due } = deskBalance(r);
+  return { ...r, total, balance, balanceDue: due };
 }
 
 /** `2026-09-17 14:05` in the hotel's time — sortable in a spreadsheet, unlike dd/mm/yyyy. */

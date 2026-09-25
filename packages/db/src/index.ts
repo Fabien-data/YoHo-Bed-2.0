@@ -12,5 +12,6 @@ export * from './default-plans';
 export * from './masters';
 export * from './lifecycle';
 export * from './housekeeping-ops';
+export * from './day-close';
 export * from './sequences';
 export * from './schema';

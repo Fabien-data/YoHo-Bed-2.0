@@ -6,6 +6,7 @@ import {
   applyRegionPreset,
   businessSources,
   createDb,
+  ensureLaterSources,
   marketSegments,
   paymentMethods,
   seedDefaultMasters,
@@ -137,6 +138,45 @@ run('reservation master lists', () => {
       businessSources: 0,
       paymentMethods: 0,
     });
+  });
+
+  it('adds Social Media once to a tenant seeded before it existed (2026-09-26)', async () => {
+    const socOf = (tenantId: string) =>
+      sup.db
+        .select()
+        .from(businessSources)
+        .where(and(eq(businessSources.tenantId, tenantId), eq(businessSources.shortCode, 'SOC')));
+    // A tenant seeded before the source was in the preset.
+    await sup.db
+      .delete(businessSources)
+      .where(and(eq(businessSources.tenantId, tenantLk), eq(businessSources.shortCode, 'SOC')));
+    expect(await socOf(tenantLk)).toHaveLength(0);
+
+    expect(await seedDefaultMasters(sup.db, tenantLk, 'LK')).toBe(false);
+    const [soc] = await socOf(tenantLk);
+    expect(soc).toMatchObject({ name: 'Social Media', category: 'direct', active: true });
+    const bar = await sup.db
+      .select({ id: marketSegments.id })
+      .from(marketSegments)
+      .where(and(eq(marketSegments.tenantId, tenantLk), eq(marketSegments.code, 'BAR')));
+    expect(soc!.defaultMarketSegmentId).toBe(bar[0]!.id);
+
+    // Repeating adds nothing.
+    expect(await ensureLaterSources(sup.db, tenantLk, 'LK')).toBe(0);
+    expect(await socOf(tenantLk)).toHaveLength(1);
+
+    // An owner who already made their own "Social media" source under another code keeps it alone.
+    await sup.db
+      .delete(businessSources)
+      .where(and(eq(businessSources.tenantId, tenantLk), eq(businessSources.shortCode, 'SOC')));
+    await sup.db.insert(businessSources).values({
+      tenantId: tenantLk,
+      shortCode: 'FBK',
+      name: 'social media',
+      category: 'direct',
+    });
+    expect(await ensureLaterSources(sup.db, tenantLk, 'LK')).toBe(0);
+    expect(await socOf(tenantLk)).toHaveLength(0);
   });
 
   it('fences the lists per tenant under RLS', async () => {

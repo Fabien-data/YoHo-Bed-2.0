@@ -288,7 +288,8 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
 
   const currency = grid.data?.currency ?? cfg.property.currency;
   const money = (v: string | number) => formatMoney(v, currency);
-  const takesRooms = draft.kind !== 'inquiry' && draft.kind !== 'online_failed';
+  // Every kind but an inquiry keeps rooms (a failed online booking too, 2026-09-26).
+  const takesRooms = cfg.kinds.find((k) => k.kind === draft.kind)?.holdsInventory ?? true;
   const isHold = draft.kind === 'hold_confirm' || draft.kind === 'hold_unconfirm';
   const accountOrigin = draft.origin === 'travel_agent' || draft.origin === 'corporate';
   const account = cfg.accounts.find((a) => a.id === draft.ledgerAccountId) ?? null;

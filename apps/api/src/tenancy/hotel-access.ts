@@ -118,6 +118,9 @@ export function accessRule(method: string, path: string): AccessRule | null {
     return { ...rule('booking', 'reservation_change'), all: ['financial_read'] };
   if (/^\/bookings\/[^/]+\/(?:assign|auto-assign|room-move)$/.test(path))
     return rule('booking', 'room_assignment');
+  // A VIP flag is a label on the stay, not money (2026-09-26).
+  if (/^\/bookings\/[^/]+\/vip$/.test(path) && method === 'POST')
+    return rule('booking', 'reservation_change');
   if (/^\/bookings\/[^/]+\/(?:rooms|room-moves)$/.test(path) && read)
     return rule('booking', 'room_assignment', 'reservation_read');
   if (/^\/bookings\/[^/]+\/(?:check-in|check-out)$/.test(path))

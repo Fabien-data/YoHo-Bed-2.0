@@ -1,5 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest';
+import { sql } from 'drizzle-orm';
 import {
+  admin,
+  payInFull,
   makeTenant,
   request,
   openAndPrice,
@@ -293,5 +296,83 @@ describe('maintenance blocks', () => {
     // 01 is blocked, so first-fit must skip to 02.
     expect(res.body.assigned).toBe(1);
     expect(res.body.legs[0].roomUnitId).toBe(u2);
+  });
+});
+
+describe('the day at the desk (owner brief, 2026-09-26)', () => {
+  it('names the rooms guests leave today, and counts the rooms with money owed', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const [u1, u2] = await makeUnits(fx, 3);
+    const today = hotelToday();
+    await openAndPrice(fx, today, hotelToday(10), { roomsToSell: 3 });
+
+    // A guest who stayed last night in 01 and is due out this morning, still checked in.
+    const leaving = await book(fx, { checkin: today, checkout: hotelToday(1) });
+    await request('POST', `/bookings/${leaving.body.id}/approve`, { token: fx.token });
+    await assignFirstLeg(fx, leaving.body.id, u1!);
+    const inn = await request('POST', `/bookings/${leaving.body.id}/check-in`, {
+      token: fx.token,
+    });
+    expect(inn.status, JSON.stringify(inn.body)).toBe(200);
+    await admin().execute(sql`
+      update bookings set checkin = ${hotelToday(-1)}::date, checkout = ${today}::date
+       where id = ${leaving.body.id}`);
+    await admin().execute(sql`
+      update booking_rooms set checkin = ${hotelToday(-1)}::date, checkout = ${today}::date
+       where booking_id = ${leaving.body.id}`);
+
+    // A guest arriving today in 02, nothing paid yet.
+    const arriving = await book(fx, { checkin: today, checkout: hotelToday(2) });
+    await request('POST', `/bookings/${arriving.body.id}/approve`, { token: fx.token });
+    await assignFirstLeg(fx, arriving.body.id, u2!);
+
+    // The window starts today, so the departing stay has no night on screen...
+    const res = await stayview(fx, today, hotelToday(7));
+    expect(res.status).toBe(200);
+    const units = res.body.roomTypes[0].units;
+    const room1 = units.find((u: { id: string }) => u.id === u1);
+    expect(room1.bars).toHaveLength(0);
+    // ...but the room still says who is due out, so the Due out chip can find it.
+    expect(room1.departures).toEqual([
+      expect.objectContaining({ bookingId: leaving.body.id, balanceDue: true }),
+    ]);
+    expect(res.body.counts.dueOut).toBe(1);
+    expect(res.body.counts.paymentDue).toBe(2);
+    expect(res.body.dayClose).toMatchObject({
+      autoCheckout: true,
+      nightAudit: 'auto',
+      auditTime: '02:00',
+    });
+
+    // Paid in full: the departing room owes nothing now.
+    await payInFull(fx, leaving.body.id);
+    const after = await stayview(fx, today, hotelToday(7));
+    const room1After = after.body.roomTypes[0].units.find((u: { id: string }) => u.id === u1);
+    expect(room1After.departures[0].balanceDue).toBe(false);
+    expect(after.body.counts.paymentDue).toBe(1);
+  });
+
+  it('draws a failed online booking in its room, and crowns a VIP stay', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const [u1] = await makeUnits(fx, 1);
+    await openAndPrice(fx, '2028-05-01', '2028-05-20', { roomsToSell: 3 });
+    const res = await request('POST', '/reservations', {
+      token: fx.token,
+      body: {
+        propertyId: fx.propertyId,
+        checkin: '2028-05-03',
+        checkout: '2028-05-05',
+        kind: 'online_failed',
+        vip: true,
+        guest: { name: 'Booked Online' },
+        lines: [{ roomId: fx.roomId, occupancyId: fx.occupancyId, adults: 2, roomUnitId: u1 }],
+      },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const view = await stayview(fx, '2028-05-01', '2028-05-08');
+    const bar = view.body.roomTypes[0].units[0].bars[0];
+    expect(bar).toMatchObject({ reservationKind: 'online_failed', vip: true, vipStay: true });
+    expect(view.body.tentative).toHaveLength(0);
   });
 });

@@ -5,6 +5,7 @@ import {
   SUPPORTED_CURRENCIES,
   TAG_COLORS,
   UNCONFIRMED_POLICIES,
+  NIGHT_AUDIT_MODES,
 } from '@yohobed/domain';
 import {
   HOME_MARKETS,
@@ -157,6 +158,16 @@ export const updatePropertySettingsSchema = z
     requireDocumentsAtCheckin: z.boolean().optional(),
     requireGuestRegistration: z.boolean().optional(),
     checkoutBalancePolicy: z.enum(['block', 'allow']).optional(),
+    /** Check stays out by themselves once their departure day is over (2026-09-26). */
+    autoCheckout: z.boolean().optional(),
+    /** How the business day closes: by itself at a hotel time, or when the owner runs it. */
+    nightAudit: z
+      .object({
+        mode: z.enum(NIGHT_AUDIT_MODES).optional(),
+        time: hhmm.optional(),
+      })
+      .strict()
+      .optional(),
     kindOverrides: z
       .record(
         z.enum(RESERVATION_KINDS),

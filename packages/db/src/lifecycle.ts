@@ -1,5 +1,5 @@
 import { and, eq, gt, gte, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { resolvePropertySettings } from '@yohobed/domain';
+import { RESERVATION_KIND_META, isReservationKind, resolvePropertySettings } from '@yohobed/domain';
 import type { Database } from './client';
 import type { Tx } from './scope';
 import { releaseStay, reserveStay } from './inventory';
@@ -397,7 +397,11 @@ async function expireUnconfirmed(tx: Tx, tenantId: string, now: Date): Promise<S
     `)) as unknown as ClaimedRow[];
 
     for (const b of rows) {
-      if (b.reservationKind === 'hold_unconfirm') {
+      const holds = isReservationKind(b.reservationKind)
+        ? RESERVATION_KIND_META[b.reservationKind].holdsInventory
+        : true;
+      if (holds) {
+        // An unconfirmed hold, or a failed online booking keeping the guest's room.
         await releaseBookingInventory(tx, b, { origin: 'unconfirmed_expired' });
       } else {
         // An inquiry holds no rooms; its legs only need closing.

@@ -322,7 +322,8 @@ describe('reservation kinds and inventory', () => {
       hold_confirm: { status: 'Approved', delta: 1 },
       hold_unconfirm: { status: 'Pending', delta: 1 },
       inquiry: { status: 'Pending', delta: 0 },
-      online_failed: { status: 'Pending', delta: 0 },
+      // A failed online booking keeps the guest's room until the desk sorts it out.
+      online_failed: { status: 'Pending', delta: 1 },
     } as const;
     for (const [kind, want] of Object.entries(expected)) {
       const before = await roomsToSell(fx, fx.roomId, CHECKIN);
@@ -1075,5 +1076,118 @@ describe('the audit trail', () => {
     expect(trail.every((t) => t.action === 'created' && t.actorUserId === fx.userId)).toBe(true);
     const rows = await admin().select().from(bookings).where(inArray(bookings.id, ids));
     expect(rows.every((r) => r.createdByUserId === fx.userId)).toBe(true);
+  });
+});
+
+describe('the owner brief of 2026-09-26', () => {
+  it('flags every room of a VIP reservation, and the desk can clear it', async () => {
+    const fx = await ready();
+    const res = await reserve(fx, {
+      checkin: CHECKIN,
+      checkout: CHECKOUT,
+      vip: true,
+      guest: { name: 'Honeymoon Couple' },
+      lines: [line(fx), line(fx)],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const ids: string[] = res.body.bookings.map((b: { id: string }) => b.id);
+    for (const id of ids) expect((await detail(fx, id)).isVip).toBe(true);
+
+    // The list crowns the stay, and says it is the stay (not the guest's profile) that is VIP.
+    const list = await request(
+      'GET',
+      `/reservations?propertyId=${fx.propertyId}&date=${CHECKIN}&tab=upcoming`,
+      { token: fx.token },
+    );
+    const rows = list.body.rows.filter((r: { id: string }) => ids.includes(r.id));
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r).toMatchObject({ vip: true, vipStay: true });
+
+    const off = await request('POST', `/bookings/${ids[0]}/vip`, {
+      token: fx.token,
+      body: { vip: false },
+    });
+    expect(off.status, JSON.stringify(off.body)).toBe(200);
+    expect(off.body).toEqual({ vip: false, bookings: 2 });
+    for (const id of ids) expect((await detail(fx, id)).isVip).toBe(false);
+
+    // Each change is on its stay's record, once.
+    const trail = await admin()
+      .select()
+      .from(bookingApprovals)
+      .where(inArray(bookingApprovals.bookingId, ids));
+    expect(trail.filter((t) => t.reason === 'VIP removed')).toHaveLength(2);
+    const again = await request('POST', `/bookings/${ids[1]}/vip`, {
+      token: fx.token,
+      body: { vip: false },
+    });
+    expect(again.status).toBe(200);
+    const trailAfter = await admin()
+      .select()
+      .from(bookingApprovals)
+      .where(inArray(bookingApprovals.bookingId, ids));
+    expect(trailAfter.filter((t) => t.reason === 'VIP removed')).toHaveLength(2);
+  });
+
+  it('keeps the room of a failed online booking until the desk sorts it out', async () => {
+    const fx = await ready();
+    const before = await roomsToSell(fx, fx.roomId, CHECKIN);
+    const res = await reserve(fx, {
+      checkin: CHECKIN,
+      checkout: CHECKOUT,
+      kind: 'online_failed',
+      guest: { name: 'Website Guest' },
+      lines: [line(fx)],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.status).toBe('Pending');
+    expect(before - (await roomsToSell(fx, fx.roomId, CHECKIN))).toBe(1);
+    const id = res.body.bookings[0].id;
+
+    // Confirming it takes nothing more: the room was already kept.
+    const confirmed = await request('POST', `/bookings/${id}/confirm`, {
+      token: fx.token,
+      body: {},
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(before - (await roomsToSell(fx, fx.roomId, CHECKIN))).toBe(1);
+
+    // A second one, cancelled, gives its room back.
+    const other = await reserve(fx, {
+      checkin: CHECKIN,
+      checkout: CHECKOUT,
+      kind: 'online_failed',
+      guest: { name: 'Second Website Guest' },
+      lines: [line(fx)],
+    });
+    expect(before - (await roomsToSell(fx, fx.roomId, CHECKIN))).toBe(2);
+    const cancelled = await request('POST', `/bookings/${other.body.bookings[0].id}/cancel`, {
+      token: fx.token,
+      body: { reason: 'The guest booked elsewhere' },
+    });
+    expect(cancelled.status, JSON.stringify(cancelled.body)).toBe(200);
+    expect(before - (await roomsToSell(fx, fx.roomId, CHECKIN))).toBe(1);
+  });
+
+  it('offers Social Media as a direct business source', async () => {
+    const fx = await ready();
+    const cfg = await request('GET', `/properties/${fx.propertyId}/reservation-config`, {
+      token: fx.token,
+    });
+    const social = cfg.body.businessSources.find(
+      (s: { shortCode: string }) => s.shortCode === 'SOC',
+    );
+    expect(social).toMatchObject({ name: 'Social Media', category: 'direct' });
+
+    // A booking from it lands with that source.
+    const res = await reserve(fx, {
+      checkin: CHECKIN,
+      checkout: CHECKOUT,
+      businessSourceId: social.id,
+      guest: { name: 'Instagram Guest' },
+      lines: [line(fx)],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect((await detail(fx, res.body.bookings[0].id)).businessSourceId).toBe(social.id);
   });
 });

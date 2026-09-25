@@ -28,8 +28,7 @@ export function capabilities(
     why,
   });
   if (bar.kind === 'block') return none('Edit a block from its panel.');
-  if (bar.reservationKind === 'inquiry' || bar.reservationKind === 'online_failed')
-    return none('An enquiry holds no room. Confirm it first.');
+  if (bar.reservationKind === 'inquiry') return none('An enquiry holds no room. Confirm it first.');
   if (bar.status !== 'Approved' && bar.status !== 'Pending' && bar.status !== 'CheckedIn')
     return none('This stay is closed and cannot change.');
   // The part of a split stay already slept in is history.

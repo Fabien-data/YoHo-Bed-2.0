@@ -14,8 +14,10 @@ import type { TagColor } from './palette';
  * - Holds block inventory until a release date and time. On release they become "Released".
  *   A hold with no release time is never auto-released. Checking in a hold confirms it.
  * - An inquiry does not hold a room.
- * - An online-failed booking is a booking-engine attempt whose payment did not complete. It holds
- *   nothing until staff confirm it.
+ * - An online-failed booking was made on a travel website or booking engine but did not come
+ *   through properly (the payment failed, the channel message broke). The guest believes they
+ *   have booked, so the room is kept for them — it holds inventory like a confirmed stay — while
+ *   the desk sorts it out and confirms or cancels it (owner brief, 2026-09-26).
  */
 export const RESERVATION_KINDS = [
   'confirm',
@@ -69,7 +71,7 @@ export const RESERVATION_KIND_META: Record<ReservationKind, ReservationKindMeta>
     kind: 'online_failed',
     label: 'Online Failed Booking',
     shortLabel: 'Failed',
-    holdsInventory: false,
+    holdsInventory: true,
     isHold: false,
     initialStatus: 'Pending',
     color: 'red',

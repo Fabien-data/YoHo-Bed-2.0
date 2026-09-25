@@ -59,6 +59,9 @@ export default defineConfig({
         WEB_URL: `http://127.0.0.1:${WEB_PORT}`,
         MEDIA_DIR: './uploads-e2e',
         PRIVATE_FILES_DIR: './private-e2e',
+        // The day closing by itself would no-show and check out the specs' stays mid-run; the
+        // API suite tests it directly.
+        DAY_CLOSE_INTERVAL_MS: '0',
         // The browser calls the API from the Playwright origin, which is not the dev default —
         // without this every request is blocked by CORS and only the logged-out tests pass.
         CORS_ORIGINS: `http://127.0.0.1:${WEB_PORT},http://localhost:${WEB_PORT}`,

@@ -200,11 +200,14 @@ export const bookings = pgTable(
      * Whether this booking has rooms out of inventory. Derived, never written: a live booking of
      * a kind that takes rooms. Every release and recount path keys off it, so it cannot be
      * allowed to disagree with the status — which is why Postgres computes it.
+     *
+     * Only an inquiry holds nothing. An online booking that failed still holds its rooms
+     * (migration 0043): the guest believes they booked, so the hotel keeps the room for them.
      */
     inventoryHeld: boolean('inventory_held')
       .notNull()
       .generatedAlwaysAs(
-        sql`status not in ('Cancelled', 'Rejected') and reservation_kind not in ('inquiry', 'online_failed')`,
+        sql`status not in ('Cancelled', 'Rejected') and reservation_kind <> 'inquiry'`,
       ),
     /**
      * Nights from this date on have been given back although the booking is still live — a
@@ -228,6 +231,12 @@ export const bookings = pgTable(
     salesPersonId: uuid('sales_person_id'),
     /** The agent's or company's own reference for the stay. */
     voucherNo: text('voucher_no'),
+    /**
+     * A VIP stay: the desk flags the reservation so every screen shows the crown. Separate from
+     * the guest's own profile flag (`customers.vip`) — a honeymoon or the owner's guest is VIP for
+     * this stay without being one for ever. It changes nothing about money or inventory.
+     */
+    isVip: boolean('is_vip').notNull().default(false),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

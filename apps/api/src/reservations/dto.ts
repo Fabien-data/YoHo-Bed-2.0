@@ -299,6 +299,8 @@ export const createReservationSchema = pricedStaySchema
     expectedTotal: z.number().finite().optional(),
     /** A name for the group card of a multi-room reservation. */
     groupName: z.string().trim().max(120).optional(),
+    /** A VIP stay: shown with a crown on every screen. Changes nothing about the price. */
+    vip: z.boolean().default(false),
   })
   .superRefine(checkStay)
   .superRefine((v, ctx) => {

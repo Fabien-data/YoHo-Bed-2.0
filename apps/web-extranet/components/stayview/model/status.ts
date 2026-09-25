@@ -44,8 +44,9 @@ export const LEGEND_STATES: StayState[] = [
 
 export function stateOf(bar: StayBar): StayState {
   if (bar.kind === 'block') return bar.blockKind === 'blocked' ? 'blocked' : 'out_of_service';
-  if (bar.reservationKind === 'inquiry' || bar.reservationKind === 'online_failed')
-    return 'tentative';
+  // Only an enquiry holds no room. A failed online booking keeps its room, so it sits in the
+  // grid like any other unconfirmed stay.
+  if (bar.reservationKind === 'inquiry') return 'tentative';
   switch (bar.status) {
     case 'CheckedIn':
       return 'inhouse';

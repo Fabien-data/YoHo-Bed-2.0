@@ -56,7 +56,7 @@ export function stayActions(
     {
       status: bar.status ?? '',
       reservationKind: bar.reservationKind ?? 'confirm',
-      inventoryHeld: bar.reservationKind !== 'inquiry' && bar.reservationKind !== 'online_failed',
+      inventoryHeld: bar.reservationKind !== 'inquiry',
       checkin: bar.from,
       checkout: bar.to,
       roomCodes: [],

@@ -544,6 +544,7 @@ export class ReservationService {
           marketSegmentId: p.marketSegmentId,
           salesPersonId: p.salesPersonId,
           voucherNo: dto.voucherNo ?? null,
+          isVip: dto.vip,
           createdByUserId: actor.userId,
           siblingIndex: multi ? l.index + 1 : null,
           pricing: snapshot as Record<string, unknown>,

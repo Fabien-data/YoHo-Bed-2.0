@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   uuid,
@@ -8,6 +9,7 @@ import {
   integer,
   numeric,
   unique,
+  check,
 } from 'drizzle-orm/pg-core';
 import { tenants, properties, users } from './identity';
 
@@ -49,25 +51,36 @@ export const businessDates = pgTable(
  * later would give a different answer the moment anything is back-dated, which would make the log
  * useless for exactly the disputes it exists to settle.
  */
-export const nightAuditRuns = pgTable('night_audit_runs', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id')
-    .notNull()
-    .references(() => tenants.id, { onDelete: 'cascade' }),
-  propertyId: uuid('property_id')
-    .notNull()
-    .references(() => properties.id, { onDelete: 'cascade' }),
-  /** The business date being closed. */
-  fromDate: date('from_date').notNull(),
-  /** The business date the property is left on. */
-  toDate: date('to_date').notNull(),
-  roomsCharged: integer('rooms_charged').notNull().default(0),
-  chargesPosted: numeric('charges_posted', { precision: 14, scale: 2 }).notNull().default('0'),
-  taxesPosted: numeric('taxes_posted', { precision: 14, scale: 2 }).notNull().default('0'),
-  noShows: integer('no_shows').notNull().default(0),
-  drawersClosed: integer('drawers_closed').notNull().default(0),
-  summary: jsonb('summary').notNull().default({}),
-  runByUserId: uuid('run_by_user_id').references(() => users.id, { onDelete: 'set null' }),
-  runFromIp: text('run_from_ip'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const nightAuditRuns = pgTable(
+  'night_audit_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    /** The business date being closed. */
+    fromDate: date('from_date').notNull(),
+    /** The business date the property is left on. */
+    toDate: date('to_date').notNull(),
+    roomsCharged: integer('rooms_charged').notNull().default(0),
+    chargesPosted: numeric('charges_posted', { precision: 14, scale: 2 }).notNull().default('0'),
+    taxesPosted: numeric('taxes_posted', { precision: 14, scale: 2 }).notNull().default('0'),
+    noShows: integer('no_shows').notNull().default(0),
+    drawersClosed: integer('drawers_closed').notNull().default(0),
+    summary: jsonb('summary').notNull().default({}),
+    runByUserId: uuid('run_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    runFromIp: text('run_from_ip'),
+    /**
+     * `manual`: someone pressed Run. `auto`: the property closes its day by itself at the time the
+     * owner set (migration 0043) — there is then no user and no IP, and the log says so.
+     */
+    trigger: text('trigger').notNull().default('manual'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    triggerValid: check('night_audit_runs_trigger_valid', sql`${t.trigger} in ('manual', 'auto')`),
+  }),
+);

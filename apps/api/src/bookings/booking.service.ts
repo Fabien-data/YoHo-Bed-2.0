@@ -13,6 +13,7 @@ import {
   bookingApprovals,
   bookingGuests,
   bookingRooms,
+  bookingGroups,
   customers,
   folioCharges,
   folios,
@@ -56,6 +57,7 @@ import {
   isCurrencyCode,
   type ReservationKind,
 } from '@yohobed/domain';
+import { addDaysIso } from '@yohobed/locale';
 import { ConfigService } from '@nestjs/config';
 import { BillingService } from '../billing/billing.service';
 import { StepUpService } from '../auth/step-up.service';
@@ -99,6 +101,13 @@ export interface TransitionContext {
    */
   allowBalance?: boolean;
   approvalToken?: string;
+  /**
+   * The system checking out a stay whose departure day is over and nobody did (owner brief,
+   * 2026-09-26). The property chose it by leaving automatic check-out on, so a balance does not
+   * stop it — the balance stays on the bill and the desk is told. `departedOn` is the day the guest
+   * was due to leave: a room somebody has cleaned or re-let since is not dirtied again.
+   */
+  automatic?: { departedOn: string };
 }
 
 /** The calendar date an instant falls on in a timezone. */
@@ -1317,6 +1326,10 @@ export class BookingService {
       .returning();
     await this.record(tx, tenantId, id, action, reason, ctx);
 
+    // A thank-you days after the guest left reads as a mistake: an automatic check-out of a stay
+    // that ended before yesterday sends the guest nothing (see below).
+    let lateAutomatic = false;
+
     // Check-out settles with the city ledger: a company's or travel agent's window moves to its
     // account and a travel agent's commission is accrued (Pro, Development Phase 02).
     if (kind === 'check_out') {
@@ -1327,7 +1340,10 @@ export class BookingService {
         b.propertyId,
         b.id,
         localToday(property.timezone),
+        ctx.automatic ? { departedOn: ctx.automatic.departedOn } : {},
       );
+      lateAutomatic =
+        !!ctx.automatic && ctx.automatic.departedOn < addDaysIso(localToday(property.timezone), -1);
 
       // Leaving early gives the nights not stayed back for sale, and frees the room from tonight.
       // (What those nights cost is a price question: shorten the stay to re-price it.)
@@ -1349,7 +1365,7 @@ export class BookingService {
       // city-ledger move, so what a company pays is not held against the guest; throwing here
       // rolls back the whole check-out, settlement included.
       const owed = await this.guestOwes(tx, b.id);
-      if (owed > 0.004 && property.settings.checkoutBalancePolicy === 'block') {
+      if (owed > 0.004 && property.settings.checkoutBalancePolicy === 'block' && !ctx.automatic) {
         if (!(ctx.allowBalance && reason?.trim())) {
           throw new ConflictException({
             reason: 'balance_open',
@@ -1376,11 +1392,90 @@ export class BookingService {
 
     // Check-out opens the review window: mint a single-use invite + queue the guest email
     // (Compartment I). The invite row has no RLS — its unguessable token IS the authorization.
-    if (kind === 'check_out') {
+    if (kind === 'check_out' && !lateAutomatic) {
       await this.queueReviewInvite(tx, tenantId, b);
       await this.queueCheckoutEmail(tx, tenantId, b);
     }
     return updated;
+  }
+
+  /**
+   * Flag a reservation VIP, or clear the flag (owner brief, 2026-09-26): a label that shows the
+   * stay with a crown on every screen, nothing more. Every room of a multi-room reservation changes
+   * together, and each change is on the stay's record.
+   */
+  setVip(tenantId: string, id: string, vip: boolean, ctx: TransitionContext = {}) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const b = await this.lockBooking(tx, id);
+      const [group] = b.groupId
+        ? await tx
+            .select({ kind: bookingGroups.kind })
+            .from(bookingGroups)
+            .where(eq(bookingGroups.id, b.groupId))
+        : [];
+      const ids =
+        group?.kind === 'reservation'
+          ? (
+              await tx
+                .select({ id: bookings.id })
+                .from(bookings)
+                .where(eq(bookings.groupId, b.groupId!))
+            ).map((r) => r.id)
+          : [b.id];
+      const changed = await tx
+        .update(bookings)
+        .set({ isVip: vip, updatedAt: new Date() })
+        .where(and(inArray(bookings.id, ids), sql`${bookings.isVip} <> ${vip}`))
+        .returning({ id: bookings.id });
+      for (const row of changed)
+        await this.record(tx, tenantId, row.id, 'amended', vip ? 'Marked VIP' : 'VIP removed', ctx);
+      return { vip, bookings: ids.length };
+    });
+  }
+
+  /**
+   * Check out a stay whose departure day is over and that nobody checked out (owner brief,
+   * 2026-09-26), inside the caller's transaction — the day-close scheduler's and the night
+   * audit's. The desk's own check-out with the system as the actor: the room turns dirty and gets
+   * its departure clean, levies and the city ledger settle, and the record says why. What the
+   * guest still owes stays on the bill; the notification says how much, so the desk can collect.
+   *
+   * Returns null when the stay is no longer in house (someone got there first).
+   */
+  async autoCheckOutWithin(tx: Tx, tenantId: string, bookingId: string) {
+    const [b] = await tx
+      .select({
+        id: bookings.id,
+        status: bookings.status,
+        reference: bookings.reference,
+        checkout: bookings.checkout,
+        currency: bookings.currency,
+        guestName: customers.name,
+      })
+      .from(bookings)
+      .innerJoin(customers, eq(customers.id, bookings.customerId))
+      .where(eq(bookings.id, bookingId));
+    if (!b || b.status !== 'CheckedIn') return null;
+
+    await this.transitionWithin(
+      tx,
+      tenantId,
+      bookingId,
+      'check_out',
+      `Checked out automatically: the departure date (${b.checkout}) had passed`,
+      { automatic: { departedOn: b.checkout } },
+    );
+    const owed = await this.guestOwes(tx, bookingId);
+    const due = owed > 0.004 ? `${b.currency} ${owed.toFixed(2)}` : null;
+    await tx.insert(notifications).values({
+      tenantId,
+      type: 'auto_checkout',
+      title: `Checked out automatically — ${b.reference}`,
+      body: `${b.guestName} was still in house after their departure date (${b.checkout}), so the stay was checked out and the room marked for cleaning.${due ? ` ${due} is still to pay.` : ''}`,
+      entity: 'booking',
+      entityId: bookingId,
+    });
+    return { id: b.id, reference: b.reference, owed: due };
   }
 
   private async lockBooking(tx: Tx, id: string) {

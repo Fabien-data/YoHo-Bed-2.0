@@ -302,6 +302,13 @@
       "when": 1790179593821,
       "tag": "0042_stay_view_command_centre",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790374532690,
+      "tag": "0043_day_close_and_reservation_fixes",
+      "breakpoints": true
     }
   ]
 }

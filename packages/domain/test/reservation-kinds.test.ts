@@ -9,9 +9,10 @@ import {
 } from '../src';
 
 describe('reservation kinds', () => {
-  it('holds inventory exactly for confirmed bookings and holds', () => {
+  it('holds inventory for every kind but an inquiry', () => {
     const holding = RESERVATION_KINDS.filter((k) => RESERVATION_KIND_META[k].holdsInventory);
-    expect(holding.sort()).toEqual(['confirm', 'hold_confirm', 'hold_unconfirm']);
+    // An online booking that failed still keeps the guest's room (owner, 2026-09-26).
+    expect(holding.sort()).toEqual(['confirm', 'hold_confirm', 'hold_unconfirm', 'online_failed']);
   });
 
   it('requires a release time only for the two hold kinds', () => {

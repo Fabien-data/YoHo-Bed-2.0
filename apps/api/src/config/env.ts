@@ -21,6 +21,16 @@ export const envSchema = z.object({
    * publicly: these are served only to a signed-in member of the tenant.
    */
   PRIVATE_FILES_DIR: z.string().default('./private-files'),
+  /**
+   * How often the day-close scheduler looks for stays still in house after their departure day
+   * and for night audits whose time has come (owner brief, 2026-09-26). 0 switches it off. Under
+   * the API test suites it is off unless set, because those drive it directly.
+   */
+  DAY_CLOSE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(process.env.NODE_ENV === 'test' ? 0 : 60_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

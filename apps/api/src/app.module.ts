@@ -35,6 +35,7 @@ import { FilesModule } from './files/files.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { VouchersModule } from './vouchers/vouchers.module';
 import { ConfigurationModule } from './configuration/configuration.module';
+import { AutomationModule } from './automation/automation.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -72,6 +73,7 @@ import { HealthController } from './health/health.controller';
     UxModule,
     ComplianceModule,
     SearchModule,
+    AutomationModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: RequestErrorFilter }],

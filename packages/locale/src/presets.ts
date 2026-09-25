@@ -200,6 +200,14 @@ const DIRECT_SOURCES: BusinessSourceSeed[] = [
     palette: 'green',
     defaultSegment: 'BAR',
   },
+  // Facebook, Instagram, TikTok messages — a direct booking the hotel takes itself (2026-09-26).
+  {
+    shortCode: 'SOC',
+    name: 'Social Media',
+    category: 'direct',
+    palette: 'purple',
+    defaultSegment: 'BAR',
+  },
   { shortCode: 'EML', name: 'Email', category: 'direct', palette: 'indigo', defaultSegment: 'BAR' },
   {
     shortCode: 'IBE',

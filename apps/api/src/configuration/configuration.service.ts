@@ -165,6 +165,7 @@ export class ConfigurationService {
         ...dto,
         hold: { ...current.hold, ...dto.hold },
         rateControl: { ...current.rateControl, ...dto.rateControl },
+        nightAudit: { ...current.nightAudit, ...dto.nightAudit },
         kindOverrides:
           dto.kindOverrides === undefined
             ? current.kindOverrides

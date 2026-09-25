@@ -582,6 +582,63 @@ $$;
 REVOKE ALL ON FUNCTION lifecycle_due_tenants(timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lifecycle_due_tenants(timestamptz) TO yoho_app;
 
+-- The day closing by itself (owner brief, 2026-09-26). A property is due when a stay is still in
+-- house after its departure day (and the owner has not switched automatic check-out off), or when
+-- its automatic night audit time has come. Both read the settings exactly as
+-- resolvePropertySettings does: on unless explicitly off, 02:00 unless a valid time is set.
+CREATE OR REPLACE FUNCTION yhb_local_timestamp(at timestamptz, tz text) RETURNS timestamp
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  RETURN at AT TIME ZONE tz;
+EXCEPTION WHEN others THEN
+  RETURN at AT TIME ZONE 'UTC';
+END
+$$;
+
+CREATE OR REPLACE FUNCTION yhb_night_audit_time(settings jsonb) RETURNS time
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT CASE
+    WHEN (settings #>> '{nightAudit,time}') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+      THEN (settings #>> '{nightAudit,time}')::time
+    ELSE time '02:00'
+  END
+$$;
+
+-- The row type changed while it was being built; OUT columns cannot be changed by REPLACE.
+DROP FUNCTION IF EXISTS day_close_due(timestamptz);
+CREATE FUNCTION day_close_due(at timestamptz)
+RETURNS TABLE("tenantId" uuid, "propertyId" uuid, "reason" text)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT p.tenant_id, p.id, 'checkout'
+    FROM properties p
+   WHERE (p.settings -> 'autoCheckout') IS DISTINCT FROM 'false'::jsonb
+     AND EXISTS (
+       SELECT 1 FROM bookings b
+        WHERE b.property_id = p.id
+          AND b.status = 'CheckedIn'
+          AND b.checkout < yhb_local_date(at, p.timezone))
+  UNION ALL
+  SELECT p.tenant_id, p.id, 'audit'
+    FROM properties p
+    LEFT JOIN business_dates bd ON bd.property_id = p.id
+   WHERE coalesce(p.settings #>> '{nightAudit,mode}', 'auto') <> 'manual'
+     -- No business date yet: due now, so the scheduler can open the property's first day (on
+     -- a plan with night audit). With one: due once its closing time has come.
+     AND (bd.property_id IS NULL
+          OR yhb_local_timestamp(at, p.timezone) >=
+             (bd.current_date
+               + CASE WHEN yhb_night_audit_time(p.settings) < time '12:00' THEN 1 ELSE 0 END)
+             + yhb_night_audit_time(p.settings))
+$$;
+REVOKE ALL ON FUNCTION day_close_due(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION day_close_due(timestamptz) TO yoho_app;
+
 -- Business date + night audit log (Yanolja-parity Sprint 7).
 
 ALTER TABLE business_dates ENABLE ROW LEVEL SECURITY;
