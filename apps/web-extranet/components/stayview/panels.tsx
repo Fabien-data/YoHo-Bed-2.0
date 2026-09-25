@@ -8,6 +8,7 @@ import {
   ArrowsLeftRight,
   CalendarBlank,
   CaretDown,
+  CurrencyCircleDollar,
   Crown,
   DoorOpen,
   EnvelopeSimple,
@@ -15,6 +16,7 @@ import {
   MagicWand,
   Phone,
   PencilSimple,
+  SignOut,
   SquaresFour,
   Trash,
   UsersThree,
@@ -46,6 +48,7 @@ import {
   getBookingLegs,
   releaseBlock,
   releaseHold,
+  setBookingVip,
   setHousekeeping,
   type StayBar,
   type StayUnit,
@@ -273,13 +276,28 @@ export function ReservationPanelBody({
   const visibleSecondary = secondary.slice(0, 2);
   const moreActions = secondary.slice(2);
 
+  // A VIP stay is a label the desk puts on the reservation (owner brief, 2026-09-26).
+  const vip = useMutation({
+    mutationFn: (on: boolean) => setBookingVip(bar.bookingId!, on),
+    onSuccess: (r) => {
+      refresh();
+      toast.success(
+        r.vip
+          ? `${bar.guestName ?? 'The stay'} is a VIP stay`
+          : `${bar.guestName ?? 'The stay'} is no longer a VIP stay`,
+      );
+    },
+    onError: (e) => toast.error(describeError(e, 'The VIP flag was not saved')),
+  });
+  const live = bar.status !== 'Cancelled' && bar.status !== 'Rejected';
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-1.5">
         <StateBadge bar={bar} />
         {bar.vip && (
           <Badge tone="brass" dot={false}>
-            <Crown size={12} weight="fill" aria-hidden /> VIP
+            <Crown size={12} weight="fill" aria-hidden /> {bar.vipStay ? 'VIP stay' : 'VIP guest'}
           </Badge>
         )}
         {bar.groupId && (
@@ -293,7 +311,27 @@ export function ReservationPanelBody({
           </Badge>
         )}
         {bar.balanceDue && <Badge tone="low">Payment due</Badge>}
+        {can('reservation_change') && live && bar.bookingId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            loading={vip.isPending}
+            onClick={() => vip.mutate(!bar.vipStay)}
+            title={bar.vipStay ? 'Remove the VIP flag from this stay' : 'Flag this stay VIP'}
+          >
+            <Crown size={14} weight={bar.vipStay ? 'fill' : 'regular'} aria-hidden />
+            {bar.vipStay ? 'Remove VIP' : 'Mark VIP'}
+          </Button>
+        )}
       </div>
+
+      {bar.reservationKind === 'online_failed' && bar.status === 'Pending' && (
+        <InlineAlert tone="warn" title="Online booking that did not go through">
+          The guest booked on a website, but the booking failed. Their room is kept for them — check
+          with the guest, then confirm it, or cancel it to free the room.
+        </InlineAlert>
+      )}
 
       {(primary || secondary.length > 0) && (
         <div className="flex flex-col gap-2">
@@ -595,6 +633,7 @@ export function UnitPanelBody({
   canHousekeeping,
   canBlock,
   onOpenBar,
+  onShowDeparture,
   onNewBlock,
 }: {
   unit: StayUnit;
@@ -604,6 +643,8 @@ export function UnitPanelBody({
   canHousekeeping: boolean;
   canBlock: boolean;
   onOpenBar: (bar: StayBar) => void;
+  /** A guest leaving this room whose stay is not on screen: show it, then open it. */
+  onShowDeparture?: (bookingId: string) => void;
   onNewBlock: (unit: StayUnit) => void;
 }) {
   const refresh = useRefreshDesk();
@@ -621,6 +662,10 @@ export function UnitPanelBody({
   const next = bookings
     .filter((b) => b.from > today)
     .sort((a, b) => a.from.localeCompare(b.from))[0];
+  // Leaving this morning, still checked in — their bar may be off screen (window starts today).
+  const leaving = (unit.departures ?? []).filter(
+    (d) => !bookings.some((b) => b.bookingId === d.bookingId),
+  );
   const blocks = unit.bars.filter((b) => b.kind === 'block');
   const Hk = HK_ICON[unit.housekeeping];
 
@@ -671,6 +716,25 @@ export function UnitPanelBody({
       </Section>
 
       <Section title="Guests">
+        {leaving.map((d) => (
+          <button
+            key={d.bookingId}
+            type="button"
+            onClick={() => onShowDeparture?.(d.bookingId)}
+            className="mb-1.5 flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-sm hover:bg-surface-2"
+          >
+            <span className="inline-flex items-center gap-1 rounded-md bg-low-soft px-1.5 py-0.5 text-[11px] font-semibold text-low-ink">
+              <SignOut size={12} aria-hidden /> Due out
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium text-ink">{d.guestName}</span>
+            {d.balanceDue && (
+              <span className="inline-flex items-center gap-1 text-xs text-closed-ink">
+                <CurrencyCircleDollar size={12} aria-hidden /> Payment due
+              </span>
+            )}
+            <span className="text-xs text-ink-3">{d.reference}</span>
+          </button>
+        ))}
         {current ? (
           <button
             type="button"

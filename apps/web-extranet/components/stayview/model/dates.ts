@@ -37,6 +37,30 @@ export function todayIn(timezone = 'UTC'): string {
   }
 }
 
+/**
+ * How long until the next midnight on a timezone's clock — when the hotel's "today" turns over
+ * and the calendar has to look again (stays close, the today column moves). At least a second.
+ */
+export function msToMidnightIn(timezone = 'UTC', now: Date = new Date()): number {
+  const clock = (timeZone: string) =>
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = clock(timezone);
+  } catch {
+    parts = clock('UTC');
+  }
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const elapsed = ((get('hour') * 60 + get('minute')) * 60 + get('second')) * 1000;
+  return Math.max(1000, 86_400_000 - elapsed - now.getMilliseconds());
+}
+
 const utc = (date: string) => new Date(`${date}T00:00:00Z`);
 // Fixed names, not Intl: runtimes disagree ("Sep" vs "Sept"), and a label must not change
 // between the server render, the browser and a test.

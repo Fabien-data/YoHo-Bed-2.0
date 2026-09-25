@@ -8,6 +8,7 @@ import {
   ChatText,
   ClipboardText,
   Copy,
+  Crown,
   Envelope,
   ForkKnife,
   IdentificationCard,
@@ -69,6 +70,7 @@ import {
   getGuestDocuments,
   removeBookingGuest,
   removeBookingInclusion,
+  setBookingVip,
   updateBookingTransfer,
   type BookingTransfer,
   type IdDocumentType,
@@ -93,6 +95,7 @@ import {
 import { Pax, StatusChip, StayWhen, bookedAt } from './bits';
 import { RowActions, useInvalidateReservations } from './row-actions';
 import { DeskActionBar } from '@/components/booking/desk-action-bar';
+import { SectionTick } from '../section-tick';
 
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : 'That did not work. Try again.';
@@ -174,10 +177,39 @@ function Details({
 }) {
   const booked = bookedAt(row.createdAt, cfg.property.timezone);
   const due = Number(row.balance) > 0.004;
+  const refresh = useInvalidateReservations();
+  // A VIP stay is a label the desk puts on the reservation (owner brief, 2026-09-26).
+  const vip = useMutation({
+    mutationFn: (on: boolean) => setBookingVip(row.id, on),
+    onSuccess: (r) => {
+      refresh();
+      toast.success(r.vip ? `${row.reference} is a VIP stay` : `${row.reference} is no longer VIP`);
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const live = row.status !== 'Cancelled' && row.status !== 'Rejected';
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <StatusChip row={row} kinds={cfg.kinds} />
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusChip row={row} kinds={cfg.kinds} />
+          {row.vip && (
+            <Badge tone="brass" dot={false}>
+              <Crown size={12} weight="fill" aria-hidden /> {row.vipStay ? 'VIP stay' : 'VIP guest'}
+            </Badge>
+          )}
+          {live && (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={vip.isPending}
+              onClick={() => vip.mutate(!row.vipStay)}
+            >
+              <Crown size={14} weight={row.vipStay ? 'fill' : 'regular'} aria-hidden />
+              {row.vipStay ? 'Remove VIP' : 'Mark VIP'}
+            </Button>
+          )}
+        </div>
         <RowActions row={row} today={cfg.today} onCard={onCard} />
       </div>
       <DeskActionBar
@@ -256,7 +288,11 @@ function Details({
       <InvoicesBlock row={row} />
       <RemarksBlock bookingId={row.id} />
       <TasksBlock bookingId={row.id} />
-      <DocumentsBlock customerId={row.customerId} country={cfg.property.countryCode} />
+      <DocumentsBlock
+        customerId={row.customerId}
+        country={cfg.property.countryCode}
+        required={cfg.settings.requireDocumentsAtCheckin}
+      />
       <div className="flex justify-end">
         <Button type="button" variant="outline" onClick={onClose}>
           Close
@@ -278,17 +314,21 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
 function Block({
   icon,
   title,
+  tick,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
+  /** The section's completion tick (owner brief, 2026-09-26). */
+  tick?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="flex flex-col gap-2 border-t border-line pt-4">
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+      <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
         {icon}
         {title}
+        {tick}
       </h3>
       {children}
     </section>
@@ -321,8 +361,28 @@ function GuestsBlock({ bookingId, country }: { bookingId: string; country: strin
     onSuccess: refresh,
     onError: (e) => toast.error(errorText(e)),
   });
+  // The guest the stay is booked for: a name, a way to reach them, and a nationality.
+  const primary = guests.data?.primary;
+  const missing = primary
+    ? [
+        !(primary.phone || primary.email) && 'phone or email',
+        !primary.nationalityCode && 'nationality',
+      ].filter((m): m is string => Boolean(m))
+    : ['the guest'];
   return (
-    <Block icon={<UserPlus size={16} />} title="Guests in the room">
+    <Block
+      icon={<UserPlus size={16} />}
+      title="Guests in the room"
+      tick={
+        guests.isLoading ? null : (
+          <SectionTick
+            done={missing.length === 0}
+            todo={`Add ${missing.join(', ')}`}
+            hint="A complete guest has a name, a phone or email, and a nationality. Fill them in on the guest's profile."
+          />
+        )
+      }
+    >
       {guests.isLoading ? (
         <Skeleton className="h-10 w-full" />
       ) : (
@@ -972,7 +1032,16 @@ function TasksBlock({ bookingId }: { bookingId: string }) {
   );
 }
 
-function DocumentsBlock({ customerId, country }: { customerId: string; country: string }) {
+function DocumentsBlock({
+  customerId,
+  country,
+  required,
+}: {
+  customerId: string;
+  country: string;
+  /** The hotel refuses check-in without one. */
+  required: boolean;
+}) {
   const refresh = useInvalidateReservations();
   const docs = useQuery({
     queryKey: ['booking-extras', customerId, 'documents'],
@@ -1004,7 +1073,20 @@ function DocumentsBlock({ customerId, country }: { customerId: string; country: 
     onError: (e) => toast.error(errorText(e)),
   });
   return (
-    <Block icon={<IdentificationCard size={16} />} title="ID documents">
+    <Block
+      icon={<IdentificationCard size={16} />}
+      title="ID documents"
+      tick={
+        docs.isLoading ? null : (
+          <SectionTick
+            done={(docs.data?.length ?? 0) > 0}
+            doneLabel="Recorded"
+            todo={required ? 'Needed before check-in' : 'None yet'}
+            required={required}
+          />
+        )
+      }
+    >
       {docs.data?.length ? (
         <ul className="flex flex-col gap-1.5 text-sm">
           {docs.data.map((d) => (

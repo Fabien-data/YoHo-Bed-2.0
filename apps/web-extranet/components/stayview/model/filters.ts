@@ -60,10 +60,15 @@ export function unitVisible(unit: StayUnit, f: CalendarFilters): boolean {
 }
 
 /** The counted room-status chips (Yanolja parity), judged on `date`. */
-export type RoomChip = 'all' | 'vacant' | 'occupied' | 'reserved' | 'blocked' | 'dueOut';
+export type RoomChip =
+  'all' | 'vacant' | 'occupied' | 'reserved' | 'blocked' | 'dueOut' | 'paymentDue';
+
+const LIVE_STAY = new Set(['Approved', 'Pending', 'CheckedIn']);
+
 export function roomChipMatches(unit: StayUnit, chip: RoomChip, date: string): boolean {
   if (chip === 'all') return true;
   const on = unit.bars.filter((b) => b.from <= date && date < b.to);
+  const departures = unit.departures ?? [];
   switch (chip) {
     case 'vacant':
       return on.length === 0 && unit.status === 'active';
@@ -76,8 +81,17 @@ export function roomChipMatches(unit: StayUnit, chip: RoomChip, date: string): b
     case 'blocked':
       return on.some((b) => b.kind === 'block') || unit.status !== 'active';
     case 'dueOut':
-      return unit.bars.some(
-        (b) => b.kind === 'booking' && b.status === 'CheckedIn' && b.to === date,
+      // A guest leaving on the window's first day has no night on screen, so no bar: the room
+      // names them instead (owner brief, 2026-09-26).
+      return (
+        departures.length > 0 ||
+        unit.bars.some((b) => b.kind === 'booking' && b.status === 'CheckedIn' && b.to === date)
+      );
+    case 'paymentDue':
+      // Someone in, arriving or leaving that day who still owes money.
+      return (
+        departures.some((d) => d.balanceDue) ||
+        on.some((b) => b.kind === 'booking' && b.balanceDue && LIVE_STAY.has(b.status ?? ''))
       );
   }
 }

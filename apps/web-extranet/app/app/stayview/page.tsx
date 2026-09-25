@@ -40,6 +40,7 @@ import {
   type SearchReservation,
   type StayBar,
   type StayUnit,
+  type StayView,
 } from '@/lib/api';
 import { useActiveProperty } from '@/components/active-property';
 import { useRefreshDesk } from '@/components/booking/refresh';
@@ -102,6 +103,7 @@ import {
   addDays,
   daysBetween,
   isIsoDate,
+  msToMidnightIn,
   todayIn,
   windowLabel,
 } from '@/components/stayview/model/dates';
@@ -152,7 +154,24 @@ function StayViewScreen() {
   const [stream, setStream] = React.useState<StreamStatus>('connecting');
 
   // --- where the calendar is looking -------------------------------------------------------
-  const fallbackToday = todayIn(property?.timezone ?? 'UTC');
+  // The hotel's day turns over at ITS midnight, not when someone reloads (owner brief,
+  // 2026-09-26: "changing the dates … the calendar is not properly getting updated"). At that
+  // moment the page looks again: a calendar following today moves with it, and the chips, the
+  // today column and the stays that closed overnight come back current without anyone pressing
+  // anything. The stays the day-close checks out a minute later arrive by the live stream.
+  const timezone = property?.timezone ?? 'UTC';
+  const [dayTurn, setDayTurn] = React.useState(0);
+  React.useEffect(() => {
+    const t = window.setTimeout(
+      () => {
+        setDayTurn((n) => n + 1);
+        void qc.invalidateQueries({ queryKey: ['stayview'] });
+      },
+      msToMidnightIn(timezone) + 2_000,
+    );
+    return () => window.clearTimeout(t);
+  }, [timezone, dayTurn, qc]);
+  const fallbackToday = React.useMemo(() => todayIn(timezone), [timezone, dayTurn]);
   const [from, setFrom] = React.useState<string>('');
   const windowFrom = from || fallbackToday;
   const days = p.days;
@@ -237,9 +256,16 @@ function StayViewScreen() {
 
   // --- the URL: window, open reservation or room (never guest details) ------------------------
   const writeUrl = React.useCallback(
-    (patch: { from?: string; booking?: string | null; unit?: string | null }, push = false) => {
+    (
+      patch: { from?: string | null; booking?: string | null; unit?: string | null },
+      push = false,
+    ) => {
       const url = new URL(window.location.href);
-      if (patch.from !== undefined) url.searchParams.set('from', patch.from);
+      // No `from`: the calendar follows today, and a reload or a shared link opens on today.
+      if (patch.from !== undefined) {
+        if (patch.from) url.searchParams.set('from', patch.from);
+        else url.searchParams.delete('from');
+      }
       for (const key of ['booking', 'unit'] as const)
         if (patch[key] !== undefined) {
           if (patch[key]) url.searchParams.set(key, patch[key]!);
@@ -273,10 +299,26 @@ function StayViewScreen() {
     },
     [store, writeUrl],
   );
+  // Today follows the hotel's today from here on — across midnight too — instead of pinning the
+  // date it happened to be; and it looks again, in case the day moved while nobody watched.
   const goToday = React.useCallback(() => {
-    navigate(today);
+    setFrom('');
+    store.set({ range: null });
+    writeUrl({ from: null });
+    void qc.invalidateQueries({ queryKey: ['stayview', propertyId] });
     setFlashToday((n) => n + 1);
-  }, [navigate, today]);
+  }, [store, writeUrl, qc, propertyId]);
+  /**
+   * A guest leaving on the window's first day has no night on screen. Opening them moves the
+   * calendar back one day, where their stay is drawn, and opens it there.
+   */
+  const showDeparture = React.useCallback(
+    (bookingId: string) => {
+      pendingLocate.current = { bookingId, open: true };
+      navigate(addDays(anchor, -1));
+    },
+    [navigate, anchor],
+  );
 
   // --- what is on screen -----------------------------------------------------------------------
   const [chip, setChip] = React.useState<RoomChip>('all');
@@ -710,6 +752,7 @@ function StayViewScreen() {
         canHousekeeping={access.can('housekeeping')}
         canBlock={canBlock}
         onOpenBar={openBar}
+        onShowDeparture={showDeparture}
         onNewBlock={(unit) =>
           setBlockDraft({ kind: 'blocked', unitId: unit.id, from: anchor, to: addDays(anchor, 1) })
         }
@@ -745,6 +788,17 @@ function StayViewScreen() {
     { value: 'reserved', label: 'Reserved', count: data?.counts.reserved, tone: 'info' },
     { value: 'blocked', label: 'Blocked', count: data?.counts.blocked, tone: 'closed' },
     { value: 'dueOut', label: 'Due out', count: data?.counts.dueOut, tone: 'low' },
+    // Money, so only for those who may see it (owner brief, 2026-09-26).
+    ...(access.can('financial_read')
+      ? [
+          {
+            value: 'paymentDue' as const,
+            label: 'Payment due',
+            count: data?.counts.paymentDue,
+            tone: 'closed' as const,
+          },
+        ]
+      : []),
   ];
 
   // Phones get the day list first; the timeline is one switch away.
@@ -906,6 +960,7 @@ function StayViewScreen() {
         live={stream === 'live'}
         businessDate={data?.businessDate}
         today={today}
+        dayClose={data?.dayClose}
         empty={!!data && allBars.every((b) => b.kind !== 'booking')}
         onRefresh={() => void chart.refetch()}
       />
@@ -954,7 +1009,12 @@ function StayViewScreen() {
         <>
           {mobileView === 'list' && (
             <div className="md:hidden">
-              <MobileDayList data={data} date={anchor} onOpen={openBar} />
+              <MobileDayList
+                data={data}
+                date={anchor}
+                onOpen={openBar}
+                onOpenDeparture={showDeparture}
+              />
             </div>
           )}
           <ContextMenu onOpenChange={(open) => !open && setMenuTarget(null)}>
@@ -1189,6 +1249,7 @@ function StatusLine({
   live,
   businessDate,
   today,
+  dayClose,
   empty,
   onRefresh,
 }: {
@@ -1197,9 +1258,17 @@ function StatusLine({
   live: boolean;
   businessDate?: string;
   today: string;
+  dayClose?: StayView['dayClose'];
   empty: boolean;
   onRefresh: () => void;
 }) {
+  const auto = dayClose?.nightAudit === 'auto';
+  // The automatic audit closes yesterday a little after midnight: behind by more than its own
+  // schedule, or behind with the audit left to the owner, is worth saying.
+  const lagging =
+    !!businessDate &&
+    businessDate < today &&
+    (!auto || (dayClose?.auditDueAt ? dayClose.auditDueAt.slice(0, 10) < today : false));
   return (
     <div
       className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-3"
@@ -1221,10 +1290,19 @@ function StatusLine({
           {live && !fetching && <span className="h-1.5 w-1.5 rounded-full bg-avail" aria-hidden />}
         </button>
       )}
-      {businessDate && businessDate < today && (
+      {lagging ? (
         <span className="text-low-ink">
-          Night audit last closed {businessDate} — run it to roll the business date forward.
+          {auto
+            ? `The business date is ${businessDate} — the automatic night audit is catching up.`
+            : `Night audit last closed ${businessDate} — run it to roll the business date forward.`}
         </span>
+      ) : (
+        auto && (
+          <span title="Set in Configuration → Reservation settings">
+            Day closes by itself at {dayClose!.auditTime}
+            {dayClose!.autoCheckout ? ' · overdue stays check out automatically' : ''}
+          </span>
+        )
       )}
       {empty && <span>No stays in these dates yet.</span>}
     </div>

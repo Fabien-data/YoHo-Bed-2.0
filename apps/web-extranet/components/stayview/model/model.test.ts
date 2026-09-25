@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StayBar, StayUnit, StayView } from '@/lib/api';
-import { addDays, daysBetween, stayRange, windowDates, windowLabel } from './dates';
+import { addDays, daysBetween, msToMidnightIn, stayRange, windowDates, windowLabel } from './dates';
 import { barSpan, barTier, columnWidth, dayAt, groupRooms, METRICS, stackBars } from './layout';
 import { LEGEND_STATES, STATE_META, sourceLabel, stateOf } from './status';
 import { EMPTY_FILTERS, filterChips, matchesBar, roomChipMatches, unitVisible } from './filters';
@@ -356,5 +356,47 @@ describe('stage-aware actions', () => {
     });
     expect(actions.primary).toBe('check-out');
     expect(actions.secondary).not.toContain('take-payment');
+  });
+});
+
+describe('the day at the desk (owner brief, 2026-09-26)', () => {
+  it('finds a room whose guest leaves on the first day of the window, bar or no bar', () => {
+    const leaving = unit({
+      departures: [{ bookingId: 'b-9', reference: 'R-9', guestName: 'Nimal', balanceDue: false }],
+    });
+    // The window starts on the departure day, so there is no bar for the stay at all.
+    expect(roomChipMatches(leaving, 'dueOut', '2026-03-10')).toBe(true);
+    expect(roomChipMatches(unit(), 'dueOut', '2026-03-10')).toBe(false);
+  });
+
+  it('finds rooms whose guest owes money that day — in house, arriving or leaving', () => {
+    const owing = unit({ bars: [booking({ status: 'CheckedIn', balanceDue: true })] });
+    expect(roomChipMatches(owing, 'paymentDue', '2026-03-09')).toBe(true);
+    // Not on another day, and not when paid.
+    expect(roomChipMatches(owing, 'paymentDue', '2026-03-12')).toBe(false);
+    const paid = unit({ bars: [booking({ status: 'CheckedIn', balanceDue: false })] });
+    expect(roomChipMatches(paid, 'paymentDue', '2026-03-09')).toBe(false);
+    // A cancelled stay owes nothing the desk can collect today.
+    const gone = unit({ bars: [booking({ status: 'Cancelled', balanceDue: true })] });
+    expect(roomChipMatches(gone, 'paymentDue', '2026-03-09')).toBe(false);
+    // A departure that still owes.
+    const leaving = unit({
+      departures: [{ bookingId: 'b-9', reference: 'R-9', guestName: 'Nimal', balanceDue: true }],
+    });
+    expect(roomChipMatches(leaving, 'paymentDue', '2026-03-10')).toBe(true);
+  });
+
+  it('counts down to the hotel’s midnight, not the browser’s', () => {
+    // 20:40 UTC is 02:10 in Colombo: 21h50m to go there, 3h20m in UTC.
+    const at = new Date('2026-09-25T20:40:00Z');
+    expect(msToMidnightIn('Asia/Colombo', at)).toBe((21 * 60 + 50) * 60_000);
+    expect(msToMidnightIn('UTC', at)).toBe((3 * 60 + 20) * 60_000);
+    expect(msToMidnightIn('Not/AZone', at)).toBe((3 * 60 + 20) * 60_000);
+  });
+
+  it('draws a failed online booking like any other unconfirmed stay: it holds its room', () => {
+    const failed = booking({ reservationKind: 'online_failed', status: 'Pending' });
+    expect(stateOf(failed)).toBe('pending');
+    expect(stateOf(booking({ reservationKind: 'inquiry', status: 'Pending' }))).toBe('tentative');
   });
 });

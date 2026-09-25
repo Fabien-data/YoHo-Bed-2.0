@@ -986,7 +986,10 @@ export interface StayBar {
   roomUnitId?: string | null;
   adults?: number;
   children?: number;
+  /** A VIP stay or a VIP guest: the crown. */
   vip?: boolean;
+  /** The desk flagged this stay VIP (as opposed to the guest's profile). */
+  vipStay?: boolean;
   hasNotes?: boolean;
   /** Money only reaches roles with financial_read. */
   amount?: string;
@@ -1015,6 +1018,19 @@ export interface StayUnit {
   floor: string | null;
   status: 'active' | 'inactive';
   bars: StayBar[];
+  /**
+   * Guests leaving this room on the chips' day — named even when the stay's last night is off
+   * screen (a window that starts today draws no bar for this morning's departures).
+   */
+  departures?: StayDeparture[];
+}
+
+export interface StayDeparture {
+  bookingId: string;
+  reference: string;
+  guestName: string;
+  /** Money only reaches roles with financial_read. */
+  balanceDue?: boolean;
 }
 
 export interface StayRoomType {
@@ -1060,6 +1076,16 @@ export interface StayView {
     dueOut: number;
     dirty?: number;
     tentative?: number;
+    /** Rooms whose guest owes money that day. Only with financial_read. */
+    paymentDue?: number;
+  };
+  /** How the day closes by itself (owner brief, 2026-09-26). */
+  dayClose?: {
+    autoCheckout: boolean;
+    nightAudit: 'auto' | 'manual';
+    auditTime: string;
+    /** When the automatic audit closes the business date, on the hotel's clock. */
+    auditDueAt: string | null;
   };
 }
 
@@ -1705,7 +1731,10 @@ export interface ReservationRow {
   guestTitle: string | null;
   guestEmail: string | null;
   guestPhone: string | null;
+  /** A VIP stay or a VIP guest. */
   vip: boolean;
+  /** The desk flagged this stay VIP (2026-09-26). */
+  vipStay?: boolean;
   createdAt: string;
   createdByUserId: string | null;
   createdByName: string | null;
@@ -2505,14 +2534,19 @@ export interface PropertySettings {
   requireDocumentsAtCheckin: boolean;
   /** `block`: check-out refuses an unpaid guest balance (owner may override with a reason). */
   checkoutBalancePolicy: 'block' | 'allow';
+  /** Check a stay out by itself once its departure day is over (2026-09-26). */
+  autoCheckout: boolean;
+  /** The night audit runs by itself at `time` (hotel clock), or only when the owner runs it. */
+  nightAudit: { mode: 'auto' | 'manual'; time: string };
   kindOverrides: Partial<Record<ReservationKind, { label?: string; color?: string }>>;
   titles: string[] | null;
 }
 
 export type PropertySettingsPatch = Partial<
-  Omit<PropertySettings, 'hold' | 'rateControl'> & {
+  Omit<PropertySettings, 'hold' | 'rateControl' | 'nightAudit'> & {
     hold: Partial<PropertySettings['hold']>;
     rateControl: Partial<PropertySettings['rateControl']>;
+    nightAudit: Partial<PropertySettings['nightAudit']>;
   }
 >;
 
@@ -2793,6 +2827,20 @@ export interface AuditPreview {
   chargesToPost: string;
   taxesToPost: string;
   noShows: string[];
+  /** Due in on or before the date and not arrived: each becomes a no-show. */
+  unarrived?: Array<{ id: string; reference: string; checkin: string; guestName: string }>;
+  /** Still in house after their departure: checked out by the run when `autoCheckout` is on. */
+  overstays?: Array<{ id: string; reference: string; checkout: string; guestName: string }>;
+  /** Tills still open: the run closes them uncounted. */
+  openTills?: Array<{
+    sessionId: string;
+    drawer: string;
+    openedBy: string | null;
+    openedAt: string;
+  }>;
+  autoCheckout?: boolean;
+  /** How the day closes: by itself at `time` (then `dueAt`), or when the owner runs it. */
+  schedule?: { mode: 'auto' | 'manual'; time: string; dueAt: string | null };
 }
 
 export interface AuditRun {
@@ -2809,9 +2857,13 @@ export interface AuditRun {
     roomsPosted?: number;
     roomsSkipped?: number;
     noShowReferences?: string[];
+    checkedOutAutomatically?: string[];
+    overstays?: string[];
   };
   runFromIp: string | null;
   runBy?: string | null;
+  /** `auto`: the day closed by itself at the owner's time — no user, no IP. */
+  trigger?: 'manual' | 'auto';
   createdAt: string;
 }
 
@@ -3521,6 +3573,16 @@ export interface CreateReservationInput extends ReservationStayInput {
   payment?: ReservationPaymentInput;
   /** A walk-in: check in now. Arrival must be the property's today. */
   checkIn?: boolean;
+  /** A VIP stay: a crown on every screen, nothing else. */
+  vip?: boolean;
+}
+
+/** Flag a reservation VIP, or clear it — every room of a multi-room reservation together. */
+export function setBookingVip(
+  bookingId: string,
+  vip: boolean,
+): Promise<{ vip: boolean; bookings: number }> {
+  return apiFetch(`/bookings/${bookingId}/vip`, { method: 'POST', body: JSON.stringify({ vip }) });
 }
 
 export interface ReservationCreated {

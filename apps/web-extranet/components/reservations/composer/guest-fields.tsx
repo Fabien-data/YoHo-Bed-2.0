@@ -79,6 +79,7 @@ export function GuestFields({
     phone: string | null;
     mobileE164?: string | null;
     whatsapp?: boolean;
+    nationalityCode?: string | null;
   }) {
     onChange({
       ...value,
@@ -89,6 +90,10 @@ export function GuestFields({
       phone: { number: g.mobileE164 ? formatPhone(g.mobileE164) : (g.phone ?? ''), country },
       whatsapp: g.whatsapp ?? false,
       createNew: false,
+      // The guest's nationality comes with them: it decides resident or foreign rates, now that
+      // the desk no longer picks "Rates for" by hand (owner brief, 2026-09-26). A form without
+      // a nationality field ignores it.
+      ...(g.nationalityCode ? { nationalityCode: g.nationalityCode } : {}),
     });
   }
 

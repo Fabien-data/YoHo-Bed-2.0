@@ -5,6 +5,7 @@ import { ArrowRight, Lock, ShieldCheck } from '@phosphor-icons/react';
 import {
   Button,
   Checkbox,
+  Combobox,
   Field,
   InlineAlert,
   Input,
@@ -16,11 +17,12 @@ import {
   Skeleton,
   TagDot,
   cn,
+  type ComboboxOption,
 } from '@yohobed/ui';
 import { formatDate } from '@yohobed/locale';
 import type { BillTo, PriceApproval, ReservationConfig, ReservationQuote } from '@/lib/api';
 import { PaymentFields, type PaymentMethodOption } from '@/components/payments/payment-fields';
-import { effectiveBillTo, type FullDraft } from './full-draft';
+import { billsCompany, effectiveBillTo, type FullDraft } from './full-draft';
 
 /**
  * Yanolja's Billing Summary: the reservation's price, live, beside the form. Sticky, so the total
@@ -43,6 +45,7 @@ export function BillingSummary({
   hasCityLedger,
   userId,
   methods,
+  onBillTo,
 }: {
   cfg: ReservationConfig;
   draft: FullDraft;
@@ -62,6 +65,8 @@ export function BillingSummary({
   userId: string | null;
   /** The ways this reservation can be paid now (see `paymentMethodsFor`). */
   methods: PaymentMethodOption[];
+  /** The desk picked Bill To (a default must not overwrite it afterwards). */
+  onBillTo: (billTo: BillTo) => void;
 }) {
   const kind = cfg.kinds.find((k) => k.kind === draft.kind);
   const nights = Math.max(
@@ -77,15 +82,15 @@ export function BillingSummary({
   const due = t ? Number(t.due) : null;
 
   const accountOrigin = draft.origin === 'travel_agent' || draft.origin === 'corporate';
-  const account = accountOrigin
-    ? cfg.accounts.find((a) => a.id === draft.ledgerAccountId)
-    : undefined;
-  const billTo = effectiveBillTo(draft);
-  const companyLocked = !hasCityLedger
-    ? 'Billing a travel agent or company is part of the Pro plan'
-    : !account
-      ? 'Choose the travel agent or company under Booking source first'
-      : null;
+  const account = cfg.accounts.find((a) => a.id === draft.ledgerAccountId);
+  // What the desk chose, even before an account makes it effective: choosing "Company" is what
+  // opens the account picker below, so the choice must show while the account is still missing.
+  const billTo = billsCompany(draft.billTo) ? draft.billTo : effectiveBillTo(draft);
+  const companyLocked = hasCityLedger
+    ? null
+    : 'Billing a travel agent or company is part of the Pro plan';
+  // The owner's two ways of billing a company (2026-09-26): all of it, or room and taxes to the
+  // agent or company with the extras to the guest.
   const billToOptions: Array<{
     value: BillTo;
     label: string;
@@ -96,19 +101,24 @@ export function BillingSummary({
     ...(draft.lines.length > 1
       ? [{ value: 'group_owner' as const, label: 'Group owner', hint: 'one payer for every room' }]
       : []),
-    {
-      value: 'company',
-      label: account ? account.name : 'Company / travel agent',
-      hint: 'all charges',
-      locked: companyLocked,
-    },
+    { value: 'company', label: 'Company', hint: 'all charges', locked: companyLocked },
     {
       value: 'company_room_tax',
-      label: account ? `${account.name}: room & tax` : 'Company: room & tax',
-      hint: 'extras to the guest',
+      label: 'Room & taxes to TA, extras to guest',
+      hint: 'split bill',
       locked: companyLocked,
     },
   ];
+  // Who can be billed: every active travel agent and company, whatever the booking source.
+  const payerOptions: ComboboxOption[] = cfg.accounts
+    .filter((a) => a.type === 'travel_agent' || a.type === 'company')
+    .map((a) => ({
+      value: a.id,
+      label: a.name,
+      hint: a.type === 'travel_agent' ? 'Travel agent' : 'Company',
+      keywords: [a.code],
+      group: a.type === 'travel_agent' ? 'Travel agents' : 'Companies',
+    }));
 
   const paidNow = draft.payment.methodId ? Number(draft.payment.amount) || 0 : 0;
   const drawer =
@@ -198,7 +208,7 @@ export function BillingSummary({
 
       <div className="flex flex-col gap-3 px-4 py-3">
         <Field label="Bill to" htmlFor="ar-bill-to">
-          <Select value={billTo} onValueChange={(v) => onDraft({ billTo: v as BillTo })}>
+          <Select value={billTo} onValueChange={(v) => onBillTo(v as BillTo)}>
             <SelectTrigger id="ar-bill-to" aria-label="Bill to">
               <SelectValue />
             </SelectTrigger>
@@ -208,7 +218,7 @@ export function BillingSummary({
                   key={o.value}
                   value={o.value}
                   disabled={Boolean(o.locked)}
-                  hint={o.locked ? (hasCityLedger ? 'choose the account' : 'Pro plan') : o.hint}
+                  hint={o.locked ? 'Pro plan' : o.hint}
                 >
                   <span className="flex items-center gap-1.5">
                     {o.label}
@@ -219,15 +229,38 @@ export function BillingSummary({
             </SelectContent>
           </Select>
         </Field>
+        {billsCompany(billTo) && (
+          <Field
+            label={accountOrigin ? 'Bill to account' : 'Travel agent or company'}
+            htmlFor="ar-bill-account"
+            error={
+              showErrors && !account ? 'Choose who pays, or bill the guest instead' : undefined
+            }
+          >
+            <Combobox
+              id="ar-bill-account"
+              aria-label="Travel agent or company to bill"
+              value={draft.ledgerAccountId}
+              onChange={(ledgerAccountId) =>
+                onDraft({ ledgerAccountId, useContractRates: false, approvals: {} })
+              }
+              options={payerOptions}
+              placeholder="Choose the account…"
+              searchPlaceholder="Search accounts…"
+              emptyText="None yet. Add them under Cashiering → City ledger."
+            />
+          </Field>
+        )}
         {billTo === 'company_room_tax' && (
           <p className="-mt-1 text-[11px] text-ink-3">
-            Room and tax go on {account?.name ?? 'the company'}&apos;s bill; meals, transfers and
-            other extras go on a second bill for the guest.
+            Room and taxes go on {account?.name ?? 'the agent or company'}&apos;s bill; meals,
+            transfers and other extras go on a second bill for the guest.
           </p>
         )}
-        {(billTo === 'company' || billTo === 'company_room_tax') && (
+        {billsCompany(billTo) && (
           <p className="-mt-1 text-[11px] text-ink-3">
-            At check-out the company&apos;s bill moves to its city ledger account.
+            At check-out the {billTo === 'company' ? 'whole' : 'room and tax'} bill moves to the
+            account&apos;s city ledger.
           </p>
         )}
 

@@ -18,6 +18,7 @@ import {
   Switch,
   TagChip,
   TagColorPicker,
+  TimePicker,
   toast,
 } from '@yohobed/ui';
 import { updatePropertySettings, type PropertySettings, type ReservationKind } from '@/lib/api';
@@ -253,6 +254,55 @@ export function ReservationSettingsForm({
                 setDraft({ ...draft, checkoutBalancePolicy: v ? 'block' : 'allow' })
               }
             />
+          </SettingRow>
+        </Card>
+
+        {/* Closing the day (owner brief, 2026-09-26): what the system does on its own overnight. */}
+        <Card className="px-5 py-2">
+          <SettingRow
+            title="Check out overdue stays automatically"
+            description="A guest still checked in after their departure day is checked out overnight and the room is marked for cleaning. Anything they owe stays on the bill, and the desk is told."
+          >
+            <Switch
+              aria-label="Check out overdue stays automatically"
+              checked={draft.autoCheckout}
+              onCheckedChange={(v) => setDraft({ ...draft, autoCheckout: v })}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Night audit"
+            description={
+              draft.nightAudit.mode === 'auto'
+                ? `Runs by itself at this hotel time: it posts the night's charges, marks no-shows and moves the business date. ${draft.nightAudit.time < '12:00' ? 'A morning time closes the day before.' : 'An evening time closes the same day.'}`
+                : 'Runs only when the owner presses Run on the Night audit page.'
+            }
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                aria-label="Night audit"
+                value={draft.nightAudit.mode}
+                onChange={(mode) =>
+                  setDraft({ ...draft, nightAudit: { ...draft.nightAudit, mode } })
+                }
+                options={[
+                  { value: 'auto', label: 'Automatic' },
+                  { value: 'manual', label: 'By hand' },
+                ]}
+              />
+              {draft.nightAudit.mode === 'auto' && (
+                <TimePicker
+                  aria-label="Night audit time"
+                  value={draft.nightAudit.time}
+                  format={draft.timeFormat}
+                  minuteStep={15}
+                  disabled={!canEdit}
+                  className="w-32"
+                  onChange={(time) =>
+                    setDraft({ ...draft, nightAudit: { ...draft.nightAudit, time } })
+                  }
+                />
+              )}
+            </div>
           </SettingRow>
         </Card>
 

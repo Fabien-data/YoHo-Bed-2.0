@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChatText, DoorOpen, Lock, Plus, Trash } from '@phosphor-icons/react';
+import { ArrowLeft, ChatText, Crown, DoorOpen, Lock, Plus, Trash } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
@@ -37,7 +37,6 @@ import {
   getUser,
   type BookingOrigin,
   type ReservationKind,
-  type Residency,
 } from '@/lib/api';
 import { useHasFeature, useReservationConfig } from '@/lib/queries';
 import { useUxTask } from '@/lib/ux';
@@ -56,6 +55,7 @@ import {
   type ServerError,
 } from '../composer/shared';
 import {
+  billsCompany,
   blankFullDraft,
   fromQuickDraft,
   fullCreateBody,
@@ -68,7 +68,13 @@ import {
   type FullLineDraft,
 } from './full-draft';
 import { LineExtras, LineExtrasSummary, REMARK_LABEL, RemarksDialog } from './line-extras';
-import { GuestProfileFields } from './guest-profile';
+import {
+  GuestDocumentFields,
+  GuestProfileFields,
+  documentGiven,
+  guestInfoMissing,
+} from './guest-profile';
+import { SectionTick } from '../section-tick';
 import { BillingSummary } from './billing-summary';
 import { GroupOptions, QuickGroupPanel, allAvailableLines } from './group-tools';
 import { MAX_ROOMS } from './limits';
@@ -155,14 +161,24 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
     setServerError(null);
   }, []);
 
-  // Nationality decides resident or foreign, unless the desk said otherwise.
+  // Nationality decides resident or foreign — nothing else does (owner brief, 2026-09-26).
   const nationality = draft?.guest.nationalityCode;
   React.useEffect(() => {
-    if (!draft || !cfg || draft.residencyManual) return;
+    if (!draft || !cfg) return;
     const r = residencyOf(draft.guest.nationalityCode, cfg.property.countryCode);
     if (r !== draft.residency) update({ residency: r });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nationality]);
+
+  // A group billed to a travel agent or company is the usual case (owner brief, 2026-09-26:
+  // "group bookings are mostly corporate"): once a multi-room reservation has its account, Bill
+  // To follows it — until the desk picks Bill To itself.
+  const groupAccount = (draft?.lines.length ?? 0) > 1 ? draft?.ledgerAccountId : null;
+  React.useEffect(() => {
+    if (!draft || !hasCityLedger || draft.billToChosen) return;
+    if (groupAccount && draft.billTo === 'guest') update({ billTo: 'company' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupAccount, hasCityLedger]);
 
   // Leaving the tab with unsaved work asks first.
   const dirty = draft !== null && JSON.stringify(draft) !== pristine;
@@ -293,7 +309,15 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
   const isHold = draft.kind === 'hold_confirm' || draft.kind === 'hold_unconfirm';
   const accountOrigin = draft.origin === 'travel_agent' || draft.origin === 'corporate';
   const account = cfg.accounts.find((a) => a.id === draft.ledgerAccountId) ?? null;
-  const canContract = Boolean(account?.hasContractRates) && hasCityLedger;
+  const canContract = accountOrigin && Boolean(account?.hasContractRates) && hasCityLedger;
+  // The hotel sells resident-only or foreign-only rates: the guest's nationality matters now.
+  const audienceRates = Boolean(
+    grid.data?.roomTypes.some(
+      (rt) => rt.hiddenRateTypes > 0 || rt.rateTypes.some((t) => t.audience !== 'all'),
+    ),
+  );
+  const guestMissing = guestInfoMissing(draft.guest);
+  const hasDocument = documentGiven(draft.guest);
 
   const typedLines = draft.lines.filter((l) => typedRate(l) !== null);
   const needsReason =
@@ -322,13 +346,16 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
     !draft.payment.methodId ||
     (payMethods.some((m) => m.id === draft.payment.methodId) &&
       Object.keys(paymentProblems(draft.payment, payMethods, dueNow)).length === 0);
+  // Billing a company needs the company: never fall back to the guest behind the desk's back.
+  const billToReady = !billsCompany(draft.billTo) || Boolean(draft.ledgerAccountId);
   const formReady =
     guestReady &&
     linesReady &&
     roomGuestErrors.length === 0 &&
     exemptReady &&
     reasonReady &&
-    paymentReady;
+    paymentReady &&
+    billToReady;
   // A walk-in: a confirmed stay that starts on the hotel's today.
   const canCheckIn =
     (draft.kind === 'confirm' || draft.kind === 'hold_confirm') && draft.stay.checkin === cfg.today;
@@ -538,6 +565,16 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
                   </SelectContent>
                 </Select>
               </Field>
+              {/* A VIP stay is a label on the reservation, shown with a crown everywhere. */}
+              <label className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-line-strong px-3 text-sm text-ink-2 has-[:checked]:border-brass has-[:checked]:bg-brass-soft">
+                <Checkbox
+                  checked={draft.vip}
+                  onCheckedChange={(c) => update({ vip: c === true })}
+                  aria-label="VIP reservation"
+                />
+                <Crown size={14} weight={draft.vip ? 'fill' : 'regular'} aria-hidden />
+                VIP
+              </label>
             </div>
 
             {isHold && (
@@ -871,8 +908,13 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
           {/* Guest information */}
           <section className="flex flex-col gap-4 border-b border-line px-5 py-5">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-2">
+              <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-2">
                 Guest information
+                <SectionTick
+                  done={guestMissing.length === 0}
+                  todo={`Add ${guestMissing.join(', ')}`}
+                  hint="A complete guest has a name, a phone or email, and a nationality."
+                />
               </h2>
               <label
                 className={cn(
@@ -910,12 +952,30 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
             <GuestProfileFields
               value={draft.guest}
               onChange={(guest) => update({ guest })}
-              propertyCountry={cfg.property.countryCode}
-              residency={draft.residency}
-              residencyManual={draft.residencyManual}
-              onResidency={(r: Residency) => update({ residency: r, residencyManual: true })}
-              today={cfg.calendarToday}
+              audienceRates={audienceRates}
             />
+
+            <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
+              <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+                ID document
+                <SectionTick
+                  done={hasDocument}
+                  doneLabel="Recorded"
+                  todo={
+                    cfg.settings.requireDocumentsAtCheckin
+                      ? 'Needed before check-in'
+                      : 'Optional — or add it at check-in'
+                  }
+                  required={cfg.settings.requireDocumentsAtCheckin}
+                />
+              </h3>
+              <GuestDocumentFields
+                value={draft.guest}
+                onChange={(guest) => update({ guest })}
+                propertyCountry={cfg.property.countryCode}
+                today={cfg.calendarToday}
+              />
+            </div>
 
             {draft.guestList &&
               draft.lines.slice(1).map((l, j) => {
@@ -1016,6 +1076,7 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
             hasCityLedger={hasCityLedger}
             userId={userId}
             methods={payMethods}
+            onBillTo={(billTo) => update({ billTo, billToChosen: true })}
           />
         </div>
       </div>
@@ -1147,9 +1208,6 @@ function OtherInfo({
           Thank-you email to the guest or booker on checking out
         </p>
       )}
-      {box(o.guestPortalAccess, 'Access to guest portal', (guestPortalAccess) =>
-        set({ guestPortalAccess }),
-      )}
       {box(o.suppressRateOnGrCard, 'Suppress rate on registration card', (suppressRateOnGrCard) =>
         set({ suppressRateOnGrCard }),
       )}
@@ -1159,8 +1217,8 @@ function OtherInfo({
         (displayInclusionSeparately) => set({ displayInclusionSeparately }),
       )}
       <p className="text-xs text-ink-3">
-        These are saved with the reservation. Vouchers, the check-out email and the guest page are
-        sent once email is connected for the property.
+        These are saved with the reservation. Vouchers and the check-out email are sent once email
+        is connected for the property.
       </p>
     </div>
   );

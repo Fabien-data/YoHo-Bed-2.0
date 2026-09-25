@@ -83,7 +83,8 @@ export class SearchService {
           amount: bookings.amount,
           guestName: customers.name,
           guestPhone: customers.phone,
-          vip: customers.vip,
+          // A VIP stay (the desk's flag) or a VIP guest (their profile).
+          vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
           roomCodes: sql<string | null>`(
           select string_agg(ru.code, ', ' order by ru.code)
           from booking_rooms br join room_units ru on ru.id = br.room_unit_id

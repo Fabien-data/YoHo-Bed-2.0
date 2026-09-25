@@ -183,12 +183,14 @@ function UnitLabel({
   const cb = useCallbacks();
   const Hk = HK_ICON[unit.housekeeping];
   const hk = HK_META[unit.housekeeping];
+  // Guests leaving this room on the chips' day — their stay may be off screen (owner brief).
+  const leaving = unit.departures ?? [];
   return (
     <button
       type="button"
       data-unit-label={unit.id}
       onClick={() => cb.current.openUnit(unit)}
-      aria-label={`Room ${unit.code}${unit.displayName ? ` ${unit.displayName}` : ''}, ${hk.label}. Open room details`}
+      aria-label={`Room ${unit.code}${unit.displayName ? ` ${unit.displayName}` : ''}, ${hk.label}${leaving.length ? `, guest due out` : ''}. Open room details`}
       className="flex h-full w-full min-w-0 items-center gap-2 px-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
     >
       <span className="font-mono text-[13px] font-semibold text-ink">{unit.code}</span>
@@ -199,6 +201,11 @@ function UnitLabel({
         {unit.status !== 'active' && (
           <Tooltip label="Out of service">
             <Prohibit size={14} weight="bold" className="text-closed-ink" aria-hidden />
+          </Tooltip>
+        )}
+        {leaving.length > 0 && (
+          <Tooltip label={`Due out: ${leaving.map((d) => d.guestName).join(', ')}`}>
+            <SignOut size={14} weight="bold" className="text-low-ink" data-due-out aria-hidden />
           </Tooltip>
         )}
         {showHk && (

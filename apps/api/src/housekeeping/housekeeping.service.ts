@@ -171,7 +171,7 @@ export class HousekeepingService {
               amount: bookings.amount,
               guestName: customers.name,
               guestEmail: customers.email,
-              vip: customers.vip,
+              vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
               groupId: bookings.groupId,
               groupOwnerCustomerId: bookingGroups.ownerCustomerId,
               siblingIndex: bookings.siblingIndex,
@@ -291,7 +291,8 @@ export class HousekeepingService {
           amount: bookings.amount,
           guestName: customers.name,
           guestEmail: customers.email,
-          vip: customers.vip,
+          // A VIP stay (the desk's flag) or a VIP guest (their profile).
+          vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
           groupId: bookings.groupId,
           groupOwnerCustomerId: bookingGroups.ownerCustomerId,
           siblingIndex: bookings.siblingIndex,

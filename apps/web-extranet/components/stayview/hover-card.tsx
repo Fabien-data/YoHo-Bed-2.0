@@ -9,6 +9,7 @@ import {
   Crown,
   CurrencyCircleDollar,
   UsersThree,
+  WarningCircle,
 } from '@phosphor-icons/react';
 import { useMoney } from '@/components/currency';
 import { useInteraction } from './interaction/store';
@@ -126,7 +127,12 @@ export function StayHoverCard({
           )}
           {bar.vip && (
             <span className="inline-flex items-center gap-1">
-              <Crown size={12} weight="fill" aria-hidden /> VIP
+              <Crown size={12} weight="fill" aria-hidden /> {bar.vipStay ? 'VIP stay' : 'VIP guest'}
+            </span>
+          )}
+          {bar.reservationKind === 'online_failed' && bar.status === 'Pending' && (
+            <span className="inline-flex items-center gap-1 text-low-ink">
+              <WarningCircle size={12} aria-hidden /> Online booking failed — room kept
             </span>
           )}
           {bar.hasNotes && (

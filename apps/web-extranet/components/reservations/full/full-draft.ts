@@ -70,7 +70,6 @@ export interface OtherInfoDraft {
   /** As typed: comma-separated. */
   voucherEmails: string;
   sendCheckoutEmail: boolean;
-  guestPortalAccess: boolean;
   suppressRateOnGrCard: boolean;
   displayInclusionSeparately: boolean;
 }
@@ -93,10 +92,13 @@ export interface FullDraft {
   useContractRates: boolean;
   complimentary: boolean;
   taxExempt: { on: boolean; exemptionId: string; reason: string };
-  /** Resident or foreign: filters the rate types. Null until the guest's nationality is known. */
+  /**
+   * Resident or foreign: filters the rate types. Read from the guest's nationality alone — the
+   * desk no longer sets it by hand (owner brief, 2026-09-26). Null until the nationality is known.
+   */
   residency: Residency | null;
-  /** The desk set residency by hand; nationality no longer drives it. */
-  residencyManual: boolean;
+  /** A VIP stay: a crown on every screen, nothing else (owner brief, 2026-09-26). */
+  vip: boolean;
   lines: FullLineDraft[];
   guest: GuestProfileDraft;
   guestList: boolean;
@@ -109,6 +111,8 @@ export interface FullDraft {
   groupName: string;
   /** Who pays (Sprint 5). */
   billTo: BillTo;
+  /** The desk picked Bill To itself, so a default must not overwrite it. */
+  billToChosen: boolean;
   /** Money taken now: a deposit or the whole stay. */
   payment: PaymentDraft;
 }
@@ -153,7 +157,6 @@ function defaultOther(): OtherInfoDraft {
     emailVoucher: false,
     voucherEmails: '',
     sendCheckoutEmail: false,
-    guestPortalAccess: false,
     suppressRateOnGrCard: false,
     displayInclusionSeparately: false,
   };
@@ -184,7 +187,7 @@ export function blankFullDraft(cfg: ReservationConfig, prefill?: Prefill | null)
     complimentary: false,
     taxExempt: { on: false, exemptionId: '', reason: '' },
     residency: null,
-    residencyManual: false,
+    vip: false,
     lines: [fullLine({ roomId: prefill?.roomId ?? null, roomUnitId: prefill?.roomUnitId ?? '' })],
     guest: blankGuest(cfg),
     guestList: false,
@@ -196,6 +199,7 @@ export function blankFullDraft(cfg: ReservationConfig, prefill?: Prefill | null)
     approvals: {},
     groupName: '',
     billTo: 'guest',
+    billToChosen: false,
     payment: emptyPayment(),
   };
 }
@@ -229,10 +233,27 @@ export function residencyOf(nationality: string, propertyCountry: string): Resid
 
 const isHoldKind = (k: ReservationKind) => k === 'hold_confirm' || k === 'hold_unconfirm';
 
+/** A Bill To that charges a travel agent or company. */
+export const billsCompany = (b: BillTo) => b === 'company' || b === 'company_room_tax';
+
+/**
+ * The travel agent or company on the reservation: who booked it (a travel-agent or corporate
+ * booking source), or — on any source — who pays when Bill To is a company option. A direct
+ * booking a company pays for is common (owner brief, 2026-09-26: "group bookings are mostly
+ * corporate").
+ */
+export function accountOf(d: FullDraft): string | null {
+  if (!d.ledgerAccountId) return null;
+  const booked = d.origin === 'travel_agent' || d.origin === 'corporate';
+  return booked || billsCompany(d.billTo) ? d.ledgerAccountId : null;
+}
+
 /** Everything that decides the price — the quote's body. Null until every line is complete. */
 export function fullStayBody(propertyId: string, d: FullDraft): ReservationStayInput | null {
   if (d.lines.length === 0 || !d.lines.every(isComplete)) return null;
-  const account = d.ledgerAccountId && (d.origin === 'travel_agent' || d.origin === 'corporate');
+  const account = accountOf(d);
+  // Contract rates are the booker's: only a travel-agent or corporate booking has them.
+  const booker = account && (d.origin === 'travel_agent' || d.origin === 'corporate');
   return {
     propertyId,
     checkin: d.stay.checkin,
@@ -250,7 +271,7 @@ export function fullStayBody(propertyId: string, d: FullDraft): ReservationStayI
     ...(d.marketSegmentId ? { marketSegmentId: d.marketSegmentId } : {}),
     ...(d.salesPersonId ? { salesPersonId: d.salesPersonId } : {}),
     ...(d.residency ? { residency: d.residency } : {}),
-    ...(account && d.useContractRates ? { useContractRates: true } : {}),
+    ...(booker && d.useContractRates ? { useContractRates: true } : {}),
     ...(d.complimentary ? { complimentary: true } : {}),
     ...(d.taxExempt.on && d.taxExempt.exemptionId.trim()
       ? {
@@ -337,7 +358,7 @@ export function paymentMethodsFor(
   d: FullDraft,
   hasCityLedger: boolean,
 ): ReservationConfig['paymentMethods'] {
-  const account = d.ledgerAccountId && (d.origin === 'travel_agent' || d.origin === 'corporate');
+  const account = accountOf(d);
   return cfg.paymentMethods.filter(
     (m) =>
       (!m.currency || m.currency === cfg.property.currency) &&
@@ -350,8 +371,7 @@ export function paymentMethodsFor(
  * needs a group. The form only offers what fits; this keeps a stale choice from reaching the API.
  */
 export function effectiveBillTo(d: FullDraft): BillTo {
-  const account = d.ledgerAccountId && (d.origin === 'travel_agent' || d.origin === 'corporate');
-  if ((d.billTo === 'company' || d.billTo === 'company_room_tax') && !account) return 'guest';
+  if (billsCompany(d.billTo) && !d.ledgerAccountId) return 'guest';
   if (d.billTo === 'group_owner' && d.lines.length < 2) return 'guest';
   return d.billTo;
 }
@@ -391,7 +411,6 @@ export function fullCreateBody(
       emailVoucher: d.other.emailVoucher,
       ...(d.other.emailVoucher && emails.length ? { voucherEmails: emails } : {}),
       sendCheckoutEmail: d.other.sendCheckoutEmail,
-      guestPortalAccess: d.other.guestPortalAccess,
       suppressRateOnGrCard: d.other.suppressRateOnGrCard,
       displayInclusionSeparately: d.other.displayInclusionSeparately,
     },
@@ -409,5 +428,6 @@ export function fullCreateBody(
         }
       : {}),
     ...(opts.checkIn ? { checkIn: true } : {}),
+    ...(d.vip ? { vip: true } : {}),
   };
 }
