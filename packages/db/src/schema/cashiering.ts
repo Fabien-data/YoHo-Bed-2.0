@@ -18,6 +18,7 @@ import { bookings } from './bookings';
 import { folios } from './folio';
 import { marketSegments } from './configuration';
 import { rooms } from './inventory';
+import { payoutTypes } from './config-lists';
 import { ratePlans } from './rates';
 
 /** The commission plans a travel agent or business source can carry (COMMISSION_PLANS). */
@@ -320,6 +321,8 @@ export const expenseVouchers = pgTable('expense_vouchers', {
   }),
   voucherNo: text('voucher_no').notNull(),
   category: expenseCategory('category').notNull().default('other'),
+  /** The hotel's payout reason (Configuration → Payouts, 2026-09-26); `category` follows it. */
+  payoutTypeId: uuid('payout_type_id').references(() => payoutTypes.id, { onDelete: 'set null' }),
   payee: text('payee').notNull(),
   amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
   currency: text('currency').notNull().default('LKR'),

@@ -131,7 +131,8 @@ export class StayViewService {
         .select({ id: rooms.id, name: rooms.name, quantity: rooms.quantity })
         .from(rooms)
         .where(eq(rooms.propertyId, propertyId))
-        .orderBy(asc(rooms.name));
+        // The hotel's own order (Configuration → Room types), then the name.
+        .orderBy(asc(rooms.sortOrder), asc(rooms.name));
       const roomIds = roomRows.map((r) => r.id);
 
       const unitRows = await tx

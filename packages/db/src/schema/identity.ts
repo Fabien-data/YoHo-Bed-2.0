@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import type { PropertyPolicies } from '@yohobed/domain';
 import {
   pgTable,
   pgEnum,
@@ -214,6 +215,16 @@ export const properties = pgTable(
     taxMode: text('tax_mode').notNull().default('inclusive_legacy'),
     /** Reservation-desk settings, resolved by `resolvePropertySettings` in @yohobed/domain. */
     settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+
+    /**
+     * The Hotel Profile's other tabs (Configuration, owner brief 2026-09-26): what the property
+     * is in the owner's words, its selling points, its amenities (catalogue codes from
+     * @yohobed/domain) and its policies. The voucher and guest page read them.
+     */
+    description: text('description'),
+    highlights: jsonb('highlights').$type<string[]>().notNull().default([]),
+    amenities: jsonb('amenities').$type<string[]>().notNull().default([]),
+    policies: jsonb('policies').$type<PropertyPolicies>().notNull().default({}),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

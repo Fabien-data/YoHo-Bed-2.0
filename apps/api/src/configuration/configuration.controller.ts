@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
@@ -6,6 +16,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { ConfigurationService } from './configuration.service';
 import { MastersService } from './masters.service';
+import { geocodeAddress } from './geocode';
 import {
   applyPresetSchema,
   createBusinessSourceSchema,
@@ -55,6 +66,18 @@ export class ConfigurationController {
     @Body(new ZodValidationPipe(updatePropertyProfileSchema)) dto: UpdatePropertyProfileDto,
   ) {
     return this.config.updateProfile(tenantId, id, dto);
+  }
+
+  /** Find the address on the map (Hotel Profile). The owner's, like the rest of the profile. */
+  @Get('properties/:id/geocode')
+  @TenantRoles('OWNER')
+  async geocode(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Query('q') q: string | undefined,
+  ) {
+    const property = await this.config.getProfile(tenantId, id);
+    return geocodeAddress(q ?? '', property.countryCode);
   }
 
   @Get('properties/:id/settings')

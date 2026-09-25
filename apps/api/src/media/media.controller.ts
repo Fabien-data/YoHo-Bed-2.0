@@ -1,9 +1,11 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
   Post,
+  Put,
   Res,
   UploadedFile,
   UseGuards,
@@ -14,7 +16,11 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
 import { TenantId } from '../tenancy/decorators';
+import { z } from 'zod';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { MediaService, MAX_PHOTO_BYTES } from './media.service';
+
+const photoOrderSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }).strict();
 
 const upload = FileInterceptor('file', { limits: { fileSize: MAX_PHOTO_BYTES } });
 
@@ -54,6 +60,27 @@ export class MediaController {
   @UseGuards(JwtAuthGuard, TenantGuard)
   listRoomPhotos(@TenantId() tenantId: string, @Param('id') roomId: string) {
     return this.mediaService.listForRoom(tenantId, roomId);
+  }
+
+  /** The gallery's order; the first photo is the cover. */
+  @Put('properties/:id/photos/order')
+  @UseGuards(JwtAuthGuard, TenantGuard)
+  orderPropertyPhotos(
+    @TenantId() tenantId: string,
+    @Param('id') propertyId: string,
+    @Body(new ZodValidationPipe(photoOrderSchema)) dto: { ids: string[] },
+  ) {
+    return this.mediaService.reorder(tenantId, { propertyId }, dto.ids);
+  }
+
+  @Put('rooms/:id/photos/order')
+  @UseGuards(JwtAuthGuard, TenantGuard)
+  orderRoomPhotos(
+    @TenantId() tenantId: string,
+    @Param('id') roomId: string,
+    @Body(new ZodValidationPipe(photoOrderSchema)) dto: { ids: string[] },
+  ) {
+    return this.mediaService.reorder(tenantId, { roomId }, dto.ids);
   }
 
   @Delete('photos/:id')

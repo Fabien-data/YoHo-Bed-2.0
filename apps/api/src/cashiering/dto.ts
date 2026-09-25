@@ -52,6 +52,8 @@ export const createExpenseSchema = z.object({
   category: z
     .enum(['supplies', 'maintenance', 'transport', 'staff', 'utilities', 'other'])
     .default('other'),
+  /** The hotel's payout reason (Configuration → Payouts); the category follows it. */
+  payoutTypeId: z.string().uuid().optional(),
   payee: z.string().min(1).max(160),
   amount: z.number().positive(),
   /** Defaults to the property's base currency. */

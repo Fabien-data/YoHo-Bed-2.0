@@ -91,6 +91,33 @@ export class MediaService {
     );
   }
 
+  /**
+   * Put a gallery in the order given (Configuration → Photo gallery). The first photo is the
+   * cover. Every id must be one of the target's own photos — checked by tenant explicitly, since
+   * media is readable across tenants (see above).
+   */
+  reorder(tenantId: string, target: { propertyId?: string; roomId?: string }, ids: string[]) {
+    return this.dbs.withTenant(tenantId, async (tx) => {
+      const where = target.roomId
+        ? and(eq(media.tenantId, tenantId), eq(media.roomId, target.roomId))
+        : and(
+            eq(media.tenantId, tenantId),
+            eq(media.propertyId, target.propertyId!),
+            isNull(media.roomId),
+          );
+      const mine = await tx.select({ id: media.id }).from(media).where(where);
+      const owned = new Set(mine.map((m) => m.id));
+      if (ids.length !== owned.size || ids.some((id) => !owned.has(id)))
+        throw new BadRequestException('List every photo of the gallery, once each');
+      for (const [i, id] of ids.entries())
+        await tx
+          .update(media)
+          .set({ sortOrder: i })
+          .where(and(where, eq(media.id, id)));
+      return { ordered: ids.length };
+    });
+  }
+
   listForRoom(tenantId: string, roomId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
       tx

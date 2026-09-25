@@ -309,6 +309,13 @@
       "when": 1790374532690,
       "tag": "0043_day_close_and_reservation_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790377127000,
+      "tag": "0044_property_configuration",
+      "breakpoints": true
     }
   ]
 }

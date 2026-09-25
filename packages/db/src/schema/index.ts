@@ -28,3 +28,4 @@ export * from './nightaudit';
 export * from './ux';
 export * from './smart-setup';
 export * from './hotel-roles';
+export * from './config-lists';

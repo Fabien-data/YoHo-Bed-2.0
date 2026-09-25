@@ -467,6 +467,49 @@ CREATE POLICY tenant_isolation ON document_sequences
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- Property configuration (2026-09-26).
+ALTER TABLE rate_types ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON rate_types;
+CREATE POLICY tenant_isolation ON rate_types
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE holidays ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON holidays;
+CREATE POLICY tenant_isolation ON holidays
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE guest_attributes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON guest_attributes;
+CREATE POLICY tenant_isolation ON guest_attributes
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE customer_attributes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON customer_attributes;
+CREATE POLICY tenant_isolation ON customer_attributes
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE discounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON discounts;
+CREATE POLICY tenant_isolation ON discounts
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE remark_templates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON remark_templates;
+CREATE POLICY tenant_isolation ON remark_templates
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE payout_types ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON payout_types;
+CREATE POLICY tenant_isolation ON payout_types
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
 ALTER TABLE transport_modes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON transport_modes;
 CREATE POLICY tenant_isolation ON transport_modes

@@ -1,6 +1,12 @@
 import { count, eq } from 'drizzle-orm';
 import { presetFor } from '@yohobed/locale';
-import { businessSources, marketSegments, paymentMethods, transportModes } from './schema';
+import {
+  businessSources,
+  marketSegments,
+  paymentMethods,
+  payoutTypes,
+  transportModes,
+} from './schema';
 import type { Database } from './client';
 import type { Tx } from './scope';
 
@@ -29,9 +35,10 @@ export async function seedDefaultMasters(
   tenantId: string,
   country?: string | null,
 ): Promise<boolean> {
-  // Transport modes arrived after the other lists (Sprint 5), so they are checked on their own:
-  // tenants seeded before then get them on the next migrate.
+  // Transport modes arrived after the other lists (Sprint 5), and payout reasons after those
+  // (2026-09-26), so each is checked on its own: tenants seeded before get them on the next migrate.
   await ensureTransportModes(tx, tenantId, country);
+  await ensurePayoutTypes(tx, tenantId);
   const [row] = await tx
     .select({ n: count() })
     .from(marketSegments)
@@ -206,4 +213,29 @@ export async function ensureTransportModes(
     .onConflictDoNothing({ target: [transportModes.tenantId, transportModes.code] })
     .returning({ id: transportModes.id });
   return created.length;
+}
+
+/** Why money leaves the till, to start with (Configuration → Payouts). */
+const DEFAULT_PAYOUT_TYPES = [
+  { code: 'SUPPLY', name: 'Petty cash — supplies', category: 'supplies' },
+  { code: 'REPAIR', name: 'Repairs and maintenance', category: 'maintenance' },
+  { code: 'TAXI', name: 'Taxi and transport', category: 'transport' },
+  { code: 'STAFF', name: 'Staff advance', category: 'staff' },
+  { code: 'UTIL', name: 'Utilities', category: 'utilities' },
+  { code: 'GUEST', name: 'Paid out for a guest', category: 'other' },
+] as const;
+
+/** Seed a tenant's payout reasons if it has none. Never touches a list the owner has edited. */
+export async function ensurePayoutTypes(tx: Tx | Database, tenantId: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: count() })
+    .from(payoutTypes)
+    .where(eq(payoutTypes.tenantId, tenantId));
+  if ((row?.n ?? 0) > 0) return 0;
+  const inserted = await tx
+    .insert(payoutTypes)
+    .values(DEFAULT_PAYOUT_TYPES.map((p, i) => ({ tenantId, ...p, sort: (i + 1) * 10 })))
+    .onConflictDoNothing({ target: [payoutTypes.tenantId, payoutTypes.code] })
+    .returning({ id: payoutTypes.id });
+  return inserted.length;
 }

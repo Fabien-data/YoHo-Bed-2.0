@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   availabilityCalendar,
   bookingRooms,
@@ -8,6 +8,7 @@ import {
   properties,
   rateCalendar,
   rateCodes,
+  rateTypes,
   ratePlans,
   roomUnits,
   rooms,
@@ -62,11 +63,22 @@ export class RoomAvailabilityService {
         .where(eq(smartPropertyPolicies.propertyId, propertyId));
 
       const nights = eachNight(q.checkin, q.checkout);
+      // Only room types the hotel is selling, in its own order (Configuration → Room types).
       const roomRows = await tx
-        .select({ id: rooms.id, name: rooms.name, quantity: rooms.quantity })
+        .select({
+          id: rooms.id,
+          name: rooms.name,
+          quantity: rooms.quantity,
+          shortCode: rooms.shortCode,
+          color: rooms.color,
+          baseAdults: rooms.baseAdults,
+          baseChildren: rooms.baseChildren,
+          maxAdults: rooms.maxAdults,
+          maxChildren: rooms.maxChildren,
+        })
         .from(rooms)
-        .where(eq(rooms.propertyId, propertyId))
-        .orderBy(asc(rooms.name));
+        .where(and(eq(rooms.propertyId, propertyId), eq(rooms.active, true)))
+        .orderBy(asc(rooms.sortOrder), asc(rooms.name));
       const roomIds = roomRows.map((r) => r.id);
       if (roomIds.length === 0) {
         return {
@@ -105,6 +117,9 @@ export class RoomAvailabilityService {
             rateCode: rateCodes.code,
             rateName: rateCodes.name,
             sortOrder: rateCodes.sortOrder,
+            // The hotel's own rate type (Configuration → Rate types), when the plan has one.
+            rateTypeCode: rateTypes.shortCode,
+            rateTypeName: rateTypes.name,
             occupancyId: occupancies.id,
             label: occupancies.label,
             accommodates: occupancies.accommodates,
@@ -112,8 +127,20 @@ export class RoomAvailabilityService {
           .from(ratePlans)
           .innerJoin(rateCodes, eq(rateCodes.id, ratePlans.rateCodeId))
           .innerJoin(occupancies, eq(occupancies.ratePlanId, ratePlans.id))
-          .where(and(inArray(ratePlans.roomId, roomIds), eq(ratePlans.status, 'Active')))
-          .orderBy(asc(rateCodes.sortOrder), asc(occupancies.accommodates)),
+          .leftJoin(rateTypes, eq(rateTypes.id, ratePlans.rateTypeId))
+          .where(
+            and(
+              inArray(ratePlans.roomId, roomIds),
+              eq(ratePlans.status, 'Active'),
+              // A rate type the hotel switched off is not sold.
+              sql`coalesce(${rateTypes.active}, true)`,
+            ),
+          )
+          .orderBy(
+            asc(sql`coalesce(${rateTypes.sortOrder}, ${rateCodes.sortOrder} * 10)`),
+            asc(rateCodes.sortOrder),
+            asc(occupancies.accommodates),
+          ),
         tx
           .select({
             id: roomUnits.id,
@@ -222,6 +249,8 @@ export class RoomAvailabilityService {
             occupancyId: p.occupancyId,
             rateCode: p.rateCode,
             rateName: p.rateName,
+            rateTypeCode: p.rateTypeCode ?? p.rateCode,
+            rateTypeName: p.rateTypeName ?? p.rateName,
             label: p.label,
             accommodates: p.accommodates,
             audience: p.audience,
@@ -242,6 +271,13 @@ export class RoomAvailabilityService {
           roomId: room.id,
           name: room.name,
           quantity: room.quantity,
+          shortCode: room.shortCode,
+          color: room.color,
+          /** Guests the rate includes, and the most the room takes (null = not set). */
+          baseAdults: room.baseAdults,
+          baseChildren: room.baseChildren,
+          maxAdults: room.maxAdults,
+          maxChildren: room.maxChildren,
           free: Math.max(0, free),
           closedDates,
           minStay: arrival?.minStay ?? 1,

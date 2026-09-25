@@ -31,3 +31,4 @@ export * from './tax-engine';
 export * from './levies';
 export * from './compliance';
 export * from './phone-search';
+export * from './property-config';

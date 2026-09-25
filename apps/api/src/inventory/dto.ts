@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TAG_COLORS, isBedType, isRoomAmenity } from '@yohobed/domain';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 
@@ -28,19 +29,68 @@ export const reserveSchema = z
   });
 export type ReserveDto = z.infer<typeof reserveSchema>;
 
-export const createRoomSchema = z.object({
-  name: z.string().min(1).max(200),
-  quantity: z.number().int().min(0).default(0),
-  roomtypeId: z.string().uuid().optional(),
-});
+/**
+ * Yanolja's Room Type fields (Configuration, owner brief 2026-09-26). All optional: a room type
+ * made with just a name and a count still works as before.
+ */
+const roomTypeFields = {
+  shortCode: z
+    .string()
+    .trim()
+    .min(1)
+    .max(10)
+    .regex(/^[A-Za-z0-9-]+$/, 'letters, digits and - only')
+    .nullable()
+    .optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+  baseAdults: z.number().int().min(0).max(20).nullable().optional(),
+  baseChildren: z.number().int().min(0).max(20).nullable().optional(),
+  maxAdults: z.number().int().min(0).max(20).nullable().optional(),
+  maxChildren: z.number().int().min(0).max(20).nullable().optional(),
+  bedTypes: z.array(z.string().refine(isBedType, 'unknown bed type')).max(8).optional(),
+  amenities: z.array(z.string().refine(isRoomAmenity, 'unknown amenity')).max(60).optional(),
+  color: z.enum(TAG_COLORS).nullable().optional(),
+  active: z.boolean().optional(),
+};
+
+/** The guests included can never be more than the room takes. */
+const occupancyOrder = <T extends Record<string, unknown>>(v: T) =>
+  !(
+    (typeof v.baseAdults === 'number' &&
+      typeof v.maxAdults === 'number' &&
+      v.baseAdults > v.maxAdults) ||
+    (typeof v.baseChildren === 'number' &&
+      typeof v.maxChildren === 'number' &&
+      v.baseChildren > v.maxChildren)
+  );
+const occupancyMessage = {
+  message: 'the base guests cannot be more than the maximum',
+  path: ['baseAdults'],
+};
+
+export const createRoomSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    quantity: z.number().int().min(0).default(0),
+    roomtypeId: z.string().uuid().optional(),
+    ...roomTypeFields,
+  })
+  .refine(occupancyOrder, occupancyMessage);
 export type CreateRoomDto = z.infer<typeof createRoomSchema>;
 
-export const updateRoomSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  quantity: z.number().int().min(0).optional(),
-  roomtypeId: z.string().uuid().nullable().optional(),
-});
+export const updateRoomSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    quantity: z.number().int().min(0).optional(),
+    roomtypeId: z.string().uuid().nullable().optional(),
+    ...roomTypeFields,
+  })
+  .refine(occupancyOrder, occupancyMessage);
 export type UpdateRoomDto = z.infer<typeof updateRoomSchema>;
+
+/** The hotel's own order of its room types: every one of them, first to last. */
+export const roomOrderSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(200) });
+export type RoomOrderDto = z.infer<typeof roomOrderSchema>;
 
 export const roomtypeSchema = z.object({
   name: z.string().min(1).max(120),

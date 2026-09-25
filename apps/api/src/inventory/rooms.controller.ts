@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -16,6 +17,7 @@ import type { TenantRequest } from '../tenancy/tenant.guard';
 import { DatabaseService } from '../database/database.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenancy/tenant.guard';
+import { TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { CurrentUser, TenantId } from '../tenancy/decorators';
 import type { AuthPrincipal } from '../auth/dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -33,7 +35,7 @@ import {
 } from './dto';
 
 @Controller('rooms')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, TenantRoleGuard)
 export class RoomsController {
   constructor(
     private readonly dbs: DatabaseService,
@@ -61,6 +63,13 @@ export class RoomsController {
     @Body(new ZodValidationPipe(updateRoomSchema)) dto: UpdateRoomDto,
   ) {
     return this.roomsService.updateRoom(tenantId, id, dto);
+  }
+
+  /** Delete a room type that has never been booked (Configuration → Room types). */
+  @Delete(':id')
+  @TenantRoles('OWNER')
+  remove(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.roomsService.deleteRoom(tenantId, id);
   }
 
   @Post(':id/availability')

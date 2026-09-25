@@ -33,11 +33,14 @@ import {
   nextReceiptNo,
   notifications,
   properties,
+  rateTypes,
+  ratePlans,
   referralCommissions,
   referralPartners,
   reservationRequests,
   reserveStay,
   roomUnits,
+  rooms,
   templates,
   tenants,
   transportModes,
@@ -667,6 +670,29 @@ export class ReservationService {
           })),
         );
       }
+      // The rate type's bundled add-ons (Configuration → Rate types, 2026-09-26): the guest pays
+      // one price that includes them, so they go on the stay as INCLUDED inclusions — shown on the
+      // stay and its registration card, never posted again.
+      const [rateType] = await tx
+        .select({ addOns: rateTypes.addOns })
+        .from(ratePlans)
+        .innerJoin(rateTypes, eq(rateTypes.id, ratePlans.rateTypeId))
+        .where(eq(ratePlans.id, l.priced.ratePlanId));
+      if (rateType?.addOns.length) {
+        await tx.insert(bookingInclusions).values(
+          rateType.addOns.map((a) => ({
+            tenantId,
+            bookingId: booking!.id,
+            particularId: a.chargeParticularId ?? null,
+            name: a.name,
+            rhythm: a.rhythm,
+            unitPrice: money(Number(a.amount) || 0),
+            includedInRate: true,
+            itemize: false,
+            createdByUserId: actor.userId,
+          })),
+        );
+      }
       if (l.dto.transfers?.length) {
         for (const t of l.dto.transfers) {
           if (t.transportModeId) await this.loadTransportMode(tx, t.transportModeId);
@@ -1077,6 +1103,37 @@ export class ReservationService {
       const line = dto.lines[i]!;
       if (actor.permissions && line.rate && !actor.permissions.includes('price_change'))
         throw new ForbiddenException('Your role cannot change reservation prices.');
+      // The room type's own limits (Configuration → Room types, 2026-09-26): one switched off is
+      // not sold, and one that takes at most N adults or children refuses more.
+      const [limits] = await tx
+        .select({
+          name: rooms.name,
+          active: rooms.active,
+          maxAdults: rooms.maxAdults,
+          maxChildren: rooms.maxChildren,
+        })
+        .from(rooms)
+        .where(eq(rooms.id, line.roomId));
+      if (limits && !limits.active)
+        throw new BadRequestException({
+          message: `Room ${i + 1}: ${limits.name} is not being sold. Switch it on under Configuration → Room types.`,
+          line: i,
+        });
+      if (limits?.maxAdults != null && line.adults > limits.maxAdults)
+        throw new BadRequestException({
+          message: `Room ${i + 1}: ${limits.name} takes at most ${limits.maxAdults} adult${limits.maxAdults === 1 ? '' : 's'}.`,
+          field: 'adults',
+          line: i,
+        });
+      if (limits?.maxChildren != null && line.children > limits.maxChildren)
+        throw new BadRequestException({
+          message:
+            limits.maxChildren === 0
+              ? `Room ${i + 1}: ${limits.name} does not take children.`
+              : `Room ${i + 1}: ${limits.name} takes at most ${limits.maxChildren} child${limits.maxChildren === 1 ? '' : 'ren'}.`,
+          field: 'children',
+          line: i,
+        });
       if (line.childAges && line.childAges.length !== line.children)
         throw new BadRequestException({
           message: `Room ${i + 1}: enter an age for every child.`,

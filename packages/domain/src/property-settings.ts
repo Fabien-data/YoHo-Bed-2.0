@@ -1,5 +1,6 @@
 import { isTagColor, type TagColor } from './palette';
 import { RESERVATION_KINDS, type ReservationKind } from './reservation-kinds';
+import { MEAL_PLANS, isMealPlan, type MealPlan } from './property-config';
 
 /**
  * Per-property operating settings for the reservation desk (`properties.settings`, jsonb).
@@ -75,6 +76,11 @@ export interface PropertySettings {
    * time from noon on closes the same day that evening (23:30). `manual` leaves it to the owner.
    */
   nightAudit: { mode: NightAuditMode; time: string };
+  /**
+   * The meal plans the hotel sells, and its own name for each (Configuration → Meal plans). A
+   * plan not offered is not offered for new rate types; existing rates keep working.
+   */
+  mealPlans: { offered: MealPlan[]; names: Partial<Record<MealPlan, string>> };
   /** Renamed or recoloured reservation kinds. Behaviour never changes. */
   kindOverrides: Partial<Record<ReservationKind, KindOverride>>;
   /** Replaces the country's default title list when set. */
@@ -92,6 +98,7 @@ export const DEFAULT_PROPERTY_SETTINGS: PropertySettings = {
   checkoutBalancePolicy: 'block',
   autoCheckout: true,
   nightAudit: { mode: 'auto', time: '02:00' },
+  mealPlans: { offered: [...MEAL_PLANS], names: {} },
   kindOverrides: {},
   titles: null,
 };
@@ -164,9 +171,23 @@ export function resolvePropertySettings(raw: unknown): PropertySettings {
       mode: r.nightAudit?.mode === 'manual' ? 'manual' : d.nightAudit.mode,
       time: isHhMm(r.nightAudit?.time) ? r.nightAudit.time : d.nightAudit.time,
     },
+    mealPlans: resolveMealPlans(r.mealPlans),
     kindOverrides,
     titles: titles && titles.length > 0 ? titles : null,
   };
+}
+
+function resolveMealPlans(raw: unknown): PropertySettings['mealPlans'] {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const offered = Array.isArray(r.offered)
+    ? MEAL_PLANS.filter((p) => (r.offered as unknown[]).includes(p))
+    : [...MEAL_PLANS];
+  const names: Partial<Record<MealPlan, string>> = {};
+  const n = r.names && typeof r.names === 'object' ? (r.names as Record<string, unknown>) : {};
+  for (const [k, v] of Object.entries(n))
+    if (isMealPlan(k) && typeof v === 'string' && v.trim()) names[k] = v.trim().slice(0, 40);
+  // Selling nothing is never meant: an empty list falls back to every plan.
+  return { offered: offered.length ? offered : [...MEAL_PLANS], names };
 }
 
 /**

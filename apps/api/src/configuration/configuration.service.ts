@@ -22,6 +22,8 @@ import {
 import {
   RESERVATION_KINDS,
   RESERVATION_KIND_META,
+  cleanPolicies,
+  cleanPropertyAmenities,
   resolveKindDisplay,
   resolvePropertySettings,
   type PropertySettings,
@@ -138,12 +140,23 @@ export class ConfigurationService {
           ...(dto.branchCode !== undefined && { branchCode: dto.branchCode || null }),
           ...(dto.fyStartMonth !== undefined && { fyStartMonth: dto.fyStartMonth }),
           ...(dto.invoicePrefix !== undefined && { invoicePrefix: dto.invoicePrefix || null }),
+          ...(dto.description !== undefined && { description: dto.description || null }),
+          ...(dto.highlights !== undefined && {
+            highlights: [...new Set(dto.highlights.map((h) => h.trim()).filter(Boolean))],
+          }),
+          ...(dto.amenities !== undefined && { amenities: cleanPropertyAmenities(dto.amenities) }),
+          ...(dto.policies !== undefined && { policies: cleanPolicies(dto.policies) }),
           updatedAt: new Date(),
         })
         .where(eq(properties.id, propertyId))
         .returning();
       return row;
     });
+  }
+
+  /** The property row, for the profile screens (and the country the map lookup narrows to). */
+  getProfile(tenantId: string, propertyId: string) {
+    return this.dbs.withTenant(tenantId, (tx) => this.loadProperty(tx, propertyId));
   }
 
   // --- Settings --------------------------------------------------------------
@@ -166,6 +179,13 @@ export class ConfigurationService {
         hold: { ...current.hold, ...dto.hold },
         rateControl: { ...current.rateControl, ...dto.rateControl },
         nightAudit: { ...current.nightAudit, ...dto.nightAudit },
+        mealPlans: {
+          offered: dto.mealPlans?.offered ?? current.mealPlans.offered,
+          names:
+            dto.mealPlans?.names === undefined
+              ? current.mealPlans.names
+              : { ...current.mealPlans.names, ...dto.mealPlans.names },
+        },
         kindOverrides:
           dto.kindOverrides === undefined
             ? current.kindOverrides

@@ -6,6 +6,8 @@ import {
   TAG_COLORS,
   UNCONFIRMED_POLICIES,
   NIGHT_AUDIT_MODES,
+  MEAL_PLANS,
+  isPropertyAmenity,
 } from '@yohobed/domain';
 import {
   HOME_MARKETS,
@@ -122,6 +124,22 @@ export const updatePropertyProfileSchema = z
       .regex(/^[A-Za-z0-9/-]*$/, 'letters, digits, / and - only')
       .nullable()
       .optional(),
+    // The Hotel Profile's other tabs (Configuration, owner brief 2026-09-26).
+    description: optionalText(4000),
+    highlights: z.array(z.string().trim().min(1).max(120)).max(10).optional(),
+    amenities: z.array(z.string().refine(isPropertyAmenity, 'unknown amenity')).max(100).optional(),
+    policies: z
+      .object({
+        cancellation: z.string().max(2000).optional(),
+        children: z.string().max(2000).optional(),
+        pets: z.string().max(2000).optional(),
+        smoking: z.string().max(2000).optional(),
+        extraBeds: z.string().max(2000).optional(),
+        houseRules: z.string().max(2000).optional(),
+        other: z.string().max(2000).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type UpdatePropertyProfileDto = z.infer<typeof updatePropertyProfileSchema>;
@@ -160,6 +178,14 @@ export const updatePropertySettingsSchema = z
     checkoutBalancePolicy: z.enum(['block', 'allow']).optional(),
     /** Check stays out by themselves once their departure day is over (2026-09-26). */
     autoCheckout: z.boolean().optional(),
+    /** The meal plans the hotel sells, and its own names for them (Configuration → Meal plans). */
+    mealPlans: z
+      .object({
+        offered: z.array(z.enum(MEAL_PLANS)).min(1).max(5).optional(),
+        names: z.record(z.enum(MEAL_PLANS), z.string().trim().max(40)).optional(),
+      })
+      .strict()
+      .optional(),
     /** How the business day closes: by itself at a hotel time, or when the owner runs it. */
     nightAudit: z
       .object({

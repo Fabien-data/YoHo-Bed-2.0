@@ -10,6 +10,10 @@ import { SmartSetupService } from './smart-setup.service';
 import { HotelRolesController } from './hotel-roles.controller';
 import { HotelRolesService } from './hotel-roles.service';
 import { HotelAccessController } from './hotel-access.controller';
+import { RateTypesController } from './rate-types.controller';
+import { RateTypesService } from './rate-types.service';
+import { ListsController } from './lists.controller';
+import { ListsService } from './lists.service';
 
 @Module({
   imports: [AuthModule],
@@ -18,12 +22,16 @@ import { HotelAccessController } from './hotel-access.controller';
     SmartSetupController,
     HotelRolesController,
     HotelAccessController,
+    RateTypesController,
+    ListsController,
   ],
   providers: [
     ConfigurationService,
     MastersService,
     SmartSetupService,
     HotelRolesService,
+    RateTypesService,
+    ListsService,
     TenantGuard,
     TenantRoleGuard,
   ],

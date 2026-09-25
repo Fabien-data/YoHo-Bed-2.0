@@ -953,7 +953,7 @@ export class RoomUnitsService {
         .leftJoin(roomUnits, eq(roomUnits.roomId, rooms.id))
         .where(eq(rooms.propertyId, propertyId))
         .groupBy(rooms.id, rooms.name, rooms.quantity)
-        .orderBy(asc(rooms.name)),
+        .orderBy(asc(rooms.sortOrder), asc(rooms.name)),
     );
   }
 }

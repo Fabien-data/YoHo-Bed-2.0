@@ -7,8 +7,10 @@ import {
   date,
   timestamp,
   unique,
+  uniqueIndex,
   check,
   boolean,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { tenants, properties } from './identity';
@@ -37,21 +39,56 @@ export const roomtypes = pgTable('roomtypes', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const rooms = pgTable('rooms', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id')
-    .notNull()
-    .references(() => tenants.id, { onDelete: 'cascade' }),
-  propertyId: uuid('property_id')
-    .notNull()
-    .references(() => properties.id, { onDelete: 'cascade' }),
-  roomtypeId: uuid('roomtype_id').references(() => roomtypes.id, { onDelete: 'set null' }),
-  legacyId: integer('legacy_id').unique(),
-  name: text('name').notNull(),
-  quantity: integer('quantity').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const rooms = pgTable(
+  'rooms',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    roomtypeId: uuid('roomtype_id').references(() => roomtypes.id, { onDelete: 'set null' }),
+    legacyId: integer('legacy_id').unique(),
+    name: text('name').notNull(),
+    quantity: integer('quantity').notNull().default(0),
+
+    /**
+     * Yanolja's Room Type (Configuration, owner brief 2026-09-26). A short code for lists and
+     * channels; guests included in the base rate and the most the room takes (null = not set, so
+     * nothing is enforced); the beds, the room amenities (catalogue codes) and a colour. `active`
+     * off stops selling the type — its existing stays are untouched — and `sort_order` is the
+     * hotel's own order everywhere room types are listed.
+     */
+    shortCode: text('short_code'),
+    description: text('description'),
+    baseAdults: integer('base_adults'),
+    baseChildren: integer('base_children'),
+    maxAdults: integer('max_adults'),
+    maxChildren: integer('max_children'),
+    bedTypes: jsonb('bed_types').$type<string[]>().notNull().default([]),
+    amenities: jsonb('amenities').$type<string[]>().notNull().default([]),
+    color: text('color'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    active: boolean('active').notNull().default(true),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    shortCodeUnique: uniqueIndex('rooms_property_short_code_uq')
+      .on(t.propertyId, sql`upper(${t.shortCode})`)
+      .where(sql`${t.shortCode} is not null`),
+    occupancyValid: check(
+      'rooms_occupancy_valid',
+      sql`coalesce(${t.baseAdults}, 0) >= 0 and coalesce(${t.baseChildren}, 0) >= 0
+      and coalesce(${t.maxAdults}, 0) >= 0 and coalesce(${t.maxChildren}, 0) >= 0
+      and (${t.baseAdults} is null or ${t.maxAdults} is null or ${t.baseAdults} <= ${t.maxAdults})
+      and (${t.baseChildren} is null or ${t.maxChildren} is null or ${t.baseChildren} <= ${t.maxChildren})`,
+    ),
+  }),
+);
 
 /**
  * A physically identifiable room — "01", "05" — belonging to a `rooms` bucket.

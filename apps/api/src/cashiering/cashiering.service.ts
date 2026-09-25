@@ -16,6 +16,7 @@ import {
   properties,
   users,
   type Tx,
+  payoutTypes,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import type {
@@ -476,6 +477,16 @@ export class CashieringService {
           throw new BadRequestException('That drawer shift belongs to a different property');
         }
       }
+      // A payout reason carries its own category, so the reports group it where the hotel meant.
+      let category = dto.category;
+      if (dto.payoutTypeId) {
+        const [payout] = await tx
+          .select({ category: payoutTypes.category, active: payoutTypes.active })
+          .from(payoutTypes)
+          .where(eq(payoutTypes.id, dto.payoutTypeId));
+        if (!payout) throw new NotFoundException('Payout reason not found');
+        category = payout.category as typeof category;
+      }
       const voucherNo = dto.voucherNo ?? (await this.nextVoucherNo(tx, propertyId));
       try {
         const [created] = await tx
@@ -485,7 +496,8 @@ export class CashieringService {
             propertyId,
             drawerSessionId: dto.drawerSessionId ?? null,
             voucherNo,
-            category: dto.category,
+            category,
+            payoutTypeId: dto.payoutTypeId ?? null,
             payee: dto.payee,
             amount: money(dto.amount),
             currency: dto.currency ?? property.currency,

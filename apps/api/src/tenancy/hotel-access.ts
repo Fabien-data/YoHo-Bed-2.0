@@ -110,8 +110,20 @@ export function accessRule(method: string, path: string): AccessRule | null {
     return rule('room', 'reservation_read', 'setup');
   if (/^\/rooms\/[^/]+\/(?:reserve|release)$/.test(path)) return rule('room', 'reservation_change');
   if (/^\/rooms\/[^/]+\/restrictions$/.test(path)) return rule('room', 'price_change');
-  if (/^\/rooms\/[^/]+$/.test(path) && method === 'PATCH') return rule('room', 'setup');
-  if (/^\/properties\/[^/]+\/rooms$/.test(path)) return rule('property', 'setup');
+  if (/^\/rooms\/[^/]+$/.test(path) && (method === 'PATCH' || method === 'DELETE'))
+    return rule('room', 'setup');
+  if (/^\/properties\/[^/]+\/rooms(?:\/order)?$/.test(path)) return rule('property', 'setup');
+  // Configuration → Rate types and Rate plans (2026-09-26): readable to the desk; changed by the
+  // owner only (their writes are not listed, so a hotel role is refused).
+  if (/^\/properties\/[^/]+\/(?:rate-types|rate-plans)$/.test(path) && read)
+    return rule('property', 'reservation_read', 'setup');
+  // The short lists the desk picks from — saved remarks, discounts, holidays, attributes.
+  if (/^\/configuration\/lists\/[a-z-]+$/.test(path) && read)
+    return rule('none', 'reservation_read', 'reservation_change', 'setup');
+  if (/^\/properties\/[^/]+\/holidays$/.test(path) && read)
+    return rule('property', 'reservation_read');
+  if (/^\/customers\/[^/]+\/attributes$/.test(path))
+    return rule('none', read ? 'reservation_read' : 'reservation_change');
   if (/^\/bookings\/[^/]+\/stay-change\/preview$/.test(path))
     return { ...rule('booking', 'reservation_change'), all: ['financial_read'] };
   if (/^\/bookings\/[^/]+\/stay-change$/.test(path))

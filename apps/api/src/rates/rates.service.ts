@@ -25,6 +25,7 @@ import {
   enqueueOutbox,
   resolveForwardTaxesForDates,
   resolveTaxRatesForDates,
+  rateTypes,
 } from '@yohobed/db';
 import { DatabaseService } from '../database/database.service';
 import { dateRangeInclusive } from '../common/dates';
@@ -332,9 +333,34 @@ export class RatesService {
         .from(ratePlans)
         .where(and(eq(ratePlans.roomId, roomId), eq(ratePlans.rateCodeId, rateCodeId)));
       if (dupe) throw new BadRequestException('That meal plan already exists for this room');
+      // Every plan belongs to a rate type (Configuration → Rate types, 2026-09-26): the one named
+      // after this meal plan, made on first use.
+      const [code] = await tx.select().from(rateCodes).where(eq(rateCodes.id, rateCodeId));
+      if (!code) throw new NotFoundException('Meal plan not found');
+      await tx
+        .insert(rateTypes)
+        .values({
+          tenantId,
+          propertyId: room.propertyId,
+          name: code.name,
+          shortCode: code.code,
+          mealPlan: ['RO', 'BB', 'HB', 'FB', 'AI'].includes(code.code) ? code.code : 'RO',
+          sortOrder: code.sortOrder * 10,
+        })
+        .onConflictDoNothing({ target: [rateTypes.propertyId, rateTypes.shortCode] });
+      const [type] = await tx
+        .select({ id: rateTypes.id })
+        .from(rateTypes)
+        .where(and(eq(rateTypes.propertyId, room.propertyId), eq(rateTypes.shortCode, code.code)));
       const [rp] = await tx
         .insert(ratePlans)
-        .values({ tenantId, propertyId: room.propertyId, roomId, rateCodeId })
+        .values({
+          tenantId,
+          propertyId: room.propertyId,
+          roomId,
+          rateCodeId,
+          rateTypeId: type?.id ?? null,
+        })
         .returning();
       return rp;
     });

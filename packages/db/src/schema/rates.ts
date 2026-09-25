@@ -10,7 +10,11 @@ import {
   timestamp,
   unique,
   check,
+  boolean,
+  jsonb,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
+import type { RateTypeAddOn } from '@yohobed/domain';
 import { tenants, properties } from './identity';
 import { rooms } from './inventory';
 import { marketSegments } from './configuration';
@@ -33,6 +37,44 @@ export const rateCodes = pgTable('rate_codes', {
   sortOrder: integer('sort_order').notNull().default(0),
 });
 
+/**
+ * Yanolja's Rate Type (Configuration, owner brief 2026-09-26): a named pricing structure the hotel
+ * sells — "BB", "Corporate BB", "Honeymoon package" — with the meal plan its price includes and
+ * any chargeable add-ons bundled in. A rate plan is one room type sold under one rate type.
+ *
+ * The meal plan keeps meaning what `rate_codes` says (RO/BB/HB/FB/AI): a rate plan still points at
+ * its meal plan, which is what pricing and the channels read. Add-ons become the stay's included
+ * inclusions at booking, so the guest pays one price and the folio never charges them twice.
+ */
+export const rateTypes = pgTable(
+  'rate_types',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    shortCode: text('short_code').notNull(),
+    mealPlan: text('meal_plan').notNull().default('RO'),
+    addOns: jsonb('add_ons').$type<RateTypeAddOn[]>().notNull().default([]),
+    description: text('description'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    codeUnique: unique('rate_types_property_code_uq').on(t.propertyId, t.shortCode),
+    mealPlanValid: check(
+      'rate_types_meal_plan_valid',
+      sql`${t.mealPlan} in ('RO', 'BB', 'HB', 'FB', 'AI')`,
+    ),
+  }),
+);
+
 export const ratePlans = pgTable(
   'rate_plans',
   {
@@ -49,6 +91,10 @@ export const ratePlans = pgTable(
     rateCodeId: uuid('rate_code_id')
       .notNull()
       .references(() => rateCodes.id),
+    /** The hotel's rate type this plan sells (2026-09-26); its meal plan is `rate_code_id`. */
+    rateTypeId: uuid('rate_type_id').references((): AnyPgColumn => rateTypes.id, {
+      onDelete: 'set null',
+    }),
     status: ratePlanStatus('status').notNull().default('Active'),
     /**
      * Who the plan is sold to (Development Phase 02): all | local | foreign. A resident rate is
