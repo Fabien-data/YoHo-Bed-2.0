@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest something new or a change to an existing screen.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or slow today, and who runs into it (owner, front desk, housekeeping…)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: How other systems do it
+      description: Optional. How Cloudbeds, Yanolja or another PMS handles this.

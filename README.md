@@ -1,9 +1,88 @@
-# YoHoBed 2.0 — Platform Monorepo
+<div align="center">
 
-The modern rebuild of YoHoBed's B2B travel-distribution platform for Sri Lankan hospitality. This
-monorepo houses the complete **PMS** (property-management system): the hotel-owner Extranet, the
-YoHo staff console, the channel-manager distribution pipeline, and the pricing/tax/settlement
-engine — a faithful, parity-tested rebuild of the legacy platform with its four known bugs fixed.
+# YoHoBed 2.0
+
+**A multi-tenant hotel property-management system (PMS) and channel manager, built as subscription SaaS.**
+
+[![CI](https://github.com/Fabien-data/YoHo-Bed-2.0/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Fabien-data/YoHo-Bed-2.0/actions/workflows/ci.yml)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-API-E0234E?logo=nestjs&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20RLS-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-BullMQ-DC382D?logo=redis&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-650%2B%20Vitest%20%C2%B7%2065%20Playwright-2E7D32)
+![License](https://img.shields.io/badge/license-proprietary-555555)
+
+[**Live demo**](https://yova.markui.lk) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) ·
+[Data model](docs/DATA-MODEL.md) · [Demo walkthrough (PDF)](docs/DEMO-WALKTHROUGH.pdf)
+
+![Stay View — the front-desk booking calendar](docs/images/stayview.png)
+
+</div>
+
+## What it is
+
+YoHoBed 2.0 runs the whole day of a hotel: reservations, the front desk, housekeeping, cashiering,
+the night audit, invoicing and payouts. It also pushes rates and availability to online travel
+agencies through a channel manager. Many hotels share one deployment, and PostgreSQL row-level
+security keeps each hotel's data apart.
+
+It replaces a legacy CodeIgniter + Laravel 5.4 platform. The rebuild is parity-tested against the
+old system's money rules, and it fixes the four known bugs in the legacy platform.
+
+## Screenshots
+
+| Dashboard                                                                                    | Room View                                                                                                      |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| ![Dashboard: today's arrivals, departures, occupancy and revenue](docs/images/dashboard.png) | ![Room View: every room's occupancy and housekeeping state, with the cleaning queue](docs/images/roomview.png) |
+| **Reservations**                                                                             | **Stay View**                                                                                                  |
+| ![Reservations list with balances and statuses](docs/images/reservations.png)                | ![Stay View calendar: drag-and-drop bookings across rooms and dates](docs/images/stayview.png)                 |
+
+## Highlights
+
+- **Stay View command centre:** a room-by-date booking calendar with drag-to-move, safe room moves,
+  split stays, group and block bookings, and live updates to every open screen over Server-Sent
+  Events.
+- **Full front desk:** guided check-in and check-out, walk-ins, Room View and Floor View,
+  housekeeping tasks and a cleaning queue.
+- **Money done carefully:** folios, cashiering, night audit, gap-free invoice numbering, credit
+  notes, and country tax engines for Sri Lanka, Malaysia and India. Every payout statement
+  reconciles to the cent.
+- **Multi-currency:** USD or LKR as each property's base currency, with automatically fetched
+  exchange rates.
+- **Reliable distribution:** every rate and availability change writes a transactional outbox row.
+  A worker delivers it to the channel manager (AxisRooms), retries with backoff and dead-letters
+  failures loudly.
+- **Tenant isolation enforced by the database:** Postgres row-level security fences every tenant
+  table, so a query that forgets its filter still cannot read another hotel's data.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser["Browser<br/>(hotel staff and owners)"] --> Nginx[nginx]
+    Nginx -->|"/"| Web["web-extranet<br/>Next.js 14"]
+    Nginx -->|"/api"| API["api<br/>NestJS modular monolith"]
+    API -. "live updates (SSE)" .-> Browser
+
+    API --> Domain["packages/domain<br/>pricing · tax · commission"]
+    API --> DB[("PostgreSQL 16<br/>row-level security")]
+    API --> Redis[("Redis 7")]
+
+    DB -->|"transactional outbox"| Worker["worker<br/>BullMQ"]
+    Redis --- Worker
+    Worker --> CM["packages/cm-adapter"]
+    CM --> AxisRooms["AxisRooms<br/>channel manager"]
+    AxisRooms --> OTAs["OTAs<br/>Booking.com, Agoda …"]
+    Worker --> FX["Exchange-rate feed"]
+```
+
+The API is one NestJS app split into feature modules (reservations, stay view, cashiering, night
+audit, housekeeping, finance and more). The pricing, tax and commission rules live in
+`packages/domain` with no framework code, so they can be tested in isolation. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+
+## Project status
 
 **Status: the legacy-parity MVP is feature-complete; the Yanolja-parity PMS program is underway.**
 All original build phases (0–8) and MVP compartments (A–K) are done: owner PMS, staff console, OTA
@@ -100,12 +179,12 @@ JWT_SECRET=dev-secret-jwt-key-32-characters!! \
 pnpm test
 ```
 
-197 Vitest tests: 56 domain (pricing/tax parity + entitlements) + 8 db (RLS isolation +
-concurrency proofs) + 78 API e2e (real HTTP against the real app under RLS) + 19 cm-adapter
-(AxisRooms wire contract) + 31 etl + 5 worker. CI runs the same pipeline on every push
-([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+About 650 Vitest tests: ~140 domain (pricing/tax parity + entitlements), ~30 db (RLS isolation +
+concurrency proofs), ~390 API e2e (real HTTP against the real app under RLS), ~20 cm-adapter
+(AxisRooms wire contract), ~30 etl, ~27 locale and a handful of worker tests. CI runs the same
+pipeline on every push ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
-Plus 16 Playwright browser tests over the PMS shell —
+Plus 65 Playwright browser tests across 16 specs —
 `pnpm --filter @yohobed/web-extranet e2e` (needs `pnpm build` and a seeded database first).
 
 Docker Desktop is the documented route, but the DB-backed suites also run against a throwaway
@@ -128,7 +207,7 @@ cluster built from a local PostgreSQL install — see [docs/OPERATIONS.md](docs/
 
 Enforced twice: the app's `withTenant` scope sets `app.tenant_id` per transaction, and Postgres
 **row-level security** policies fence the restricted `yoho_app` role — an unscoped query cannot
-leak another tenant's rows even if the application code forgets a filter. 33 tables carry the
+leak another tenant's rows even if the application code forgets a filter. 80 tables carry the
 policy; the handful that deliberately don't are documented in
 [docs/DATA-MODEL.md](docs/DATA-MODEL.md). This replaces the legacy session-trust +
 hardcoded-admin-email model.
