@@ -92,12 +92,34 @@ export function RoomLine({
 
   function chooseRoomType(roomId: string) {
     const rt = grid?.roomTypes.find((r) => r.roomId === roomId);
+    // The room type's most guests (Configuration → Room types): a smaller room brings the counts
+    // down with it rather than failing on Save.
+    const adults = rt?.maxAdults != null ? Math.min(line.adults, rt.maxAdults) : line.adults;
+    const children =
+      rt?.maxChildren != null ? Math.min(line.children, rt.maxChildren) : line.children;
     const rate =
-      rt?.rateTypes.find((t) => t.priced && t.accommodates >= line.adults) ??
+      rt?.rateTypes.find((t) => t.priced && t.accommodates >= adults) ??
       rt?.rateTypes.find((t) => t.priced) ??
       rt?.rateTypes[0];
-    onChange({ roomId, occupancyId: rate?.occupancyId ?? null, roomUnitId: '', rate: '' });
+    onChange({
+      roomId,
+      occupancyId: rate?.occupancyId ?? null,
+      roomUnitId: '',
+      rate: '',
+      ...(adults !== line.adults ? { adults } : {}),
+      ...(children !== line.children
+        ? { children, childAges: (line.childAges ?? []).slice(0, children) }
+        : {}),
+    });
   }
+  const maxAdults = roomType?.maxAdults ?? null;
+  const maxChildren = roomType?.maxChildren ?? null;
+  const adultChoices = ADULTS.filter(
+    (a) => maxAdults === null || a <= maxAdults || a === line.adults,
+  );
+  const childChoices = CHILDREN.filter(
+    (c) => maxChildren === null || c <= maxChildren || c === line.children,
+  );
 
   return (
     <div className={LINE_GRID} data-testid={`room-line-${n}`}>
@@ -153,7 +175,7 @@ export function RoomLine({
                     : 'No price'
               }
             >
-              {t.rateCode} · {t.label}
+              {t.rateTypeName ?? t.rateName} · {t.label}
               {t.audience !== 'all' ? (t.audience === 'local' ? ' · Resident' : ' · Foreign') : ''}
             </SelectItem>
           ))}
@@ -190,7 +212,7 @@ export function RoomLine({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ADULTS.map((a) => (
+          {adultChoices.map((a) => (
             <SelectItem key={a} value={String(a)}>
               {/* A string: Radix drops a falsy label, so the number 0 would show as blank. */}
               {String(a)}
@@ -209,7 +231,7 @@ export function RoomLine({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {CHILDREN.map((c) => (
+          {childChoices.map((c) => (
             <SelectItem key={c} value={String(c)}>
               {String(c)}
             </SelectItem>

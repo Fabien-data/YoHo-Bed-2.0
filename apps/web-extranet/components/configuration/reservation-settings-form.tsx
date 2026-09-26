@@ -2,9 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RESERVATION_KINDS, RESERVATION_KIND_META } from '@yohobed/domain';
 import {
-  Badge,
   Button,
   Card,
   Input,
@@ -16,12 +14,10 @@ import {
   SelectValue,
   Skeleton,
   Switch,
-  TagChip,
-  TagColorPicker,
   TimePicker,
   toast,
 } from '@yohobed/ui';
-import { updatePropertySettings, type PropertySettings, type ReservationKind } from '@/lib/api';
+import { updatePropertySettings, type PropertySettings } from '@/lib/api';
 import { queryKeys, usePropertySettings } from '@/lib/queries';
 import { SettingRow, errorMessage } from './shared';
 
@@ -58,7 +54,9 @@ function NumberInput({
 
 /**
  * How the reservation desk behaves at this property: formats, hold rules, the staff's price
- * authority and what each reservation type is called.
+ * authority, check-in and check-out, and how the day closes. The reservation types and the meal
+ * plans have their own Configuration sections (2026-09-26); this form saves only its own fields,
+ * so it can never overwrite theirs.
  */
 export function ReservationSettingsForm({
   propertyId,
@@ -79,17 +77,14 @@ export function ReservationSettingsForm({
   const save = useMutation({
     mutationFn: (s: PropertySettings) =>
       updatePropertySettings(propertyId, {
-        ...s,
-        // Empty labels mean "use the default name".
-        kindOverrides: Object.fromEntries(
-          Object.entries(s.kindOverrides).map(([k, o]) => [
-            k,
-            {
-              ...(o?.label?.trim() && { label: o.label.trim() }),
-              ...(o?.color && { color: o.color }),
-            },
-          ]),
-        ),
+        timeFormat: s.timeFormat,
+        hold: s.hold,
+        unconfirmedPolicy: s.unconfirmedPolicy,
+        rateControl: s.rateControl,
+        requireDocumentsAtCheckin: s.requireDocumentsAtCheckin,
+        checkoutBalancePolicy: s.checkoutBalancePolicy,
+        autoCheckout: s.autoCheckout,
+        nightAudit: s.nightAudit,
       }),
     onSuccess: (saved) => {
       toast.success('Reservation settings saved');
@@ -109,15 +104,6 @@ export function ReservationSettingsForm({
     );
   }
 
-  const setKind = (kind: ReservationKind, patch: { label?: string; color?: string }) =>
-    setDraft({
-      ...draft,
-      kindOverrides: {
-        ...draft.kindOverrides,
-        [kind]: { ...draft.kindOverrides[kind], ...patch },
-      },
-    });
-
   return (
     <div className="flex flex-col gap-4">
       <fieldset disabled={!canEdit} className="flex flex-col gap-4">
@@ -130,20 +116,6 @@ export function ReservationSettingsForm({
               options={[
                 { value: '12h', label: '02:00 PM' },
                 { value: '24h', label: '14:00' },
-              ]}
-            />
-          </SettingRow>
-          <SettingRow
-            title="Meal-plan codes"
-            description="Indian hotels and OTAs read EP / CP / MAP / AP for the same plans."
-          >
-            <SegmentedControl
-              aria-label="Meal-plan codes"
-              value={draft.mealCodeStyle}
-              onChange={(v) => setDraft({ ...draft, mealCodeStyle: v })}
-              options={[
-                { value: 'international', label: 'RO · BB · HB · FB' },
-                { value: 'indian', label: 'EP · CP · MAP · AP' },
               ]}
             />
           </SettingRow>
@@ -304,52 +276,6 @@ export function ReservationSettingsForm({
               )}
             </div>
           </SettingRow>
-        </Card>
-
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold text-ink">Reservation types</h2>
-          <p className="mb-4 mt-0.5 text-xs text-ink-3">
-            Rename or recolour the five types. What each one does to room inventory is fixed.
-          </p>
-          <div className="flex flex-col divide-y divide-line">
-            {RESERVATION_KINDS.map((kind) => {
-              const meta = RESERVATION_KIND_META[kind];
-              const override = draft.kindOverrides[kind] ?? {};
-              const color = override.color ?? meta.color;
-              return (
-                <div
-                  key={kind}
-                  className="grid gap-3 py-3 lg:grid-cols-[13rem_minmax(0,16rem)_minmax(0,1fr)] lg:items-center"
-                >
-                  <div className="flex min-w-0 flex-col items-start gap-1.5">
-                    <TagChip color={color}>{override.label?.trim() || meta.label}</TagChip>
-                    <div className="flex flex-wrap gap-1.5">
-                      {meta.holdsInventory ? (
-                        <Badge tone="brand">Takes rooms</Badge>
-                      ) : (
-                        <Badge tone="muted">Does not take rooms</Badge>
-                      )}
-                      {meta.isHold && <Badge tone="low">Released on time</Badge>}
-                    </div>
-                  </div>
-                  <Input
-                    aria-label={`${meta.label} label`}
-                    placeholder={meta.label}
-                    value={override.label ?? ''}
-                    maxLength={40}
-                    onChange={(e) => setKind(kind, { label: e.target.value })}
-                  />
-                  <TagColorPicker
-                    label={`${meta.label} colour`}
-                    value={color}
-                    disabled={!canEdit}
-                    onChange={(c) => setKind(kind, { color: c })}
-                    className="lg:justify-end"
-                  />
-                </div>
-              );
-            })}
-          </div>
         </Card>
       </fieldset>
 

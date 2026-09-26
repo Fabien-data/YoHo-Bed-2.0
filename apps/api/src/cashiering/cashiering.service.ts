@@ -447,6 +447,7 @@ export class CashieringService {
           reference: expenseVouchers.reference,
           note: expenseVouchers.note,
           drawerSessionId: expenseVouchers.drawerSessionId,
+          payoutTypeId: expenseVouchers.payoutTypeId,
           createdAt: expenseVouchers.createdAt,
           createdBy: users.name,
         })

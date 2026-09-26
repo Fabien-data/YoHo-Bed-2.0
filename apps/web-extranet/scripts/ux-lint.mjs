@@ -37,7 +37,6 @@ const KNOWN_DEBT = {
   'app/app/inbox/page.tsx': { 'silent-catch': 1 },
   'app/app/page.tsx': { 'silent-catch': 1 },
   'app/app/reviews/page.tsx': { 'silent-catch': 1 },
-  'app/app/setup/page.tsx': { 'silent-catch': 1 },
   'components/notifications-bell.tsx': { 'silent-catch': 2 },
 };
 

@@ -96,6 +96,8 @@ import { Pax, StatusChip, StayWhen, bookedAt } from './bits';
 import { RowActions, useInvalidateReservations } from './row-actions';
 import { DeskActionBar } from '@/components/booking/desk-action-bar';
 import { SectionTick } from '../section-tick';
+import { SavedRemarks } from '../saved-remarks';
+import { GuestAttributes } from '@/components/guests/guest-attributes';
 
 const errorText = (e: unknown) =>
   e instanceof ApiError ? e.message : 'That did not work. Try again.';
@@ -282,7 +284,11 @@ function Details({
         </Item>
       </dl>
 
-      <GuestsBlock bookingId={row.id} country={cfg.property.countryCode} />
+      <GuestsBlock
+        bookingId={row.id}
+        customerId={row.customerId}
+        country={cfg.property.countryCode}
+      />
       <StayServicesBlock row={row} cfg={cfg} money={money} />
       <VoucherBlock row={row} />
       <InvoicesBlock row={row} />
@@ -335,7 +341,15 @@ function Block({
   );
 }
 
-function GuestsBlock({ bookingId, country }: { bookingId: string; country: string }) {
+function GuestsBlock({
+  bookingId,
+  customerId,
+  country,
+}: {
+  bookingId: string;
+  customerId: string;
+  country: string;
+}) {
   const refresh = useInvalidateReservations();
   const guests = useQuery({
     queryKey: ['booking-extras', bookingId, 'guests'],
@@ -388,11 +402,15 @@ function GuestsBlock({ bookingId, country }: { bookingId: string; country: strin
       ) : (
         <ul className="flex flex-col gap-1.5 text-sm">
           {guests.data?.primary && (
-            <li className="flex items-center gap-2">
-              <span className="text-ink">{guests.data.primary.name}</span>
-              <Badge tone="brand" dot={false}>
-                Booked for
-              </Badge>
+            <li className="flex flex-col gap-1">
+              <span className="flex items-center gap-2">
+                <span className="text-ink">{guests.data.primary.name}</span>
+                <Badge tone="brand" dot={false}>
+                  Booked for
+                </Badge>
+              </span>
+              {/* Configuration → Guest attributes: kept on the guest, shown on every stay. */}
+              <GuestAttributes customerId={customerId} />
             </li>
           )}
           {guests.data?.others.map((g) => (
@@ -935,6 +953,7 @@ function RemarksBlock({ bookingId }: { bookingId: string }) {
             Add
           </Button>
         </div>
+        <SavedRemarks type={type} onPick={setText} />
       </form>
     </Block>
   );

@@ -302,7 +302,11 @@ export class RatesService {
     return this.dbs.db.select().from(rateCodes).orderBy(rateCodes.sortOrder);
   }
 
-  /** Rate plans (room × meal plan) for a room. */
+  /**
+   * Rate plans for a room, named after the rate type each sells (Configuration → Rate types): two
+   * rate types on one meal plan — Bed and breakfast, a honeymoon package — stay apart. A plan
+   * without a rate type falls back to its meal plan's name.
+   */
   listRatePlans(tenantId: string, roomId: string) {
     return this.dbs.withTenant(tenantId, (tx) =>
       tx
@@ -310,14 +314,17 @@ export class RatesService {
           id: ratePlans.id,
           roomId: ratePlans.roomId,
           rateCodeId: ratePlans.rateCodeId,
-          code: rateCodes.code,
-          name: rateCodes.name,
+          rateTypeId: ratePlans.rateTypeId,
+          code: sql<string>`coalesce(${rateTypes.shortCode}, ${rateCodes.code})`,
+          name: sql<string>`coalesce(${rateTypes.name}, ${rateCodes.name})`,
+          mealPlan: rateCodes.code,
           status: ratePlans.status,
         })
         .from(ratePlans)
         .innerJoin(rateCodes, eq(rateCodes.id, ratePlans.rateCodeId))
+        .leftJoin(rateTypes, eq(rateTypes.id, ratePlans.rateTypeId))
         .where(eq(ratePlans.roomId, roomId))
-        .orderBy(rateCodes.sortOrder),
+        .orderBy(sql`coalesce(${rateTypes.sortOrder}, 0)`, rateCodes.sortOrder),
     );
   }
 

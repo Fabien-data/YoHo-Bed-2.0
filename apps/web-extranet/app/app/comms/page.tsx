@@ -1,93 +1,37 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  Field,
-  Input,
-  PageHeader,
-  Textarea,
-  toast,
-} from '@yohobed/ui';
-import {
-  listTemplates,
-  updateTemplate,
-  listMessages,
-  listLanguages,
-  ApiError,
-  type Template,
-  type MessageLog,
-  type Language,
-} from '@/lib/api';
-
-const PLACEHOLDERS = ['guestName', 'reference', 'amount', 'checkin', 'checkout', 'nights'];
+import Link from 'next/link';
+import { Badge, Card, EmptyState, InlineAlert, PageHeader } from '@yohobed/ui';
+import { listMessages, listLanguages, type MessageLog, type Language } from '@/lib/api';
 
 function when(iso: string): string {
   return new Date(iso).toLocaleString('en-GB', { timeZone: 'UTC', hour12: false }).replace(',', '');
 }
 
 export default function CommsPage() {
-  const [templates, setTemplates] = useState<Template[]>([]);
   const [messages, setMessages] = useState<MessageLog[]>([]);
   const [languages, setLanguages] = useState<Language[]>([]);
-  const [selId, setSelId] = useState('');
-  const [draft, setDraft] = useState({ subject: '', body: '' });
   const [openMsg, setOpenMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const selected = templates.find((t) => t.id === selId) ?? null;
-
-  async function load() {
-    const [t, m, l] = await Promise.all([
-      listTemplates().catch(() => [] as Template[]),
-      listMessages().catch(() => [] as MessageLog[]),
-      listLanguages().catch(() => [] as Language[]),
-    ]);
-    setTemplates(t);
-    setMessages(m);
-    setLanguages(l);
-    setSelId((prev) => {
-      const keep = t.find((x) => x.id === prev) ?? t[0];
-      if (keep) setDraft({ subject: keep.subject, body: keep.body });
-      return keep?.id ?? '';
-    });
-  }
 
   useEffect(() => {
-    load().catch(() => {});
+    Promise.all([
+      listMessages().catch(() => [] as MessageLog[]),
+      listLanguages().catch(() => [] as Language[]),
+    ])
+      .then(([m, l]) => {
+        setMessages(m);
+        setLanguages(l);
+      })
+      .catch(() => {});
   }, []);
-
-  function select(id: string) {
-    const t = templates.find((x) => x.id === id);
-    if (t) {
-      setSelId(id);
-      setDraft({ subject: t.subject, body: t.body });
-    }
-  }
-
-  async function save() {
-    if (!selected) return;
-    setBusy(true);
-    try {
-      await updateTemplate(selected.id, draft);
-      await load();
-      toast.success('Template saved.');
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Failed');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <div>
       <PageHeader
         eyebrow="Distribution"
         title="Guest messages"
-        description="Confirmation emails are generated from these templates when a booking is created. Edit the wording per language; guests and staff get in-app notifications too (the bell, top-right)."
+        description="Every email sent to guests, and whether it arrived. Staff get in-app notifications too (the bell, top-right)."
         actions={
           <div className="flex gap-1.5">
             {languages.map((l) => (
@@ -99,69 +43,17 @@ export default function CommsPage() {
         }
       />
 
-      {/* Templates */}
-      <section className="mt-6">
-        <h2 className="text-lg font-bold tracking-tight text-ink">Templates</h2>
-        <div className="mt-3 grid gap-4 lg:grid-cols-[260px_1fr]">
-          <div className="flex flex-col gap-1.5">
-            {templates.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => select(t.id)}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
-                  selId === t.id
-                    ? 'border-brand bg-brand-soft text-brand-ink'
-                    : 'border-line text-ink-2 hover:border-ink-3'
-                }`}
-              >
-                <Badge tone="muted">{t.language.toUpperCase()}</Badge>
-                {t.key}
-              </button>
-            ))}
-            {templates.length === 0 && <p className="text-sm text-ink-3">No templates.</p>}
-          </div>
-
-          <Card className="p-5">
-            {selected ? (
-              <>
-                <Field label="Subject">
-                  <Input
-                    value={draft.subject}
-                    onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))}
-                  />
-                </Field>
-                <Field label="Body" className="mt-3">
-                  <Textarea
-                    className="min-h-[200px] font-mono leading-relaxed"
-                    value={draft.body}
-                    onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
-                  />
-                </Field>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
-                    Placeholders:
-                  </span>
-                  {PLACEHOLDERS.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setDraft((d) => ({ ...d, body: `${d.body}{{${p}}}` }))}
-                      className="rounded-md bg-brand-soft px-2 py-0.5 font-mono text-xs font-semibold text-brand-ink"
-                    >
-                      {`{{${p}}}`}
-                    </button>
-                  ))}
-                  <div className="flex-1" />
-                  <Button onClick={() => void save()} loading={busy}>
-                    Save template
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-ink-3">Select a template.</p>
-            )}
-          </Card>
-        </div>
-      </section>
+      {/* The wording lives with the rest of the set-up (Configuration → Email templates). */}
+      <InlineAlert tone="info" className="mt-6">
+        The guest emails — the confirmation, the voucher, the check-out thank-you — are worded under{' '}
+        <Link
+          href="/app/configuration/email-templates"
+          className="font-semibold text-info-ink underline"
+        >
+          Configuration → Email templates
+        </Link>
+        , with a preview and the details each one can include.
+      </InlineAlert>
 
       {/* Message log */}
       <section className="mt-8">

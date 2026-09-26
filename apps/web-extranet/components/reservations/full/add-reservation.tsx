@@ -35,9 +35,13 @@ import {
   createReservation,
   getRoomAvailability,
   getUser,
+  listConfigRows,
+  listTemplates,
   type BookingOrigin,
   type ReservationKind,
 } from '@/lib/api';
+import { isCustomCheckoutKey } from '@yohobed/domain';
+import { templatesKey } from '@/components/configuration/email-templates';
 import { useHasFeature, useReservationConfig } from '@/lib/queries';
 import { useUxTask } from '@/lib/ux';
 import { useActiveProperty } from '@/components/active-property';
@@ -881,6 +885,14 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
                     onDraft={update}
                   />
                 )}
+                <DiscountPicker
+                  propertyId={propertyId}
+                  draft={draft}
+                  firstQuote={quote.data?.lines[0]}
+                  beforeTax={quote.data?.taxMode === 'exclusive_forward'}
+                  money={money}
+                  onDraft={update}
+                />
                 <div className="flex-1" />
                 {draft.lines.length > 1 && (
                   <Field label="Group name" htmlFor="ar-group-name" className="w-56">
@@ -1162,6 +1174,99 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
   );
 }
 
+const STANDARD_THANKS = '__standard';
+const NO_DISCOUNT = '__none';
+
+/**
+ * Configuration → Discounts at the desk: a percentage prices every room that much off (the quote
+ * shows it, and a discount beyond the desk's limit asks for approval as any rate would); an
+ * amount comes off the first room's rate, typed in so the desk sees it. The discount's name is
+ * the price reason, so the audit trail says why.
+ */
+function DiscountPicker({
+  propertyId,
+  draft,
+  firstQuote,
+  beforeTax,
+  money,
+  onDraft,
+}: {
+  propertyId: string | undefined;
+  draft: FullDraft;
+  firstQuote: { amount: string; taxes: string } | undefined;
+  beforeTax: boolean;
+  money: (v: string | number) => string;
+  onDraft: (patch: Partial<FullDraft>) => void;
+}) {
+  const discounts = useQuery({
+    queryKey: ['config', 'list', 'discounts', propertyId ?? 'tenant'],
+    queryFn: () => listConfigRows('discounts', propertyId),
+    enabled: Boolean(propertyId),
+    staleTime: 60_000,
+  });
+  const active = (discounts.data ?? []).filter((d) => d.active);
+  if (active.length === 0 && !draft.discount) return null;
+  const describe = (d: { kind: 'percent' | 'amount'; value: string | number }) =>
+    d.kind === 'percent' ? `${Number(d.value)}% off` : `${money(d.value)} off the first room`;
+
+  const choose = (id: string) => {
+    const reason = draft.discount ? `${draft.discount.name} discount` : null;
+    // The reason this picker wrote goes with its discount; one the desk typed stays.
+    const keepReason = draft.priceReason.trim() && draft.priceReason !== reason;
+    if (id === NO_DISCOUNT) {
+      const first = draft.lines[0];
+      onDraft({
+        discount: null,
+        ...(keepReason ? {} : { priceReason: '' }),
+        // An amount discount typed the first room's rate; taking it off gives the price back.
+        ...(draft.discount?.kind === 'amount' && first
+          ? { lines: [{ ...first, rate: '' }, ...draft.lines.slice(1)] }
+          : {}),
+      });
+      return;
+    }
+    const d = active.find((x) => x.id === id);
+    if (!d) return;
+    const discount = { id: d.id, name: d.name, kind: d.kind, value: Number(d.value) };
+    const patch: Partial<FullDraft> = {
+      discount,
+      ...(keepReason ? {} : { priceReason: `${d.name} discount` }),
+    };
+    const first = draft.lines[0];
+    if (d.kind === 'amount' && first && firstQuote) {
+      const base = beforeTax
+        ? Number(firstQuote.amount) - Number(firstQuote.taxes)
+        : Number(firstQuote.amount);
+      const next = Math.max(0, Math.round((base - Number(d.value)) * 100) / 100);
+      patch.lines = [{ ...first, rate: next.toFixed(2) }, ...draft.lines.slice(1)];
+    }
+    onDraft(patch);
+  };
+
+  return (
+    <Field label="Discount" htmlFor="ar-discount" className="w-60">
+      <Select value={draft.discount?.id ?? NO_DISCOUNT} onValueChange={choose}>
+        <SelectTrigger id="ar-discount">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_DISCOUNT}>No discount</SelectItem>
+          {active.map((d) => (
+            <SelectItem
+              key={d.id}
+              value={d.id}
+              hint={describe(d)}
+              disabled={d.kind === 'amount' && !firstQuote}
+            >
+              {d.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
 function OtherInfo({
   draft,
   onDraft,
@@ -1173,6 +1278,15 @@ function OtherInfo({
 }) {
   const o = draft.other;
   const set = (patch: Partial<FullDraft['other']>) => onDraft({ other: { ...o, ...patch } });
+  // The hotel's own check-out emails (Configuration → Email templates); the standard thank-you
+  // is always there.
+  const templates = useQuery({
+    queryKey: templatesKey,
+    queryFn: listTemplates,
+    enabled: o.sendCheckoutEmail,
+    staleTime: 60_000,
+  });
+  const ownCheckout = (templates.data ?? []).filter((t) => isCustomCheckoutKey(t.key));
   const box = (checked: boolean, label: string, onChange: (on: boolean) => void) => (
     <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
       <Checkbox
@@ -1203,11 +1317,32 @@ function OtherInfo({
       {box(o.sendCheckoutEmail, 'Send email at check-out', (sendCheckoutEmail) =>
         set({ sendCheckoutEmail }),
       )}
-      {o.sendCheckoutEmail && (
-        <p className="max-w-xl rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
-          Thank-you email to the guest or booker on checking out
-        </p>
-      )}
+      {o.sendCheckoutEmail &&
+        (ownCheckout.length > 0 ? (
+          <Field label="Check-out email" htmlFor="checkout-template" className="max-w-xl">
+            <Select
+              value={o.checkoutTemplate ?? STANDARD_THANKS}
+              onValueChange={(v) => set({ checkoutTemplate: v === STANDARD_THANKS ? null : v })}
+            >
+              <SelectTrigger id="checkout-template">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={STANDARD_THANKS}>Thank you at check-out (standard)</SelectItem>
+                {ownCheckout.map((t) => (
+                  <SelectItem key={t.key} value={t.key}>
+                    {t.name ?? 'Check-out email'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : (
+          <p className="max-w-xl rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
+            Thank-you email to the guest or booker on checking out. Word it — or add your own —
+            under Configuration → Email templates.
+          </p>
+        ))}
       {box(o.suppressRateOnGrCard, 'Suppress rate on registration card', (suppressRateOnGrCard) =>
         set({ suppressRateOnGrCard }),
       )}

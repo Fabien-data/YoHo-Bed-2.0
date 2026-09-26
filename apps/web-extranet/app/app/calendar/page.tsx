@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
+  getHolidays,
   listProperties,
   listRooms,
   getAvailability,
@@ -33,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@yohobed/ui';
-import { CaretLeft, CaretRight } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, Confetti } from '@phosphor-icons/react';
 import {
   dom,
   monthDays,
@@ -114,6 +116,19 @@ export default function CalendarPage() {
     [rooms, propertyId],
   );
   const selectedRoom = useMemo(() => rooms.find((r) => r.id === roomId) ?? null, [rooms, roomId]);
+  // Configuration → Holidays: priced higher, so shown on the day.
+  const holidayRows = useQuery({
+    queryKey: ['holidays', propertyId, monthFrom, monthTo],
+    queryFn: () => getHolidays(propertyId!, monthFrom, monthTo),
+    enabled: Boolean(propertyId),
+    staleTime: 5 * 60_000,
+  });
+  const holidays = useMemo(() => {
+    const byDate = new Map<string, string[]>();
+    for (const h of holidayRows.data ?? [])
+      byDate.set(h.date, [...(byDate.get(h.date) ?? []), h.name]);
+    return byDate;
+  }, [holidayRows.data]);
   const occRates = rates[occId] ?? {};
 
   // The month laid out as calendar weeks (leading/trailing blanks fill the grid).
@@ -158,9 +173,12 @@ export default function CalendarPage() {
       const [props, allRooms] = await Promise.all([listProperties(), listRooms()]);
       setProperties(props);
       setRooms(allRooms);
-      const pid = props[0]?.id ?? null;
+      // `?room=` opens a room type's prices (Configuration → Rate plans links here).
+      const wanted = new URLSearchParams(window.location.search).get('room');
+      const linked = wanted ? allRooms.find((r) => r.id === wanted) : undefined;
+      const pid = linked?.propertyId ?? props[0]?.id ?? null;
       setPropertyId(pid);
-      const firstRoom = allRooms.find((r) => r.propertyId === pid) ?? null;
+      const firstRoom = linked ?? allRooms.find((r) => r.propertyId === pid) ?? null;
       setRoomId(firstRoom?.id ?? null);
       if (firstRoom) await loadGrid(firstRoom.id, INITIAL_MONTH);
       else setLoading(false);
@@ -551,7 +569,8 @@ export default function CalendarPage() {
         ) : noPlans ? (
           <p className="p-16 text-center text-base text-ink-3">
             No rate plans for <b className="text-ink">{selectedRoom?.name}</b>. Create a rate plan
-            and occupancy in <b className="text-ink">Setup</b>, then set prices here.
+            and its guest configurations under{' '}
+            <b className="text-ink">Configuration → Rate plans</b>, then set prices here.
           </p>
         ) : (
           <>
@@ -605,6 +624,20 @@ export default function CalendarPage() {
                         </span>
                       )}
                     </div>
+                    {holidays.get(cell) && (
+                      <p
+                        className="mt-0.5 flex items-center gap-1 truncate text-[11px] font-medium text-brass-ink"
+                        title={holidays.get(cell)!.join(' · ')}
+                      >
+                        <Confetti
+                          size={12}
+                          weight="fill"
+                          aria-hidden
+                          className="shrink-0 text-brass"
+                        />
+                        <span className="truncate">{holidays.get(cell)!.join(' · ')}</span>
+                      </p>
+                    )}
 
                     {/* price */}
                     <div className="mt-2">

@@ -447,7 +447,7 @@ export default function RoomViewPage() {
         </div>
       ) : cards.length === 0 ? (
         <Card className="p-10 text-center text-sm text-ink-3">
-          No rooms set up yet. Add them under Configuration &rarr; Property setup.
+          No rooms set up yet. Add them under Configuration &rarr; Room types.
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">

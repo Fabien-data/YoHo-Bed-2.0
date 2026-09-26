@@ -28,6 +28,7 @@ import {
   closeDrawerSession,
   createDrawer,
   createExpense,
+  listConfigRows,
   createLedgerAccount,
   getDrawerReport,
   getLedgerStatement,
@@ -38,6 +39,7 @@ import {
   settleLedgerAccount,
   type LedgerAccountType,
 } from '@/lib/api';
+import { PAYOUT_CATEGORY } from '@/components/configuration/shared';
 import { useActiveProperty } from '@/components/active-property';
 
 const ACCOUNT_LABEL: Record<LedgerAccountType, string> = {
@@ -71,7 +73,7 @@ export default function CashieringPage() {
           {propertyId && <ExpensesTab propertyId={propertyId} />}
         </TabsContent>
       </Tabs>
-      {/* Business sources moved to Configuration › Reservation setup (Development Phase 02). */}
+      {/* Business sources moved to Configuration › Business sources (Development Phase 02). */}
     </div>
   );
 }
@@ -614,7 +616,21 @@ function CashierReport({ sessionId, onClosed }: { sessionId: string; onClosed: (
 
 function ExpensesTab({ propertyId }: { propertyId: string }) {
   const qc = useQueryClient();
-  const [form, setForm] = React.useState({ payee: '', amount: '', category: 'other', note: '' });
+  const [form, setForm] = React.useState({
+    payee: '',
+    amount: '',
+    category: 'other',
+    payoutTypeId: '',
+    note: '',
+  });
+  // Configuration → Payouts: the hotel's own reasons money leaves the till; the category follows.
+  const payoutTypes = useQuery({
+    queryKey: ['config', 'list', 'payout-types', 'tenant'],
+    queryFn: () => listConfigRows('payout-types'),
+    staleTime: 60_000,
+  });
+  const payoutChoices = (payoutTypes.data ?? []).filter((t) => t.active);
+  const payoutName = new Map((payoutTypes.data ?? []).map((t) => [t.id, t.name]));
 
   const expenses = useQuery({
     queryKey: ['expenses', propertyId],
@@ -631,12 +647,12 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
       createExpense(propertyId, {
         payee: form.payee.trim(),
         amount: Number(form.amount),
-        category: form.category,
+        ...(form.payoutTypeId ? { payoutTypeId: form.payoutTypeId } : { category: form.category }),
         note: form.note.trim() || undefined,
         drawerSessionId: openSession,
       }),
     onSuccess: () => {
-      setForm({ payee: '', amount: '', category: 'other', note: '' });
+      setForm({ payee: '', amount: '', category: 'other', payoutTypeId: '', note: '' });
       qc.invalidateQueries({ queryKey: ['expenses'] });
       qc.invalidateQueries({ queryKey: ['drawer-report'] });
     },
@@ -672,25 +688,45 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
                 required
               />
             </Field>
-            <Field label="Category">
-              <Select
-                value={form.category}
-                onValueChange={(v) => setForm({ ...form, category: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {['supplies', 'maintenance', 'transport', 'staff', 'utilities', 'other'].map(
-                    (c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
+            {payoutChoices.length > 0 ? (
+              <Field label="Payout type">
+                <Select
+                  value={form.payoutTypeId || undefined}
+                  onValueChange={(v) => setForm({ ...form, payoutTypeId: v })}
+                >
+                  <SelectTrigger aria-label="Payout type">
+                    <SelectValue placeholder="Choose why" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {payoutChoices.map((t) => (
+                      <SelectItem key={t.id} value={t.id} hint={PAYOUT_CATEGORY[t.category]}>
+                        {t.name}
                       </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-            </Field>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : (
+              <Field label="Category">
+                <Select
+                  value={form.category}
+                  onValueChange={(v) => setForm({ ...form, category: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(PAYOUT_CATEGORY) as Array<keyof typeof PAYOUT_CATEGORY>).map(
+                      (c) => (
+                        <SelectItem key={c} value={c}>
+                          {PAYOUT_CATEGORY[c]}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field label="Note">
               <Input
                 value={form.note}
@@ -699,7 +735,11 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
             </Field>
           </div>
           <div className="flex items-center gap-3">
-            <Button type="submit" size="sm" disabled={add.isPending}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={add.isPending || (payoutChoices.length > 0 && !form.payoutTypeId)}
+            >
               <Plus size={14} />
               Record expense
             </Button>
@@ -726,7 +766,7 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-3">
                 <th className="px-4 py-3">Voucher</th>
                 <th className="px-4 py-3">Paid to</th>
-                <th className="px-4 py-3">Category</th>
+                <th className="px-4 py-3">Payout</th>
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3 text-right">Amount</th>
               </tr>
@@ -736,7 +776,11 @@ function ExpensesTab({ propertyId }: { propertyId: string }) {
                 <tr key={e.id} className="border-b border-line last:border-0">
                   <td className="px-4 py-3 font-mono text-xs text-ink-2">{e.voucherNo}</td>
                   <td className="px-4 py-3 text-ink">{e.payee}</td>
-                  <td className="px-4 py-3 text-ink-2">{e.category}</td>
+                  <td className="px-4 py-3 text-ink-2">
+                    {(e.payoutTypeId && payoutName.get(e.payoutTypeId)) ??
+                      PAYOUT_CATEGORY[e.category as keyof typeof PAYOUT_CATEGORY] ??
+                      e.category}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-3">
                     {e.createdAt.slice(0, 10)}
                   </td>

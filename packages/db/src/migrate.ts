@@ -7,7 +7,7 @@ import { normalizePhone } from '@yohobed/locale';
 import { createDb } from './client';
 import { seedDefaultPlans } from './default-plans';
 import { seedDefaultMasters } from './masters';
-import { ensureTemplates } from './default-templates';
+import { ensureTemplates, upgradeStarterTemplates } from './default-templates';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const url = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5433/yohobed';
@@ -73,6 +73,8 @@ try {
     if (did) seeded += 1;
     // The voucher and check-out emails arrived with Sprint 6; tenants from before get them here.
     await ensureTemplates(db, t.id, ['booking_voucher', 'checkout_thank_you']);
+    // Untouched old starter texts ("Rs {{amount}}", signed YoHoBed) move to the current ones.
+    await upgradeStarterTemplates(db, t.id);
   }
   if (seeded > 0) {
     console.log(`  seeded reservation master lists for ${seeded} tenant(s)`);

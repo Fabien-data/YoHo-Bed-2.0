@@ -23,7 +23,8 @@ const ROUTES: Array<{ path: string; heading: RegExp }> = [
   { path: '/app/customers', heading: /guest|customer/i },
   { path: '/app/reviews', heading: /review/i },
   { path: '/app/finance', heading: /finance|revenue|payout/i },
-  { path: '/app/setup', heading: /setup|propert/i },
+  // Property setup moved into Configuration (2026-09-26); the old address lands on Room types.
+  { path: '/app/setup', heading: /room types/i },
   { path: '/app/profile', heading: /profile|account/i },
   { path: '/app/plan', heading: /plan/i },
   // The Yanolja-parity screens (Sprints 3–7). These are exactly the pages a provider or shell
@@ -35,7 +36,15 @@ const ROUTES: Array<{ path: string; heading: RegExp }> = [
   { path: '/app/cashiering', heading: /cashiering/i },
   { path: '/app/night-audit', heading: /night audit/i },
   // Development Phase 02.
-  { path: '/app/configuration', heading: /reservation setup/i },
+  { path: '/app/configuration', heading: /hotel profile/i },
+  // Configuration, Yanolja style (owner brief, 2026-09-26).
+  { path: '/app/configuration/room-types', heading: /room types/i },
+  { path: '/app/configuration/rate-types', heading: /rate types/i },
+  { path: '/app/configuration/rate-plans', heading: /rate plans/i },
+  { path: '/app/configuration/taxes', heading: /taxes/i },
+  { path: '/app/configuration/currency', heading: /currency/i },
+  { path: '/app/configuration/holidays', heading: /holidays/i },
+  { path: '/app/configuration/email-templates', heading: /email templates/i },
   { path: '/app/team', heading: /team/i },
   { path: '/app/reservations/new', heading: /add reservation/i },
 ];

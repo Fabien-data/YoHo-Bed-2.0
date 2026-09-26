@@ -43,6 +43,12 @@ export const templates = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     /** Event key, e.g. 'booking_created', 'booking_approved'. */
     key: text('key').notNull(),
+    /**
+     * The hotel's own name for a template it added (Configuration → Email templates, 2026-09-26):
+     * extra check-out emails the desk picks per reservation. Null for the starter templates, which
+     * are named by the catalogue in @yohobed/domain.
+     */
+    name: text('name'),
     language: text('language').notNull().default('en'),
     channel: messageChannel('channel').notNull().default('email'),
     subject: text('subject').notNull(),

@@ -16,6 +16,7 @@ import {
   toast,
 } from '@yohobed/ui';
 import {
+  geocodeAddress,
   updatePropertyProfile,
   uploadPropertyPhoto,
   listPropertyPhotos,
@@ -52,6 +53,22 @@ const PROPERTY_TYPES = [
   'Other',
 ] as const;
 const MAPS_EMBED_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_KEY;
+
+/** Latitude and longitude when both are there and on the globe. */
+function coordinatesOf(lat: string, lon: string): { lat: number; lon: number } | null {
+  if (!lat.trim() || !lon.trim()) return null;
+  const a = Number(lat);
+  const o = Number(lon);
+  return Number.isFinite(a) && Number.isFinite(o) && Math.abs(a) <= 90 && Math.abs(o) <= 180
+    ? { lat: a, lon: o }
+    : null;
+}
+
+/** OpenStreetMap's embeddable map, pinned — no key needed, so the map shows on every install. */
+function osmEmbed({ lat, lon }: { lat: number; lon: number }): string {
+  const box = [lon - 0.01, lat - 0.006, lon + 0.01, lat + 0.006].map((n) => n.toFixed(5)).join(',');
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${box}&layer=mapnik&marker=${lat.toFixed(6)},${lon.toFixed(6)}`;
+}
 
 /** The registration numbers a hotel in each market prints on its documents. */
 const TAX_FIELDS: Record<
@@ -177,6 +194,7 @@ export function PropertyProfileForm({
   const [draft, setDraft] = React.useState<Draft>(() => toDraft(property));
   const [mapMode, setMapMode] = React.useState<'address' | 'coordinates'>('address');
   const [logoBusy, setLogoBusy] = React.useState(false);
+  const [finding, setFinding] = React.useState(false);
   const logoInput = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     setDraft(toDraft(property));
@@ -211,10 +229,13 @@ export function PropertyProfileForm({
   const mapsUrl = mapQuery
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`
     : null;
+  const pinned = coordinatesOf(draft.latitude, draft.longitude);
   const embedUrl =
     MAPS_EMBED_KEY && mapQuery
       ? `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(MAPS_EMBED_KEY)}&q=${encodeURIComponent(mapQuery)}`
-      : null;
+      : pinned
+        ? osmEmbed(pinned)
+        : null;
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
@@ -336,6 +357,38 @@ export function PropertyProfileForm({
       return;
     }
     setMapMode('coordinates');
+  };
+
+  /** Yanolja's "Locate on Map": look the typed address up and pin it. */
+  const findAddress = async () => {
+    if (!addressQuery) {
+      toast.error('Type the address first');
+      return;
+    }
+    setFinding(true);
+    try {
+      const hits = await geocodeAddress(property.id, addressQuery);
+      const hit = hits[0];
+      if (!hit) {
+        toast.error('That address is not on the map', {
+          description: 'Try fewer words — the street and the city — or type the coordinates.',
+        });
+        return;
+      }
+      setDraft((d) => ({
+        ...d,
+        latitude: hit.latitude.toFixed(6),
+        longitude: hit.longitude.toFixed(6),
+      }));
+      setMapMode('coordinates');
+      toast.success('Found on the map', {
+        description: `${hit.label}. Check the pin, then save the profile.`,
+      });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setFinding(false);
+    }
   };
 
   const changeCountry = (code: string) => {
@@ -628,7 +681,8 @@ export function PropertyProfileForm({
           <div className="sm:col-span-2 lg:col-span-3">
             {embedUrl ? (
               <iframe
-                title="Property location on Google Maps"
+                key={embedUrl}
+                title="Property location on the map"
                 src={embedUrl}
                 className="h-72 w-full rounded-lg border border-line"
                 loading="lazy"
@@ -637,10 +691,10 @@ export function PropertyProfileForm({
               />
             ) : (
               <div className="flex h-72 flex-col items-center justify-center rounded-lg border border-dashed border-line-strong bg-surface-2 p-5 text-center">
-                <p className="text-sm font-medium text-ink">Google Maps preview</p>
+                <p className="text-sm font-medium text-ink">Map</p>
                 <p className="mt-1 max-w-md text-xs text-ink-3">
-                  {mapQuery
-                    ? 'Map preview is unavailable. Use the link below to open this location in Google Maps.'
+                  {addressQuery
+                    ? 'Press “Locate on map” to pin the address, or type the coordinates.'
                     : 'Enter the property address or coordinates to locate it.'}
                 </p>
               </div>
@@ -676,9 +730,20 @@ export function PropertyProfileForm({
               onChange={(e) => set('longitude', e.target.value)}
             />
           </Field>
-          <div className="flex items-end">
-            <Button type="button" variant="secondary" onClick={locateCoordinates}>
-              Locate on map by coordinates
+          <div className="flex flex-wrap items-end gap-2">
+            {canEdit && (
+              <Button
+                type="button"
+                variant="secondary"
+                loading={finding}
+                disabled={!addressQuery}
+                onClick={() => void findAddress()}
+              >
+                Locate on map
+              </Button>
+            )}
+            <Button type="button" variant="outline" onClick={locateCoordinates}>
+              Use these coordinates
             </Button>
           </div>
           <Field label="Timezone" hint="The hotel's day — business dates and today follow it.">

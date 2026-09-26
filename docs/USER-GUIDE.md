@@ -43,31 +43,73 @@ welcome email, the banner disappears, and you're fully live.
 ### Finding your way around
 
 Everything lives in the fixed left sidebar: **Dashboard, Calendar, Bookings, Inbox, Customers,
-Deals, Finance, Reviews, Comms, Setup, Profile**. The bell at the top shows notifications (new
+Deals, Finance, Reviews, Comms, Property & settings, Profile**. The bell at the top shows notifications (new
 bookings, OTA imports, new reviews) — click one to mark it read. The interface follows your
 device's light/dark setting automatically.
 
 ---
 
-## 2. Set up your property (Setup tab)
+## 2. Set up your property (Configuration)
 
-Your inventory has a simple hierarchy — set it up top-down, once:
+**Property & settings** in the sidebar opens **Configuration**: one place for the hotel and every
+list the desk picks from, laid out the way Yanolja lays it out. Each section has its own page
+(its address is `/app/configuration/<section>`, so you can bookmark one). Everyone can read
+them; only the owner can change anything.
 
-**Property → Rooms → Meal plans → Occupancies**
+### Property
 
-1. **Property** — add your property by name. Add photos (JPEG/PNG/WebP, up to 5 MB each) —
-   click **+ Add photo**; hover a thumbnail and click × to remove it.
-2. **Rooms** — add each room type you sell (e.g. "Deluxe Room") with its **quantity** — how many
-   physical rooms of that type exist. Quantity is your overbooking ceiling: the system will
-   never let you sell more than this on any night. Rooms can have photos too.
-3. **Meal plans (rate plans)** — for each room, add the meal plans you offer: RO (room only),
-   BB (bed & breakfast), HB (half board), FB (full board), AI (all-inclusive).
-4. **Occupancies** — for each meal plan, add guest configurations, e.g. "Double (×2)",
-   "Triple (×3)". **Prices are set per occupancy** — a double and a triple can have different
-   rates for the same room.
+- **Hotel profile** — five tabs:
+  - **Profile**: logo, name, property type, star rating, emails and phone numbers, website, fax,
+    the registration numbers (a main one and four more), the address, and the map. **Locate on
+    map** finds the typed address and pins it (latitude and longitude fill in); **Use these
+    coordinates** pins numbers you typed. Check-in and check-out times, the timezone, and the
+    tax and invoicing numbers are here too.
+  - **Highlights**: a few sentences about the hotel and up to ten short highlights.
+  - **Amenities**: what the whole hotel offers, ticked from a list.
+  - **Photo gallery**: add photos; the first one is the cover. Move a photo earlier or later to
+    change the order guests see.
+  - **Policies**: cancellation, children, extra beds, pets, smoking and house rules, in your own
+    words — they print on the confirmation voucher.
+  - **Add a property** (top right) adds another hotel to your account.
+- **Room types** — the list shows each type in your own order (drag the handle, or focus it and
+  press ↑/↓), whether it is sold (the switch), and its **Base** and **Max** guests (adults /
+  children). Open one to edit its **Basic information** (name, short code, guests, beds,
+  description, colour), **Amenities**, **Images** and **Rooms** (the numbered rooms of that
+  type — add one, or a run like 101–110). A type that has been booked can be switched off, never
+  deleted. The desk cannot book more guests into a room than its Max.
+- **Rate types** — what you sell: Room only, Bed and breakfast, a honeymoon package. For each:
+  a name and a short code, **Does this rate type include meals?** (tick breakfast, lunch, dinner
+  or all inclusive — this sets its meal plan), and **Does this rate type include chargeable
+  add-ons?** (an airport pick-up or a spa treatment bundled into the price: the booking lists it
+  as already paid for). Once a rate type has been booked its meals cannot change — make a new one.
+- **Rate plans** — which room type sells under which rate type, to whom (everyone, residents
+  only or foreign guests only), with which market segment, and in which **guest configurations**
+  (Single ×1, Double ×2 …). Prices are set per guest configuration on the **Rates calendar** —
+  **Prices** opens it on that room type. A green dot means priced; amber means no price yet.
+- **Taxes** — the taxes on a room night. **Add tax**, or edit one: a new rate starts on the day
+  you choose, and every night before it keeps the rate it had. Saving re-prices the calendar from
+  that day; stays already booked keep their prices.
 
-> Commission model and taxes (service charge/VAT) are configured for your property by the
-> YoHoBed team. You'll see their effect transparently in the Finance screen.
+### Settings
+
+**Payment** (how guests pay), **Extra charges** (minibar, laundry …), **Discounts** (named
+discounts the desk picks on a reservation: a percentage, or an amount off the first room),
+**Currency** (your base currency, the currency you view amounts in, and today's exchange rates),
+**Transport types**, **Payouts** (why money leaves the till — picked on every expense voucher),
+**Meal plans** (which you sell and what you call them), **Remarks** (saved remarks the desk adds
+with one click), **Market segments**, **Business sources** (walk-in, phone, **Social Media**, the
+OTAs …), **Holidays** (marked on Stay View and the rates calendar; a yearly one repeats every
+year), **Reservation types** (what the five types are called and their colours) and **Guest
+attributes** (labels such as Repeat guest or Allergy, shown on every stay of that guest).
+
+### Front desk
+
+**Reservation settings** (holds, price authority, check-in and check-out rules, and **Closing the
+day**: automatic check-out and the automatic night audit), **Sales persons**, **Document
+numbering** and **Email templates** (see section 8).
+
+> **Guided pricing setup** (under the section list) walks you through capacity, child rules,
+> meals and minimum rates. The old **Setup** page now opens Room types.
 
 ---
 
@@ -134,6 +176,15 @@ Pending → Approved → Checked in → Checked out
 - **Rejecting or cancelling returns the rooms to your calendar** automatically. A **no-show**
   keeps the night the guest missed (you may charge it) and puts the rest of the stay back on sale.
 - **Checking out a guest automatically emails them a review invitation.**
+- **The day closes by itself.** A guest still checked in after their departure date is checked
+  out automatically at the end of that day (any balance stays on their bill, and you are told),
+  and their room turns **dirty** — unless it has been cleaned or re-let since. The **night audit**
+  runs automatically at 02:00 hotel time. Both are switched and timed under **Configuration →
+  Reservation settings → Closing the day**; **Night audit** shows the next run and the log, with
+  runs made automatically marked **Automatic**.
+- **Online failed** bookings (the guest booked on an OTA but the booking did not come through
+  properly) **keep their room** until you confirm or cancel them.
+- **VIP** is a status you put on a stay: a crown on every screen, nothing else.
 
 ### Taking a reservation (Quick Reservation)
 
@@ -225,18 +276,26 @@ Reservation has is there, plus:
   room, give out room numbers, paste a **rooming list** from Excel or WhatsApp (one name per line;
   a mobile after the name is kept), or change the group owner.
 - **Guest information.** Address, country, state and city, **nationality** — which decides whether
-  the guest is sold resident or foreign rates — and the **ID document** you looked at. For an
-  Aadhaar card only the last four digits are kept. Tick **Guest list** to give every room its own
-  guest; a room left blank is booked for the main guest.
-- **Remarks** for the whole reservation, and **Other information** (voucher emails, the check-out
-  email, guest portal access, hiding the rate on the registration card).
+  the guest is sold resident or foreign rates — and the **ID document** you looked at. A green
+  tick shows when the guest's details (name, phone or email, nationality) and the ID document
+  (type and number) are complete; amber means something is still needed. For an Aadhaar card only
+  the last four digits are kept. Tick **Guest list** to give every room its own guest; a room left
+  blank is booked for the main guest.
+- **VIP** — tick it to mark the stay as VIP.
+- **Discount** — pick one of your named discounts (Configuration → Discounts). A percentage
+  prices every room that much off; an amount comes off the first room's rate. The discount's name
+  becomes the price reason, and a discount beyond the desk's limit asks for approval.
+- **Remarks** for the whole reservation (your saved remarks are one click away), and **Other
+  information** (voucher emails; the check-out email — the standard thank-you or one of your own
+  from Email templates; hiding the rate on the registration card).
 
 The **Billing Summary** on the right shows the room charges, each tax, any coupon and the amount
 due as you go, and holds:
 
-- **Bill to** — the guest; the **group owner** (one payer for every room); or, with a travel agent
-  or company chosen (Pro), **the company for everything**, or **the company for room and tax with
-  extras to the guest** (the guest gets a second bill for meals and transfers). At check-out the
+- **Bill to** — the **Guest**; the **Group owner** (one payer for every room); **Company** (the
+  travel agent or company pays everything); or **Room & taxes to TA, extras to guest** (the guest
+  gets a second bill for meals and transfers). Choose the account right there. A group booked
+  for a company starts billed to the company. At check-out the
   company's bill moves to its city ledger account, and a travel agent's commission is added to
   theirs.
 - **Tax exempt** (with the exemption number) and the reason and owner approval when a price is
@@ -284,7 +343,7 @@ Open a reservation and look for **Voucher and guest page**:
 ### Invoices
 
 The **Invoices** block on a reservation, and the **Invoice** button on each folio window, issue the
-document. In Sri Lanka, a hotel that has entered its **TIN** (Configuration → Property profile)
+document. In Sri Lanka, a hotel that has entered its **TIN** (Configuration → Hotel profile)
 issues a **TAX INVOICE** for everything carrying VAT and a separate **BILL** for anything that does
 not — that is what the 2026 gazette requires. Everywhere else it is one **INVOICE**.
 
@@ -292,7 +351,7 @@ not — that is what the 2026 gazette requires. Everywhere else it is one **INVO
   document and has its own numbering.
 - A bill is invoiced **once**. An issued invoice is never edited or deleted — if something is wrong,
   open it and press **Credit note**, give the reason, and the bill can be invoiced again.
-- Numbering is gap-free per hotel. **Configuration → Property profile → Document numbering** shows
+- Numbering is gap-free per hotel. **Configuration → Document numbering** shows
   the next number of each series, and lets the owner continue the numbering of a system you are
   moving from (forward only).
 - **Finance → Invoices & credit notes** lists everything issued; click a number to open or print it.
@@ -382,18 +441,27 @@ contact YoHoBed support.
 
 ---
 
-## 8. Guest emails & notifications (Comms tab)
+## 8. Guest emails & notifications
 
-Guests automatically receive emails at the right moments — booking confirmation, and a review
-invitation after check-out. You control the wording:
+Guests receive emails at the right moments — the booking confirmation, the booking voucher, a
+thank-you at check-out and a review invitation. You word them under **Configuration → Email
+templates**:
 
-- **Templates** — pick a template (per language; English and Sinhala provided), edit the
-  **subject** and **body**, and click the placeholder chips — `{{guestName}}`, `{{reference}}`,
-  `{{amount}}`, `{{checkin}}`, `{{checkout}}`, `{{nights}}` — to insert live values. **Save.**
-- **Outbound messages** — the log of every email: sent, queued, or failed (with the reason).
-  Click a row to read exactly what the guest received.
-- The **bell** (top of the sidebar) collects your in-app notifications: new bookings, OTA
-  imports, new reviews.
+- Pick an email on the left. It says **when it is sent**.
+- Edit the **subject** and the **message**. The chips below insert a detail filled in for each
+  guest — only the details that email is really sent with (the voucher has the rooms, the total,
+  what was paid and the balance; the thank-you does not). A detail the email does not have is
+  flagged, since it would come out empty.
+- The **preview** on the right shows the email as a guest reads it, with sample details.
+- **Reset to the starter text** puts a starter email back as it was.
+- **Add a check-out email** makes one of your own (a VIP farewell, a corporate thank-you). The
+  desk picks it on a reservation under **Other information → Send email at check-out**. Deleting
+  it later sends those guests the standard thank-you instead.
+
+The **Comms** screen is the log of every email: sent, queued, or failed (with the reason). Click
+a row to read exactly what the guest received. The **bell** (top of the sidebar) collects your
+in-app notifications: new bookings, OTA imports, new reviews, and stays checked out
+automatically.
 
 ---
 

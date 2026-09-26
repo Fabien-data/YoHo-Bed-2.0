@@ -58,6 +58,7 @@ import {
   type ReservationKind,
 } from '@yohobed/domain';
 import { addDaysIso } from '@yohobed/locale';
+import { money as guestMoney } from '../vouchers/voucher';
 import { ConfigService } from '@nestjs/config';
 import { BillingService } from '../billing/billing.service';
 import { StepUpService } from '../auth/step-up.service';
@@ -455,9 +456,16 @@ export class BookingService {
       .from(templates)
       .where(and(eq(templates.key, 'booking_created'), eq(templates.language, 'en')));
     if (tpl) {
+      const [prop] = await tx
+        .select({ name: properties.name })
+        .from(properties)
+        .where(eq(properties.id, line.propertyId));
       const vars = {
         guestName: dto.customerName,
         reference,
+        propertyName: prop?.name ?? '',
+        // `total` carries the booking's own currency; `amount` stays for templates written before.
+        total: guestMoney(Number(line.amount), currency),
         amount: line.amount,
         checkin: dto.checkin,
         checkout: dto.checkout,
@@ -1785,12 +1793,18 @@ export class BookingService {
     if (!options.sendCheckoutEmail) return;
     const [cust] = await tx.select().from(customers).where(eq(customers.id, b.customerId));
     if (!cust?.email) return;
-    const key = options.checkoutTemplate ?? 'checkout_thank_you';
-    const [tpl] = await tx
-      .select()
-      .from(templates)
-      .where(and(eq(templates.key, key), eq(templates.language, 'en')));
+    // The reservation's chosen check-out email, or the starter thank-you — also when the chosen
+    // one has since been deleted, so the guest is still thanked.
+    const wanted = options.checkoutTemplate ?? 'checkout_thank_you';
+    const pick = (key: string) =>
+      tx
+        .select()
+        .from(templates)
+        .where(and(eq(templates.key, key), eq(templates.language, 'en')));
+    let [tpl] = await pick(wanted);
+    if (!tpl && wanted !== 'checkout_thank_you') [tpl] = await pick('checkout_thank_you');
     if (!tpl) return;
+    const key = tpl.key;
     const [prop] = await tx
       .select({ name: properties.name })
       .from(properties)

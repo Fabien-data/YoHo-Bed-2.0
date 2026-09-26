@@ -1,6 +1,40 @@
+import { and, eq } from 'drizzle-orm';
 import { templates } from './schema';
 import type { Database } from './client';
 import type { Tx } from './scope';
+
+/**
+ * Starter texts replaced by better ones (Configuration → Email templates, 2026-09-26): the
+ * confirmation said "Rs" whatever the hotel's currency, and the confirmation and the review
+ * invitation were signed "YoHoBed" instead of by the hotel. A tenant still on the old text word
+ * for word gets the new one; a template the hotel has edited is never touched.
+ */
+const STARTER_UPGRADES: Array<{
+  key: string;
+  language: string;
+  from: { subject: string; body: string };
+}> = [
+  {
+    key: 'booking_created',
+    language: 'en',
+    from: {
+      subject: 'Booking confirmed — {{reference}}',
+      body:
+        'Dear {{guestName}},\n\nYour booking {{reference}} is confirmed for {{checkin}} to ' +
+        '{{checkout}} ({{nights}} nights).\nTotal: Rs {{amount}}.\n\nThank you for choosing us.\nYoHoBed',
+    },
+  },
+  {
+    key: 'review_invite',
+    language: 'en',
+    from: {
+      subject: 'How was your stay at {{propertyName}}?',
+      body:
+        'Dear {{guestName}},\n\nThank you for staying at {{propertyName}} ({{checkin}} → {{checkout}}).\n' +
+        'We would love to hear about your stay — it takes a minute:\n{{link}}\n\nYoHoBed',
+    },
+  },
+];
 
 /**
  * The message templates every tenant starts with.
@@ -18,8 +52,9 @@ export function defaultTemplates(tenantId: string): (typeof templates.$inferInse
       channel: 'email' as const,
       subject: 'Booking confirmed — {{reference}}',
       body:
-        'Dear {{guestName}},\n\nYour booking {{reference}} is confirmed for {{checkin}} to ' +
-        '{{checkout}} ({{nights}} nights).\nTotal: Rs {{amount}}.\n\nThank you for choosing us.\nYoHoBed',
+        'Dear {{guestName}},\n\nYour booking {{reference}} at {{propertyName}} is confirmed for ' +
+        '{{checkin}} to {{checkout}} ({{nights}} nights).\nTotal: {{total}}.\n\n' +
+        'Thank you for choosing us.\n{{propertyName}}',
     },
     {
       tenantId,
@@ -39,7 +74,7 @@ export function defaultTemplates(tenantId: string): (typeof templates.$inferInse
       subject: 'How was your stay at {{propertyName}}?',
       body:
         'Dear {{guestName}},\n\nThank you for staying at {{propertyName}} ({{checkin}} → {{checkout}}).\n' +
-        'We would love to hear about your stay — it takes a minute:\n{{link}}\n\nYoHoBed',
+        'We would love to hear about your stay — it takes a minute:\n{{link}}\n\n{{propertyName}}',
     },
     {
       // The booking voucher (Development Phase 02, Sprint 6). Money arrives already formatted in the
@@ -103,4 +138,42 @@ export async function seedDefaultTemplates(tx: Tx | Database, tenantId: string):
     .insert(templates)
     .values(defaultTemplates(tenantId))
     .onConflictDoNothing({ target: [templates.tenantId, templates.key, templates.language] });
+}
+
+/** The starter text of a template, for "Reset to the starter text". */
+export function starterTemplate(
+  key: string,
+  language = 'en',
+): { subject: string; body: string } | undefined {
+  const t = defaultTemplates('00000000-0000-0000-0000-000000000000').find(
+    (d) => d.key === key && d.language === language,
+  );
+  return t ? { subject: t.subject, body: t.body } : undefined;
+}
+
+/** Move a tenant's untouched old starter texts to the current ones. Run on every migrate. */
+export async function upgradeStarterTemplates(
+  tx: Tx | Database,
+  tenantId: string,
+): Promise<number> {
+  let upgraded = 0;
+  for (const u of STARTER_UPGRADES) {
+    const to = starterTemplate(u.key, u.language);
+    if (!to) continue;
+    const rows = await tx
+      .update(templates)
+      .set({ subject: to.subject, body: to.body, updatedAt: new Date() })
+      .where(
+        and(
+          eq(templates.tenantId, tenantId),
+          eq(templates.key, u.key),
+          eq(templates.language, u.language),
+          eq(templates.subject, u.from.subject),
+          eq(templates.body, u.from.body),
+        ),
+      )
+      .returning({ id: templates.id });
+    upgraded += rows.length;
+  }
+  return upgraded;
 }

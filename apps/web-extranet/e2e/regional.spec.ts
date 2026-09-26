@@ -131,8 +131,9 @@ test.describe('Malaysia and India', () => {
     await hotel(page, 'Straits Heritage Penang');
     await page.goto('/app/configuration?tab=taxes');
     await expect(page.getByText('Added to the rate')).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Service Charge' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Service Tax (SST)' })).toBeVisible();
+    // The name cell (each row also has Edit / Stop charging buttons named after the tax).
+    await expect(page.getByRole('cell', { name: /^Service Charge/ })).toBeVisible();
+    await expect(page.getByRole('cell', { name: /^Service Tax \(SST\)/ })).toBeVisible();
     await expect(page.getByText('The rate and the taxes before it')).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Tourism Tax' })).toBeVisible();
     await expect(page.getByText('Foreign guests only')).toBeVisible();

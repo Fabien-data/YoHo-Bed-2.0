@@ -70,6 +70,8 @@ export interface OtherInfoDraft {
   /** As typed: comma-separated. */
   voucherEmails: string;
   sendCheckoutEmail: boolean;
+  /** One of the hotel's own check-out emails; null for the standard thank-you. */
+  checkoutTemplate: string | null;
   suppressRateOnGrCard: boolean;
   displayInclusionSeparately: boolean;
 }
@@ -99,6 +101,11 @@ export interface FullDraft {
   residency: Residency | null;
   /** A VIP stay: a crown on every screen, nothing else (owner brief, 2026-09-26). */
   vip: boolean;
+  /**
+   * A named discount from Configuration → Discounts. A percentage prices every room that has no
+   * typed rate at that much off; an amount is typed into the first room's rate when chosen.
+   */
+  discount: { id: string; name: string; kind: 'percent' | 'amount'; value: number } | null;
   lines: FullLineDraft[];
   guest: GuestProfileDraft;
   guestList: boolean;
@@ -157,6 +164,7 @@ function defaultOther(): OtherInfoDraft {
     emailVoucher: false,
     voucherEmails: '',
     sendCheckoutEmail: false,
+    checkoutTemplate: null,
     suppressRateOnGrCard: false,
     displayInclusionSeparately: false,
   };
@@ -188,6 +196,7 @@ export function blankFullDraft(cfg: ReservationConfig, prefill?: Prefill | null)
     taxExempt: { on: false, exemptionId: '', reason: '' },
     residency: null,
     vip: false,
+    discount: null,
     lines: [fullLine({ roomId: prefill?.roomId ?? null, roomUnitId: prefill?.roomUnitId ?? '' })],
     guest: blankGuest(cfg),
     guestList: false,
@@ -287,6 +296,11 @@ export function fullStayBody(propertyId: string, d: FullDraft): ReservationStayI
     ...(Object.keys(d.approvals).length ? { approvals: d.approvals } : {}),
     lines: d.lines.map((l) => {
       const rate = d.complimentary ? null : typedRate(l);
+      // A typed rate wins; otherwise a percentage discount prices the room that much off.
+      const percentOff =
+        !d.complimentary && d.discount?.kind === 'percent' && d.discount.value > 0
+          ? d.discount.value
+          : null;
       return {
         roomId: l.roomId!,
         occupancyId: l.occupancyId!,
@@ -299,7 +313,11 @@ export function fullStayBody(propertyId: string, d: FullDraft): ReservationStayI
         ...(l.minimumExceptionReason?.trim()
           ? { minimumExceptionReason: l.minimumExceptionReason.trim() }
           : {}),
-        ...(rate !== null ? { rate: { mode: 'total' as const, amount: rate } } : {}),
+        ...(rate !== null
+          ? { rate: { mode: 'total' as const, amount: rate } }
+          : percentOff !== null
+            ? { rate: { mode: 'discount_pct' as const, pct: percentOff } }
+            : {}),
       };
     }),
   };
@@ -411,6 +429,9 @@ export function fullCreateBody(
       emailVoucher: d.other.emailVoucher,
       ...(d.other.emailVoucher && emails.length ? { voucherEmails: emails } : {}),
       sendCheckoutEmail: d.other.sendCheckoutEmail,
+      ...(d.other.sendCheckoutEmail && d.other.checkoutTemplate
+        ? { checkoutTemplate: d.other.checkoutTemplate }
+        : {}),
       suppressRateOnGrCard: d.other.suppressRateOnGrCard,
       displayInclusionSeparately: d.other.displayInclusionSeparately,
     },

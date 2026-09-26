@@ -128,7 +128,13 @@ export class StayViewService {
       const anchor = from <= today && today < to ? today : from;
 
       const roomRows = await tx
-        .select({ id: rooms.id, name: rooms.name, quantity: rooms.quantity })
+        .select({
+          id: rooms.id,
+          name: rooms.name,
+          quantity: rooms.quantity,
+          shortCode: rooms.shortCode,
+          color: rooms.color,
+        })
         .from(rooms)
         .where(eq(rooms.propertyId, propertyId))
         // The hotel's own order (Configuration → Room types), then the name.
@@ -311,6 +317,9 @@ export class StayViewService {
         roomId: r.id,
         name: r.name,
         quantity: r.quantity,
+        // Configuration → Room types: the colour marks the type's group on the chart.
+        shortCode: r.shortCode,
+        color: r.color,
         perDate: dates.map((d) => {
           const a = availByRoomDate.get(`${r.id}|${d}`);
           return {

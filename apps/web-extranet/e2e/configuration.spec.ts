@@ -22,8 +22,10 @@ test.describe('Reservation setup', () => {
   });
 
   test('lists the seeded Sri Lankan sources, grouped by booking source', async ({ page }) => {
+    // An old tab link lands on the section that tab became (Configuration, 2026-09-26).
     await page.goto('/app/configuration?tab=sources');
-    await expect(page.getByRole('heading', { name: 'Reservation setup' })).toBeVisible();
+    await page.waitForURL('**/app/configuration/business-sources');
+    await expect(page.getByRole('heading', { name: 'Business sources' })).toBeVisible();
     await expect(page.getByRole('cell', { name: /Booking\.com/ })).toBeVisible();
     await expect(page.getByRole('cell', { name: /Walk-in/ })).toBeVisible();
 
@@ -72,5 +74,57 @@ test.describe('Reservation setup', () => {
     await page.getByLabel('Staff discount limit in percent').fill('0');
     await page.getByRole('button', { name: 'Save settings' }).click();
     await expect(page.getByText('Reservation settings saved')).toBeVisible();
+  });
+});
+
+test.describe('Configuration, Yanolja style', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page);
+  });
+
+  test('adds a rate type with breakfast and dinner, then deletes it', async ({ page }) => {
+    const suffix = Date.now().toString(36).slice(-5).toUpperCase();
+    const name = `E2E Half board ${suffix}`;
+    await page.goto('/app/configuration/rate-types');
+    await page.getByRole('link', { name: 'Add rate type' }).click();
+    await page.waitForURL('**/app/configuration/rate-types/new');
+
+    await page.getByLabel('Rate type name').fill(name);
+    await page.getByLabel('Short code').fill(`HB${suffix}`);
+    await page.getByRole('switch', { name: 'Does this rate type include meals?' }).click();
+    await page.getByRole('checkbox', { name: 'Breakfast' }).click();
+    await page.getByRole('checkbox', { name: 'Dinner' }).click();
+    await page.getByRole('button', { name: 'Add rate type' }).click();
+    await expect(page.getByText(`${name} is added`)).toBeVisible();
+
+    await page.waitForURL('**/app/configuration/rate-types');
+    const row = page
+      .getByRole('list', { name: 'Rate types' })
+      .getByRole('listitem')
+      .filter({ hasText: name });
+    await expect(row).toContainText('Breakfast and dinner');
+
+    await row.getByRole('button', { name: `Delete ${name}` }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+    await expect(page.getByText(`${name} is deleted`)).toBeVisible();
+  });
+
+  test('previews a guest email with the details it is sent with', async ({ page }) => {
+    await page.goto('/app/configuration/email-templates');
+    await page.getByRole('button', { name: 'Thank you at check-out' }).click();
+    const preview = page.getByRole('region', { name: 'Preview' });
+    await expect(preview).toContainText('Nimal Perera');
+    await expect(page.getByRole('button', { name: 'Guest name' })).toBeVisible();
+    // The thank-you is not sent with a balance, so the editor offers none.
+    await expect(page.getByRole('button', { name: 'Balance due' })).toHaveCount(0);
+  });
+
+  test('opens the hotel profile on the tab in the address', async ({ page }) => {
+    await page.goto('/app/configuration/profile?tab=policies');
+    await expect(page.getByRole('tab', { name: 'Policies' })).toHaveAttribute(
+      'data-state',
+      'active',
+    );
+    await expect(page.getByLabel('Cancellation')).toBeVisible();
   });
 });

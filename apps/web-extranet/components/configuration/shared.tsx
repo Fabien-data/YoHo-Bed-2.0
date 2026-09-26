@@ -40,6 +40,19 @@ export const PAYMENT_CATEGORY_LABELS: Record<PaymentCategory, string> = {
   other: 'Other',
 };
 
+/** What an expense is reported under (Configuration → Payouts, Cashiering → Expenses). */
+export const PAYOUT_CATEGORY: Record<
+  'supplies' | 'maintenance' | 'transport' | 'staff' | 'utilities' | 'other',
+  string
+> = {
+  supplies: 'Supplies',
+  maintenance: 'Maintenance',
+  transport: 'Transport',
+  staff: 'Staff',
+  utilities: 'Utilities',
+  other: 'Other',
+};
+
 export const COMMISSION_PLAN_LABELS: Record<CommissionPlan, string> = {
   none: 'No commission',
   pct_all_nights: '% of every night',

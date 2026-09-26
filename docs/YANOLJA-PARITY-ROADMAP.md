@@ -760,6 +760,41 @@ build list, roughly in value order):
 13. Docs drift: ARCHITECTURE.md §7/§8 counts, USER-GUIDE.md (predates Sprints 1–7), API.md's
     missing `fx` module, OPERATIONS.md test counts. Sweep once Sprint 8 lands.
 
+### The 2026-09-26 property set-up brief ("Development Phase 02 — Property set up new")
+
+The owner's PDF: fixes at the desk and Yanolja's whole Configuration. Branch
+`feat/property-setup-fixes`; not deployed until the owner says so.
+
+**Fixes.**
+
+- **Online failed** reservations hold a room (the guest did book on the OTA); the nights of
+  existing ones were taken out of inventory in migration 0043.
+- **Social Media** business source (SOC), added to every tenant.
+- **Stay View follows the hotel's day**: the chart turns over at the hotel's midnight and **Today**
+  goes to the hotel's today; departures show on each room (due out), with a **Payment due** chip.
+- **The day closes by itself** (`DayCloseService` in the API, every minute): an overdue in-house
+  stay is checked out at the end of its departure date — the balance stays on the bill, the desk
+  is notified, the room turns dirty unless cleaned or re-let since — and the night audit runs at
+  02:00 hotel time. Both are property settings (Reservation settings → Closing the day).
+- **VIP** as a stay status; **ticks** on guest information and the ID document; **Rates for**
+  (resident/foreign) and **Access to guest portal** removed from Add Reservation (residency comes
+  from the nationality); **Bill To** reads Guest / Group owner / Company / Room & taxes to TA,
+  extras to guest, with the account picked inline.
+
+**Configuration, Yanolja style** (`/app/configuration/<section>`, 22 sections in three groups):
+Hotel profile (Profile, Highlights, Amenities, Photo gallery, Policies; Locate on map through
+OpenStreetMap), Room types (list with order, on/off, Base and Max; editor with Basic information,
+Amenities, Images, Rooms), Rate types (meals and chargeable add-ons, with Yanolja's information
+panel), Rate plans (room type × rate type, audience, segment, guest configurations), Taxes (add,
+change from a date, stop), Payment, Extra charges, Discounts, Currency, Transport types, Payouts,
+Meal plans, Remarks, Market segments, Business sources, Holidays, Reservation types, Guest
+attributes, Reservation settings, Sales persons, Document numbering and **Email templates** (per
+template variables, a live preview, reset, and check-out emails of the hotel's own picked per
+reservation). The lists reach the desk: holidays on Stay View and the rates calendar, room type
+colours, rate type names and room caps in the composer, the discount picker, saved remarks, guest
+attributes, payout types on expense vouchers. `/app/setup` redirects to Room types; old `?tab=`
+links land on their section. Migrations 0043–0045.
+
 ### Cross-cutting, every sprint
 
 Audit trail on each new module (user + IP, per Yanolja); Export on every list; counted chips; empty

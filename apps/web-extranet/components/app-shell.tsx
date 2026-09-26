@@ -115,7 +115,7 @@ export function AppShell({
       return can('reservation_read', 'reservation_change', 'check_in_out');
     if (href === '/app/roomview') return can('reservation_read', 'housekeeping');
     if (href === '/app/housekeeping') return can('housekeeping');
-    if (href === '/app/setup') return can('setup');
+    if (href === '/app/configuration') return can('setup');
     return false;
   };
 
@@ -356,7 +356,7 @@ export function AppShell({
                 </Link>
               </MenuItem>
               <MenuItem asChild>
-                <Link href="/app/setup">
+                <Link href="/app/configuration">
                   <GearSix size={15} className="text-ink-3" />
                   Configuration
                 </Link>

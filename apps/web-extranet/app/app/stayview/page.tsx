@@ -32,6 +32,7 @@ import {
   autoAssignRooms,
   confirmBooking,
   describeError,
+  getHolidays,
   getStayView,
   moveRoom,
   setHousekeeping,
@@ -362,6 +363,21 @@ function StayViewScreen() {
     [visibleTypes, p.groupBy],
   );
   const stats = React.useMemo(() => (data ? dayStats(data) : []), [data]);
+  // Configuration → Holidays, marked on the date header.
+  const windowFirst = data?.dates[0];
+  const windowLast = data?.dates[data.dates.length - 1];
+  const holidayRows = useQuery({
+    queryKey: ['holidays', propertyId, windowFirst, windowLast],
+    queryFn: () => getHolidays(propertyId!, windowFirst!, windowLast!),
+    enabled: Boolean(propertyId && windowFirst && windowLast),
+    staleTime: 5 * 60_000,
+  });
+  const holidays = React.useMemo(() => {
+    const byDate = new Map<string, string[]>();
+    for (const h of holidayRows.data ?? [])
+      byDate.set(h.date, [...(byDate.get(h.date) ?? []), h.name]);
+    return byDate;
+  }, [holidayRows.data]);
   const searching = deferredSearch.length >= 2;
   const visibleIds = React.useMemo(() => {
     if (!hasBarFilters(filters) && !searching) return null;
@@ -1002,7 +1018,7 @@ function StayViewScreen() {
         <EmptyState
           icon={<DoorOpen size={28} />}
           title="No rooms set up yet"
-          description="Add room types and numbered rooms in Property setup, and they appear here."
+          description="Add room types and numbered rooms under Configuration → Room types, and they appear here."
           className="rounded-xl border border-line bg-surface"
         />
       ) : (
@@ -1064,6 +1080,7 @@ function StayViewScreen() {
                     canChangeDates={canChangeDates && online}
                     canCreate={(canCreate || canBlock) && online}
                     scrollKey={`${propertyId}:${days}`}
+                    holidays={holidays}
                     handlers={{
                       onOpenBar: openBar,
                       onOpenUnit: openUnit,

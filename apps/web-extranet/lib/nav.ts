@@ -11,7 +11,6 @@ import {
   Money,
   MoonStars,
   Receipt,
-  SlidersHorizontal,
   SquaresFour,
   Star,
   Tag,
@@ -190,18 +189,14 @@ export const NAV: NavGroup[] = [
   {
     label: 'Configuration',
     items: [
-      {
-        href: '/app/setup',
-        label: 'Property setup',
-        icon: GearSix,
-        docsUrl: 'https://app.notion.com/p/3aa8dc222455815c978eecf181bd1b52',
-      },
-      // Everyone can open it (desk staff read the lists); only the owner can change anything.
+      // Yanolja's building and gear menus in one place (owner brief, 2026-09-26): the hotel
+      // profile, room and rate types, and every list the desk picks from. Everyone can open it
+      // (desk staff read the lists); only the owner can change anything.
       {
         href: '/app/configuration',
-        label: 'Reservation setup',
-        icon: SlidersHorizontal,
-        docsUrl: 'PLACEHOLDER',
+        label: 'Property & settings',
+        icon: GearSix,
+        docsUrl: 'https://app.notion.com/p/3aa8dc222455815c978eecf181bd1b52',
       },
       {
         href: '/app/team',

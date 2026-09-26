@@ -513,8 +513,11 @@ export default function SmartSetupPage() {
         title="Smart property setup"
         description="Define guest eligibility and prices before publishing them to the front desk."
         actions={
-          <Link href="/app/setup" className="text-sm font-semibold text-brand underline">
-            Existing setup
+          <Link
+            href="/app/configuration/room-types"
+            className="text-sm font-semibold text-brand underline"
+          >
+            Room types
           </Link>
         }
       />

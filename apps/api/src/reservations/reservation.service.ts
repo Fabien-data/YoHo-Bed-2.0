@@ -79,7 +79,7 @@ import { BookingService } from '../bookings/booking.service';
 import { assertRoomsReadyForCheckIn } from '../housekeeping/readiness';
 import { ensureWindow } from '../folio/windows';
 import { levyEstimate } from '../folio/levies';
-import { buildVoucher, queueVoucher } from '../vouchers/voucher';
+import { buildVoucher, money as guestMoney, queueVoucher } from '../vouchers/voucher';
 import {
   assertCityLedger,
   chargeToAccountWithin,
@@ -919,6 +919,9 @@ export class ReservationService {
         const vars = {
           guestName: guest.name,
           reference: master,
+          propertyName: p.property.name,
+          // `total` carries the booking's own currency; `amount` stays for templates written before.
+          total: guestMoney(p.totals.due, p.property.currency),
           amount: money(p.totals.due),
           checkin: dto.checkin,
           checkout: dto.checkout,

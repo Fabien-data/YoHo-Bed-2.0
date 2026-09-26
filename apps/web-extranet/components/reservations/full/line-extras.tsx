@@ -51,6 +51,7 @@ import type {
   TransferInput,
 } from '@/lib/api';
 import { holdInstant } from '../composer/draft';
+import { SavedRemarks } from '../saved-remarks';
 import type { FullLineDraft } from './full-draft';
 
 export const REMARK_LABEL: Record<RemarkType, string> = {
@@ -590,6 +591,7 @@ export function RemarksDialog({
               onChange={(e) => setText(e.target.value)}
             />
           </Field>
+          <SavedRemarks type={type} onPick={setText} />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Done

@@ -12,6 +12,7 @@ import {
   type Tone,
 } from '@yohobed/ui';
 import { listCustomers, getCustomer, type CustomerRow, type Booking } from '@/lib/api';
+import { GuestAttributes } from '@/components/guests/guest-attributes';
 import { longDate } from '@/lib/format';
 import { useMoney } from '@/components/currency';
 import { GuestProfileForm } from '@/components/reservations/guest-profile';
@@ -203,6 +204,12 @@ export default function CustomersPage() {
           title={editing ? editing.name : 'Guest'}
           description="Details for the registration card and reporting"
         >
+          {editing && (
+            <div className="mb-4">
+              <p className="mb-1.5 text-xs font-medium text-ink-2">Guest attributes</p>
+              <GuestAttributes customerId={editing.id} />
+            </div>
+          )}
           {editing && (
             <GuestProfileForm
               key={editing.id}

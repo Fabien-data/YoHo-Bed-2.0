@@ -5,6 +5,7 @@ import {
   ArrowsLeftRight,
   CaretDown,
   ChatCircleText,
+  Confetti,
   Crown,
   CurrencyCircleDollar,
   Prohibit,
@@ -12,7 +13,7 @@ import {
   SignOut,
   UsersThree,
 } from '@phosphor-icons/react';
-import { Tooltip, cn } from '@yohobed/ui';
+import { TagDot, Tooltip, cn } from '@yohobed/ui';
 import type { StayBar, StayUnit, StayView } from '@/lib/api';
 import {
   addDays,
@@ -327,6 +328,7 @@ function GroupBlock({
                 collapsed && '-rotate-90',
               )}
             />
+            {group.roomType?.color && <TagDot color={group.roomType.color} />}
             <span className="truncate text-[13px] font-semibold text-ink">{group.name}</span>
             <span className="ml-auto rounded-md bg-surface px-1.5 font-mono text-[11px] tabular-nums text-ink-3">
               {group.units.length}
@@ -464,6 +466,7 @@ const DateHeader = React.memo(function DateHeader({
   showStats,
   headerRef,
   density,
+  holidays,
 }: {
   dates: string[];
   stats: DayStats[];
@@ -472,6 +475,8 @@ const DateHeader = React.memo(function DateHeader({
   showStats: boolean;
   headerRef: React.Ref<HTMLDivElement>;
   density: Density;
+  /** Configuration → Holidays: the names on each date. */
+  holidays?: ReadonlyMap<string, string[]>;
 }) {
   const cb = useCallbacks();
   const roomy = geo.colW >= 64;
@@ -491,11 +496,13 @@ const DateHeader = React.memo(function DateHeader({
       {dates.map((d, i) => {
         const s = stats[i];
         const first = i === 0 || dayOfMonth(d) === 1;
+        const holiday = holidays?.get(d);
         return (
           <div
             key={d}
             role="columnheader"
-            aria-label={`${weekday(d)} ${dayOfMonth(d)} ${monthShort(d)}${d === today ? ', today' : ''}`}
+            aria-label={`${weekday(d)} ${dayOfMonth(d)} ${monthShort(d)}${d === today ? ', today' : ''}${holiday ? `, ${holiday.join(', ')}` : ''}`}
+            title={holiday?.join(' · ')}
             className={cn(
               'sv-date relative flex shrink-0 flex-col items-center justify-center border-r border-line text-center',
               density === 'compact' ? 'py-1' : 'py-1.5',
@@ -504,7 +511,9 @@ const DateHeader = React.memo(function DateHeader({
             data-today={d === today}
             style={{ width: geo.colW }}
           >
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+            {holiday && <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-brass" />}
+            <span className="flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+              {holiday && <Confetti size={11} weight="fill" aria-hidden className="text-brass" />}
               {d === today ? 'Today' : weekday(d)}
             </span>
             <span className="text-sm font-semibold leading-tight text-ink">
@@ -791,6 +800,8 @@ export interface CalendarGridProps {
   onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
   onColumnWidth?: (colW: number) => void;
   scrollKey: string;
+  /** Configuration → Holidays in the window, by date. */
+  holidays?: ReadonlyMap<string, string[]>;
 }
 
 export function CalendarGrid(props: CalendarGridProps) {
@@ -998,6 +1009,7 @@ export function CalendarGrid(props: CalendarGridProps) {
             showStats={prefs.headerStats}
             headerRef={headerRef}
             density={density}
+            holidays={props.holidays}
           />
           <div ref={bodyRef} className="relative">
             <ColumnShading dates={data.dates} today={today} geo={geo} flashToday={flashToday} />

@@ -70,6 +70,21 @@ export interface Property {
   branchCode?: string | null;
   fyStartMonth?: number;
   invoicePrefix?: string | null;
+  /** The Hotel Profile's other tabs (Configuration, 2026-09-26). */
+  description?: string | null;
+  highlights?: string[];
+  amenities?: string[];
+  policies?: PropertyPolicies;
+}
+
+export interface PropertyPolicies {
+  cancellation?: string;
+  children?: string;
+  pets?: string;
+  smoking?: string;
+  extraBeds?: string;
+  houseRules?: string;
+  other?: string;
 }
 
 export interface Room {
@@ -77,6 +92,70 @@ export interface Room {
   propertyId: string;
   name: string;
   quantity: number;
+  /** Yanolja's Room Type fields (Configuration → Room types, 2026-09-26). */
+  shortCode?: string | null;
+  description?: string | null;
+  baseAdults?: number | null;
+  baseChildren?: number | null;
+  maxAdults?: number | null;
+  maxChildren?: number | null;
+  bedTypes?: string[];
+  amenities?: string[];
+  color?: string | null;
+  sortOrder?: number;
+  active?: boolean;
+}
+
+/** A room type as the Room Types list shows it. */
+export interface RoomTypeRow extends Room {
+  units: number;
+  ratePlans: number;
+  /** Ever booked: then it can be switched off, never deleted. */
+  booked: boolean;
+  photos: number;
+}
+
+export type RoomTypeInput = Partial<
+  Pick<
+    Room,
+    | 'name'
+    | 'quantity'
+    | 'shortCode'
+    | 'description'
+    | 'baseAdults'
+    | 'baseChildren'
+    | 'maxAdults'
+    | 'maxChildren'
+    | 'bedTypes'
+    | 'amenities'
+    | 'color'
+    | 'active'
+  >
+>;
+
+export function listRoomTypes(propertyId: string): Promise<RoomTypeRow[]> {
+  return apiFetch(`/properties/${propertyId}/rooms`);
+}
+export function createRoomType(
+  propertyId: string,
+  body: RoomTypeInput & { name: string },
+): Promise<Room> {
+  return apiFetch(`/properties/${propertyId}/rooms`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function updateRoomType(id: string, body: RoomTypeInput): Promise<Room> {
+  return apiFetch(`/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function deleteRoomType(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/rooms/${id}`, { method: 'DELETE' });
+}
+export function orderRoomTypes(propertyId: string, ids: string[]) {
+  return apiFetch<{ ordered: number }>(`/properties/${propertyId}/rooms/order`, {
+    method: 'PUT',
+    body: JSON.stringify({ ids }),
+  });
 }
 
 export interface AvailabilityDay {
@@ -458,6 +537,13 @@ export function listRoomPhotos(roomId: string): Promise<Photo[]> {
 export function deletePhoto(id: string): Promise<{ deleted: boolean }> {
   return apiFetch(`/photos/${id}`, { method: 'DELETE' });
 }
+/** A gallery's order; the first photo is the cover. */
+export function orderPhotos(target: 'property' | 'room', id: string, ids: string[]) {
+  return apiFetch<{ ordered: number }>(
+    `/${target === 'property' ? 'properties' : 'rooms'}/${id}/photos/order`,
+    { method: 'PUT', body: JSON.stringify({ ids }) },
+  );
+}
 
 export function listProperties(): Promise<Property[]> {
   return apiFetch<Property[]>('/properties');
@@ -522,8 +608,12 @@ export interface RatePlan {
   id: string;
   roomId: string;
   rateCodeId: string;
+  /** The rate type it sells; `code` and `name` are that rate type's (else its meal plan's). */
+  rateTypeId?: string | null;
   code: string;
   name: string;
+  /** RO/BB/HB/FB/AI. */
+  mealPlan?: string;
   status: 'Active' | 'Inactive';
 }
 
@@ -1037,6 +1127,9 @@ export interface StayRoomType {
   roomId: string;
   name: string;
   quantity: number;
+  shortCode?: string | null;
+  /** A tag palette key (Configuration → Room types). */
+  color?: string | null;
   perDate: Array<{ date: string; available: number | null; closed: boolean; rate: string | null }>;
   units: StayUnit[];
 }
@@ -2538,15 +2631,18 @@ export interface PropertySettings {
   autoCheckout: boolean;
   /** The night audit runs by itself at `time` (hotel clock), or only when the owner runs it. */
   nightAudit: { mode: 'auto' | 'manual'; time: string };
+  /** The meal plans the hotel sells, and its own names for them (Configuration → Meal plans). */
+  mealPlans: { offered: MealPlanCode[]; names: Partial<Record<MealPlanCode, string>> };
   kindOverrides: Partial<Record<ReservationKind, { label?: string; color?: string }>>;
   titles: string[] | null;
 }
 
 export type PropertySettingsPatch = Partial<
-  Omit<PropertySettings, 'hold' | 'rateControl' | 'nightAudit'> & {
+  Omit<PropertySettings, 'hold' | 'rateControl' | 'nightAudit' | 'mealPlans'> & {
     hold: Partial<PropertySettings['hold']>;
     rateControl: Partial<PropertySettings['rateControl']>;
     nightAudit: Partial<PropertySettings['nightAudit']>;
+    mealPlans: Partial<PropertySettings['mealPlans']>;
   }
 >;
 
@@ -2583,6 +2679,10 @@ export interface PropertyProfilePatch {
   branchCode?: string | null;
   fyStartMonth?: number;
   invoicePrefix?: string | null;
+  description?: string | null;
+  highlights?: string[];
+  amenities?: string[];
+  policies?: PropertyPolicies;
 }
 
 export function updatePropertyProfile(id: string, body: PropertyProfilePatch): Promise<Property> {
@@ -2788,6 +2888,8 @@ export interface ExpenseVoucher {
   reference: string | null;
   note: string | null;
   drawerSessionId: string | null;
+  /** Configuration → Payouts: why the money left. */
+  payoutTypeId?: string | null;
   createdAt: string;
   createdBy: string | null;
 }
@@ -2801,6 +2903,8 @@ export function createExpense(
   body: {
     drawerSessionId?: string;
     category?: string;
+    /** Configuration → Payouts; the category follows it. */
+    payoutTypeId?: string;
     payee: string;
     amount: number;
     reference?: string;
@@ -3170,6 +3274,9 @@ export interface Template {
   channel: 'email' | 'sms';
   subject: string;
   body: string;
+  /** A hotel's own check-out email is named by the hotel; the starter ones are not. */
+  name?: string | null;
+  updatedAt?: string;
 }
 export interface Language {
   id: string;
@@ -3198,9 +3305,23 @@ export function listTemplates(): Promise<Template[]> {
 }
 export function updateTemplate(
   id: string,
-  body: { subject: string; body: string },
+  body: { subject: string; body: string; name?: string },
 ): Promise<Template> {
   return apiFetch(`/templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+/** A check-out email of the hotel's own (Configuration → Email templates). */
+export function createTemplate(body: {
+  name: string;
+  subject: string;
+  body: string;
+}): Promise<Template> {
+  return apiFetch('/templates', { method: 'POST', body: JSON.stringify(body) });
+}
+export function deleteTemplate(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/templates/${id}`, { method: 'DELETE' });
+}
+export function resetTemplate(id: string): Promise<Template> {
+  return apiFetch(`/templates/${id}/reset`, { method: 'POST' });
 }
 export function listLanguages(): Promise<Language[]> {
   return apiFetch<Language[]>('/languages');
@@ -3360,6 +3481,13 @@ export interface RoomAvailability {
     roomId: string;
     name: string;
     quantity: number;
+    shortCode?: string | null;
+    color?: string | null;
+    /** Guests the rate includes, and the most the room takes (null = not set). */
+    baseAdults?: number | null;
+    baseChildren?: number | null;
+    maxAdults?: number | null;
+    maxChildren?: number | null;
     /** Free on every night of the stay. */
     free: number;
     closedDates: string[];
@@ -3368,8 +3496,12 @@ export interface RoomAvailability {
     rateTypes: Array<{
       ratePlanId: string;
       occupancyId: string;
+      /** The meal plan (RO/BB/HB/FB/AI). */
       rateCode: string;
       rateName: string;
+      /** The hotel's rate type (Configuration → Rate types). */
+      rateTypeCode?: string;
+      rateTypeName?: string;
       label: string;
       accommodates: number;
       audience: 'all' | 'local' | 'foreign';
@@ -4359,6 +4491,279 @@ export function applyTaxPreset(
   propertyId: string,
 ): Promise<PropertyTaxes & { repriced: number; repricedFrom: string }> {
   return apiFetch(`/properties/${propertyId}/taxes/apply-preset`, { method: 'POST' });
+}
+
+export interface TaxInput {
+  name: string;
+  code?: string | null;
+  ratePercent: number;
+  priority: 1 | 2 | 3;
+  exemptible?: boolean;
+  /** The day a new rate starts; the business date when omitted. */
+  from?: string;
+}
+type TaxChange = PropertyTaxes & { repriced: number; repricedFrom: string | null };
+export function createTax(propertyId: string, body: TaxInput): Promise<TaxChange> {
+  return apiFetch(`/properties/${propertyId}/taxes`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function updateTax(
+  propertyId: string,
+  taxTypeId: string,
+  body: Partial<TaxInput>,
+): Promise<TaxChange> {
+  return apiFetch(`/properties/${propertyId}/taxes/${taxTypeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+export function removeTax(propertyId: string, taxTypeId: string): Promise<TaxChange> {
+  return apiFetch(`/properties/${propertyId}/taxes/${taxTypeId}`, { method: 'DELETE' });
+}
+
+// --- Configuration, Yanolja style (owner brief, 2026-09-26) ---------------------------------
+
+export type MealPlanCode = 'RO' | 'BB' | 'HB' | 'FB' | 'AI';
+
+export interface RateTypeAddOn {
+  chargeParticularId: string | null;
+  name: string;
+  amount: string;
+  rhythm: 'once' | 'per_night';
+}
+
+export interface RateType {
+  id: string;
+  propertyId: string;
+  name: string;
+  shortCode: string;
+  mealPlan: MealPlanCode;
+  addOns: RateTypeAddOn[];
+  description: string | null;
+  sortOrder: number;
+  active: boolean;
+  ratePlans: number;
+  booked: boolean;
+}
+
+export interface RateTypeInput {
+  name: string;
+  shortCode: string;
+  mealPlan: MealPlanCode;
+  addOns: Array<Omit<RateTypeAddOn, 'amount'> & { amount: number }>;
+  description?: string | null;
+  active?: boolean;
+}
+
+export function listRateTypes(propertyId: string): Promise<RateType[]> {
+  return apiFetch(`/properties/${propertyId}/rate-types`);
+}
+export function createRateType(propertyId: string, body: RateTypeInput): Promise<RateType> {
+  return apiFetch(`/properties/${propertyId}/rate-types`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function updateRateType(id: string, body: Partial<RateTypeInput>): Promise<RateType> {
+  return apiFetch(`/rate-types/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function deleteRateType(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/rate-types/${id}`, { method: 'DELETE' });
+}
+export function orderRateTypes(propertyId: string, ids: string[]) {
+  return apiFetch<{ ordered: number }>(`/properties/${propertyId}/rate-types/order`, {
+    method: 'PUT',
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export interface RatePlanRow {
+  id: string;
+  roomId: string;
+  roomName: string;
+  roomActive: boolean;
+  rateTypeId: string | null;
+  rateTypeName: string | null;
+  rateTypeCode: string | null;
+  rateTypeActive: boolean | null;
+  mealPlan: string;
+  mealPlanName: string;
+  audience: 'all' | 'local' | 'foreign';
+  status: 'Active' | 'Inactive';
+  marketSegmentId: string | null;
+  marketSegmentName: string | null;
+  occupancies: Array<{
+    id: string;
+    label: string;
+    accommodates: number;
+    priced: boolean;
+    booked: boolean;
+  }>;
+}
+
+export function listPropertyRatePlans(propertyId: string): Promise<RatePlanRow[]> {
+  return apiFetch(`/properties/${propertyId}/rate-plans`);
+}
+export function createPropertyRatePlan(
+  propertyId: string,
+  body: {
+    roomId: string;
+    rateTypeId: string;
+    audience?: 'all' | 'local' | 'foreign';
+    marketSegmentId?: string | null;
+    occupancies?: Array<{ label: string; accommodates: number }>;
+  },
+) {
+  return apiFetch<{ id: string }>(`/properties/${propertyId}/rate-plans`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function updateRatePlan(
+  id: string,
+  body: Partial<{
+    audience: 'all' | 'local' | 'foreign';
+    status: 'Active' | 'Inactive';
+    marketSegmentId: string | null;
+  }>,
+) {
+  return apiFetch(`/rate-plans/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function deleteRatePlan(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/rate-plans/${id}`, { method: 'DELETE' });
+}
+export function addGuestConfiguration(
+  ratePlanId: string,
+  body: { label: string; accommodates: number },
+) {
+  return apiFetch(`/rate-plans/${ratePlanId}/guest-configurations`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function updateGuestConfiguration(
+  id: string,
+  body: Partial<{ label: string; accommodates: number }>,
+) {
+  return apiFetch(`/occupancies/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function deleteGuestConfiguration(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/occupancies/${id}`, { method: 'DELETE' });
+}
+
+/** The short lists (Configuration → Holidays, Guest attributes, Discounts, Remarks, Payouts). */
+export type ConfigListKey =
+  'holidays' | 'guest-attributes' | 'discounts' | 'remarks' | 'payout-types';
+
+export interface Holiday {
+  id: string;
+  propertyId: string;
+  date: string;
+  name: string;
+  recurring: boolean;
+  notes: string | null;
+}
+export interface GuestAttribute {
+  id: string;
+  name: string;
+  color: string;
+  description: string | null;
+  sort: number;
+  active: boolean;
+}
+export interface Discount {
+  id: string;
+  propertyId: string;
+  code: string;
+  name: string;
+  kind: 'percent' | 'amount';
+  value: string;
+  description: string | null;
+  sort: number;
+  active: boolean;
+}
+export interface RemarkTemplate {
+  id: string;
+  type: RemarkType;
+  text: string;
+  sort: number;
+  active: boolean;
+}
+export interface PayoutType {
+  id: string;
+  code: string;
+  name: string;
+  category: 'supplies' | 'maintenance' | 'transport' | 'staff' | 'utilities' | 'other';
+  sort: number;
+  active: boolean;
+}
+export interface ConfigListRows {
+  holidays: Holiday;
+  'guest-attributes': GuestAttribute;
+  discounts: Discount;
+  remarks: RemarkTemplate;
+  'payout-types': PayoutType;
+}
+
+export function listConfigRows<K extends ConfigListKey>(
+  key: K,
+  propertyId?: string,
+): Promise<Array<ConfigListRows[K]>> {
+  return apiFetch(`/configuration/lists/${key}${propertyId ? `?propertyId=${propertyId}` : ''}`);
+}
+export function createConfigRow<K extends ConfigListKey>(
+  key: K,
+  body: Record<string, unknown>,
+  propertyId?: string,
+): Promise<ConfigListRows[K]> {
+  return apiFetch(`/configuration/lists/${key}${propertyId ? `?propertyId=${propertyId}` : ''}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function updateConfigRow<K extends ConfigListKey>(
+  key: K,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<ConfigListRows[K]> {
+  return apiFetch(`/configuration/lists/${key}/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+export function deleteConfigRow(key: ConfigListKey, id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/configuration/lists/${key}/${id}`, { method: 'DELETE' });
+}
+
+/** Holidays falling in a date range (yearly ones repeated) — for the calendars. */
+export function getHolidays(
+  propertyId: string,
+  from: string,
+  to: string,
+): Promise<Array<{ id: string; date: string; name: string; recurring: boolean }>> {
+  return apiFetch(`/properties/${propertyId}/holidays?from=${from}&to=${to}`);
+}
+
+export function getGuestAttributes(
+  customerId: string,
+): Promise<Array<{ id: string; name: string; color: string; description: string | null }>> {
+  return apiFetch(`/customers/${customerId}/attributes`);
+}
+export function setGuestAttributes(customerId: string, attributeIds: string[]) {
+  return apiFetch<Array<{ id: string; name: string; color: string; description: string | null }>>(
+    `/customers/${customerId}/attributes`,
+    { method: 'PUT', body: JSON.stringify({ attributeIds }) },
+  );
+}
+
+/** Find an address on the map (Hotel Profile). */
+export function geocodeAddress(
+  propertyId: string,
+  q: string,
+): Promise<Array<{ latitude: number; longitude: number; label: string }>> {
+  return apiFetch(`/properties/${propertyId}/geocode?q=${encodeURIComponent(q)}`);
 }
 
 export interface StayRegistration {
