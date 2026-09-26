@@ -39,6 +39,20 @@ try {
   await seedDefaultPlans(db);
 
   /**
+   * The five meal plans are reference data too: every rate type sells one (Configuration → Rate
+   * types, 2026-09-26), and no rate plan can be made for a meal plan missing here. They used to
+   * come only from `db:seed`, so a database that was only ever migrated lacked some — caught
+   * verifying on a fresh database, 2026-09-26. Rows already there are left as they are.
+   */
+  console.log('→ Ensuring the meal plans…');
+  await db.execute(sql`
+    insert into rate_codes (code, name, sort_order) values
+      ('RO', 'Room Only', 1), ('BB', 'Bed & Breakfast', 2), ('HB', 'Half Board', 3),
+      ('FB', 'Full Board', 4), ('AI', 'All Inclusive', 5)
+    on conflict (code) do nothing
+  `);
+
+  /**
    * Then make sure every tenant actually has a subscription. Idempotent, and deliberately only
    * fills the gap — a tenant that already has one (of any status) is left alone.
    */
