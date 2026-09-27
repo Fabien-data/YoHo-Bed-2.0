@@ -158,7 +158,7 @@ export class StayViewService {
         .where(eq(roomUnits.propertyId, propertyId))
         .orderBy(asc(roomUnits.displayOrder), asc(roomUnits.code));
 
-      const [legRows, blockRows, availRows, rateRows] = await Promise.all([
+      const [windowLegRows, blockRows, availRows, rateRows] = await Promise.all([
         this.legsInWindow(tx, propertyId, from, to),
         this.blocksInWindow(tx, propertyId, from, to),
         roomIds.length
@@ -180,6 +180,14 @@ export class StayViewService {
           : Promise.resolve([]),
         showFinancial ? this.ratesInWindow(tx, roomIds, from, to, ratePlanId) : Promise.resolve([]),
       ]);
+
+      // Keep departure-day legs for movement totals, but never draw them as occupied nights.
+      const legRows = windowLegRows.filter((leg) => leg.checkout > from);
+      const movements = windowLegRows.filter(
+        (leg) =>
+          leg.reservationKind !== 'inquiry' &&
+          ['Pending', 'Approved', 'CheckedIn', 'CheckedOut'].includes(leg.status),
+      );
 
       // The Dirty chip counts rooms dirty AS OF the picked date: a room left dirty yesterday is
       // still dirty today until someone cleans it (UX-1a).
@@ -356,6 +364,10 @@ export class StayViewService {
           availableInventory: Math.max(sellable - sold, 0),
           totalRooms: activeUnits,
           occupancyPct: sellable > 0 ? Math.round((sold / sellable) * 100) : 0,
+          arrivals: movements.filter((leg) => leg.checkin === d && leg.segmentIndex === 0).length,
+          departures: movements.filter(
+            (leg) => leg.checkout === d && leg.segmentIndex === leg.segmentOf - 1,
+          ).length,
         };
       });
 
@@ -399,6 +411,35 @@ export class StayViewService {
         },
       };
     });
+  }
+
+  /**
+   * One day's house totals exactly as the calendar's header shows them, for Room View: its
+   * housekeeping users never reach the calendar itself, and the two screens must never disagree
+   * about the same day. Counts only — no names, no money.
+   */
+  async dayTotals(tenantId: string, propertyId: string, date: string) {
+    const next = new Date(`${date}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    const view = await this.get(
+      tenantId,
+      propertyId,
+      date,
+      next.toISOString().slice(0, 10),
+      undefined,
+      false,
+    );
+    const day = view.footer[0]!;
+    return {
+      date,
+      soldRooms: day.soldRooms,
+      blocked: day.blocked,
+      totalRooms: day.totalRooms,
+      availableInventory: day.availableInventory,
+      arrivals: day.arrivals,
+      departures: day.departures,
+      unassigned: view.unassigned.filter((b) => b.from <= date && date < b.to).length,
+    };
   }
 
   /**
@@ -513,9 +554,9 @@ export class StayViewService {
         and(
           eq(bookings.propertyId, propertyId),
           isNull(bookingRooms.releasedAt),
-          // Half-open overlap: a stay ending on `from` does not appear in the window.
+          // Include departures on `from` for header counts; drawing remains half-open above.
           lt(bookingRooms.checkin, to),
-          gt(bookingRooms.checkout, from),
+          gte(bookingRooms.checkout, from),
         ),
       )
       .orderBy(asc(bookingRooms.checkin));

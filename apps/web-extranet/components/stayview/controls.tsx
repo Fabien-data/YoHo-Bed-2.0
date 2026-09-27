@@ -4,14 +4,13 @@ import * as React from 'react';
 import {
   ArrowsInLineVertical,
   ArrowsOutLineVertical,
-  ChatCircleText,
   Crown,
-  CurrencyCircleDollar,
   Funnel,
   GearSix,
   Info,
   Lock,
   ArrowsLeftRight,
+  User,
   UsersThree,
   X,
 } from '@phosphor-icons/react';
@@ -241,10 +240,14 @@ export function FilterChips({
 export function LegendPopover() {
   const flags: Array<[React.ElementType, string]> = [
     [Crown, 'VIP guest'],
-    [ChatCircleText, 'Has notes'],
     [UsersThree, 'Group reservation'],
     [ArrowsLeftRight, 'Stay split across rooms'],
-    [CurrencyCircleDollar, 'Payment due'],
+    [User, 'Guests in the room'],
+  ];
+  // Drawn on the bar's top edge, as on the grid.
+  const markers: Array<['payment' | 'notes', string]> = [
+    ['payment', 'Payment due'],
+    ['notes', 'Has notes'],
   ];
   return (
     <Popover>
@@ -267,12 +270,19 @@ export function LegendPopover() {
                 title={STATE_META[state].hint}
               >
                 <span
-                  className="sv-bar !static h-5 w-9 shrink-0 justify-center !p-0"
+                  className="sv-bar sv-swatch"
                   data-state={state}
-                  data-arrival="true"
-                  data-departure="true"
+                  data-kind={
+                    state === 'out_of_service' || state === 'blocked' ? 'block' : 'booking'
+                  }
+                  data-slant-start={state !== 'out_of_service' && state !== 'blocked'}
+                  data-slant-end={state !== 'out_of_service' && state !== 'blocked'}
+                  aria-hidden
                 >
-                  <Icon size={11} weight="bold" aria-hidden />
+                  <span className="sv-bar-shape" />
+                  <span className="sv-bar-content">
+                    <Icon size={11} weight="bold" />
+                  </span>
                 </span>
                 {STATE_META[state].label}
               </li>
@@ -283,14 +293,20 @@ export function LegendPopover() {
           On a stay
         </h3>
         <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+          {markers.map(([marker, label]) => (
+            <li key={label} className="flex items-center gap-2 text-xs text-ink">
+              <span className="sv-marker" data-marker={marker} aria-hidden /> {label}
+            </li>
+          ))}
           {flags.map(([Icon, label]) => (
             <li key={label} className="flex items-center gap-2 text-xs text-ink">
               <Icon size={13} weight="bold" className="text-ink-2" aria-hidden /> {label}
             </li>
           ))}
           <li className="col-span-2 text-xs text-ink-2">
-            A solid left edge is the arrival night; a faded, square edge means the stay began before
-            the dates shown.
+            A stay runs from the middle of its arrival date to the middle of its departure date, so
+            the slanted ends mark arrivals and departures. A square end means the stay goes on
+            beyond the dates shown.
           </li>
         </ul>
         <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wider text-ink-3">

@@ -11,6 +11,6 @@ import { PropertyEventsService } from './property-events.service';
   imports: [AuthModule, BillingModule],
   controllers: [StayViewController],
   providers: [StayViewService, BlocksService, PropertyEventsService, TenantGuard],
-  exports: [PropertyEventsService],
+  exports: [PropertyEventsService, StayViewService],
 })
 export class StayViewModule {}

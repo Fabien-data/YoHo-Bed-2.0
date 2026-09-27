@@ -2,17 +2,27 @@ import type { StayBar, StayRoomType, StayUnit } from '@/lib/api';
 import { daysBetween } from './dates';
 
 /**
- * The calendar's geometry, in one place. A column is one night; a bar covers the nights of a
- * stay, `from` inclusive and `to` exclusive (the departure morning is not a night). Everything
- * the grid draws, and everything a drag hits, is converted here — no component does date maths.
+ * The calendar's geometry, in one place. A column is one night; a stay holds the nights `from`
+ * inclusive to `to` exclusive (the departure morning is not a night), and its bar is drawn from
+ * arrival midday to departure midday (`barPlacement`). Everything the grid draws, and everything
+ * a drag hits, is converted here — no component does date maths.
  */
 
 export type Density = 'comfortable' | 'compact';
 
+/**
+ * `inset` is the space above and below a bar inside its row (the payment and notes markers sit
+ * on the bar's top edge, so it is never less than their radius). `slant` is how far a
+ * reservation's slanted end leans, a third of the bar's height, so every density draws the
+ * same angle.
+ */
 export const METRICS = {
-  comfortable: { row: 44, group: 36, label: 196, minCol: 52 },
-  compact: { row: 32, group: 30, label: 164, minCol: 38 },
+  comfortable: { row: 48, group: 46, label: 196, minCol: 104, inset: 7, slant: 11 },
+  compact: { row: 36, group: 40, label: 164, minCol: 88, inset: 6, slant: 8 },
 } as const;
+
+/** Clear space between two bars that meet on the same date, in px. */
+export const BAR_GAP = 4;
 
 /** Wide enough for a name at four days; any wider only spreads the same content out. */
 export const MAX_COL = 196;
@@ -59,6 +69,73 @@ export function barSpan(
     span: Math.max(1, end - start),
     startsBefore: startOffset < 0,
     endsAfter: endOffset > days,
+  };
+}
+
+/**
+ * Where a bar is DRAWN, as opposed to which nights it holds (`barSpan`). A reservation runs from
+ * the middle of its arrival date to the middle of its departure date, as on a hotel wall chart:
+ * a one-night stay straddles two date columns, and the guest leaving and the guest arriving on
+ * the same date meet in that column's centre. Blocks keep whole nights (midnight to midnight).
+ *
+ * Dates, nights, billing, range selection and every gesture still work in whole nights; only the
+ * drawing moves. Bars, drag previews and resize handles all take their position from here, so a
+ * change of geometry can never leave one of them out of line with the others.
+ */
+export interface BarPlacement extends BarSpan {
+  /** A reservation's arrival end: slanted, centred on the arrival date's middle. */
+  slantStart: boolean;
+  /** A reservation's departure end: slanted, centred on the departure date's middle. */
+  slantEnd: boolean;
+  /** Pixel adjustments to the column edges (independent of the column width). */
+  leftPx: number;
+  rightPx: number;
+}
+
+export function barPlacement(
+  windowFrom: string,
+  days: number,
+  bar: Pick<StayBar, 'from' | 'to'> & { kind?: StayBar['kind'] },
+  slant: number,
+): BarPlacement | null {
+  if (!barSpan(windowFrom, days, bar)) return null;
+  const reservation = bar.kind !== 'block';
+  const offset = reservation ? 0.5 : 0;
+  const from = daysBetween(windowFrom, bar.from) + offset;
+  const to = daysBetween(windowFrom, bar.to) + offset;
+  const startsBefore = from < 0;
+  const endsAfter = to > days;
+  const start = Math.max(0, from);
+  const end = Math.min(days, to);
+  const slantStart = reservation && !startsBefore;
+  const slantEnd = reservation && !endsAfter;
+  const half = BAR_GAP / 2;
+  return {
+    start,
+    span: end - start,
+    startsBefore,
+    endsAfter,
+    slantStart,
+    slantEnd,
+    // A slanted end leans half its slant either side of the midday line, so the departing and
+    // the arriving bar share one diagonal with an even gap. A clipped end sits flush on the
+    // window's edge, square, so a continuing stay never reads as an arrival or a departure.
+    leftPx: startsBefore ? 0 : slantStart ? half - slant / 2 : half,
+    rightPx: endsAfter ? 0 : slantEnd ? slant / 2 - half : -half,
+  };
+}
+
+/** A placement in pixels, for overlays drawn outside the rows (the drag preview). */
+export function barRect(p: BarPlacement, colW: number): { left: number; width: number } {
+  const left = p.start * colW + p.leftPx;
+  return { left, width: (p.start + p.span) * colW + p.rightPx - left };
+}
+
+/** The same placement against the grid's `--col-w`, so rows re-lay without re-rendering. */
+export function barStyle(p: BarPlacement): { left: string; width: string } {
+  return {
+    left: `calc(var(--col-w) * ${p.start} + ${p.leftPx}px)`,
+    width: `calc(var(--col-w) * ${p.span} + ${p.rightPx - p.leftPx}px)`,
   };
 }
 

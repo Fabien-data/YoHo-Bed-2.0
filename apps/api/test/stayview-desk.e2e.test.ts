@@ -156,6 +156,20 @@ describe('room changes on the calendar', () => {
     expect(chart.body.roomTypes[0].units.find((u: any) => u.id === u1).housekeeping).toBe('dirty');
     // Leaving room 101 today is a room change, not a departure.
     expect(chart.body.counts).toMatchObject({ date: hotelToday(), dueOut: 0, occupied: 1 });
+    expect(chart.body.footer.find((day: any) => day.date === hotelToday(-1))).toMatchObject({
+      arrivals: 1,
+      departures: 0,
+    });
+    expect(chart.body.footer.find((day: any) => day.date === hotelToday())).toMatchObject({
+      arrivals: 0,
+      departures: 0,
+    });
+    expect(chart.body.footer.find((day: any) => day.date === hotelToday(2))).toMatchObject({
+      arrivals: 0,
+      departures: 1,
+    });
+    const boundary = await calendar(fx, hotelToday(), hotelToday(5));
+    expect(boundary.body.footer[0]).toMatchObject({ arrivals: 0, departures: 0 });
   });
 });
 

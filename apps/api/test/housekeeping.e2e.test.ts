@@ -67,6 +67,70 @@ async function housekeepingUser(
 }
 
 describe('room view', () => {
+  it('draws a stay as the Stay View does, and counts the day with its numbers — for housekeeping too', async () => {
+    const fx = await makeTenant({ roomQuantity: 3 });
+    const [u1, u2] = await makeUnits(fx, 3);
+    await openAndPrice(fx, '2029-09-01', '2029-09-10', { roomsToSell: 3 });
+    const reserve = (kind: string, name: string, unit: string, remarks?: Array<{ text: string }>) =>
+      request('POST', '/reservations', {
+        token: fx.token,
+        body: {
+          propertyId: fx.propertyId,
+          checkin: '2029-09-03',
+          checkout: '2029-09-05',
+          kind,
+          guest: { name },
+          remarks,
+          lines: [{ roomId: fx.roomId, occupancyId: fx.occupancyId, adults: 2, roomUnitId: unit }],
+        },
+      });
+    const noted = await reserve('confirm', 'With Notes', u1!, [{ text: 'Arrives late' }]);
+    expect(noted.status, JSON.stringify(noted.body)).toBe(201);
+    expect((await reserve('hold_confirm', 'On Hold', u2!)).status).toBe(201);
+    // A third stay with no room yet.
+    expect((await book(fx, { checkin: '2029-09-03', checkout: '2029-09-04' })).status).toBe(201);
+
+    const cards = (await roomView(fx, '2029-09-03')).body as Array<Record<string, unknown>>;
+    expect(cards.find((c) => c.unitId === u1)).toMatchObject({
+      hasNotes: true,
+      reservationKind: 'confirm',
+    });
+    expect(cards.find((c) => c.unitId === u2)).toMatchObject({
+      hasNotes: false,
+      reservationKind: 'hold_confirm',
+    });
+
+    const attendant = await housekeepingUser(fx, 'HOUSEKEEPING_ATTENDANT');
+    const summary = await request(
+      'GET',
+      `/house-status/summary?propertyId=${fx.propertyId}&date=2029-09-03`,
+      { token: attendant.token },
+    );
+    expect(summary.status, JSON.stringify(summary.body)).toBe(200);
+    expect(summary.body.day).toEqual({
+      date: '2029-09-03',
+      soldRooms: 3,
+      blocked: 0,
+      totalRooms: 3,
+      availableInventory: 0,
+      arrivals: 3,
+      departures: 0,
+      unassigned: 1,
+    });
+    // The same numbers the calendar's header shows for that date.
+    const calendar = await request(
+      'GET',
+      `/stayview?propertyId=${fx.propertyId}&from=2029-09-03&to=2029-09-04`,
+      { token: fx.token },
+    );
+    expect(summary.body.day).toMatchObject({
+      soldRooms: calendar.body.footer[0].soldRooms,
+      availableInventory: calendar.body.footer[0].availableInventory,
+      arrivals: calendar.body.footer[0].arrivals,
+      departures: calendar.body.footer[0].departures,
+    });
+  });
+
   it('shows every room as vacant and clean when nothing is happening', async () => {
     const fx = await makeTenant({ roomQuantity: 3 });
     await makeUnits(fx, 3);

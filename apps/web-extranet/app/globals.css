@@ -367,6 +367,329 @@ body {
 .room-status-ripple {
   animation: room-status-ripple 650ms ease-out;
 }
+/* --- Room View ------------------------------------------------------------
+   A room tile carries tonight's guest as a Stay View bar (`.sv-bar.rv-band`), so a stay has
+   one colour, one shape and the same markers on both screens. */
+.rv-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  min-height: 148px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  text-align: left;
+  transition:
+    transform var(--dur-1) var(--ease-smooth),
+    box-shadow var(--dur-1) var(--ease-smooth),
+    border-color var(--dur-1) var(--ease-smooth),
+    opacity var(--dur-2) var(--ease-smooth);
+}
+.rv-tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2);
+}
+.rv-tile:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+.rv-tile[data-selected] {
+  z-index: 20;
+  border-color: var(--brass);
+  box-shadow:
+    0 0 0 1px var(--brass),
+    var(--shadow-2);
+}
+.rv-tile[data-dimmed] {
+  opacity: 0.6;
+  transform: scale(0.98);
+}
+.rv-tile[data-faded] {
+  opacity: 0.45;
+}
+.rv-tile[data-rush] {
+  border-color: var(--low);
+}
+.rv-tile[data-compact] {
+  min-height: 102px;
+  gap: 6px;
+  padding: 10px;
+}
+.rv-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rv-code {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+}
+.rv-tile[data-compact] .rv-code {
+  font-size: 15px;
+}
+.rv-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.rv-name {
+  margin-right: 4px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.rv-vip {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--low-ink);
+}
+.rv-hk {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.rv-tile[data-compact] .rv-hk {
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+}
+/* The stay band: a Stay View bar at a fixed size. Room for its markers above it. */
+.sv-bar.rv-band {
+  --bar-slant: 9px;
+  position: relative;
+  top: auto;
+  bottom: auto;
+  display: block;
+  height: 28px;
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+.rv-tile[data-compact] .rv-band {
+  --bar-slant: 8px;
+  height: 24px;
+  font-size: 12px;
+}
+.rv-band[data-state='vacant'] {
+  --bar-bg: var(--surface-2);
+  --bar-edge: var(--line-strong);
+  --bar-ink: var(--ink-3);
+  --bar-mark: var(--line-strong);
+  --bar-marks:
+    repeating-linear-gradient(to right, var(--bar-mark) 0 5px, transparent 5px 9px) top / 100% 1.5px
+      no-repeat,
+    repeating-linear-gradient(to right, var(--bar-mark) 0 5px, transparent 5px 9px) bottom / 100%
+      1.5px no-repeat;
+}
+.rv-band[data-state='vacant'] .sv-bar-name {
+  font-weight: 500;
+}
+.rv-meta {
+  min-height: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--ink-3);
+}
+.rv-flags {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 16px;
+  margin-top: auto;
+  padding-right: 36px;
+  color: var(--ink-3);
+}
+.rv-hk-button {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  transition: background-color var(--dur-1) var(--ease-smooth);
+}
+.rv-hk-button:hover {
+  background: var(--surface-2);
+}
+.rv-hk-button:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+}
+
+/* A section of the room drawer that folds: a caret that turns, not the browser's triangle. */
+.rv-disclosure {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.rv-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.rv-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.rv-disclosure > summary::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(-45deg);
+  transition: transform var(--dur-2) var(--ease-smooth);
+}
+.rv-disclosure[open] > summary::before {
+  transform: rotate(45deg);
+}
+.rv-disclosure > summary:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* The day at a glance: the Stay View's date header, laid out as one strip. */
+.rv-day {
+  display: grid;
+  grid-template-columns: auto repeat(6, minmax(0, 1fr));
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.rv-day-date,
+.rv-day-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 11px 16px;
+}
+.rv-day-date {
+  min-width: 118px;
+  padding-inline: 18px;
+  border-right: 1px solid var(--line-strong);
+}
+.rv-day-date[data-today] {
+  background: var(--cal-today-head);
+  box-shadow: inset 0 -3px 0 var(--cal-today-edge);
+}
+.rv-day-date[data-today] .rv-day-label,
+.rv-day-date[data-today] .rv-day-number,
+.rv-day-date[data-today] .rv-day-month {
+  color: var(--info-ink);
+}
+.rv-day-stat {
+  border-right: 1px solid var(--line);
+}
+.rv-day-stat:last-child {
+  border-right: 0;
+}
+a.rv-day-stat {
+  transition: background-color var(--dur-1) var(--ease-smooth);
+}
+a.rv-day-stat:hover {
+  background: var(--surface-2);
+}
+a.rv-day-stat:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+}
+.rv-day-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rv-day-number {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rv-day-month {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.rv-day-value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+.rv-day-value[data-tone='low'] {
+  color: var(--low-ink);
+}
+.rv-day-value[data-tone='closed'] {
+  color: var(--closed-ink);
+}
+.rv-day-meter {
+  width: 72px;
+}
+.rv-day-meter > span[data-full] {
+  background: var(--closed);
+}
+@media (max-width: 767px) {
+  .rv-day {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .rv-day-date {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .rv-day-stat {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .rv-day-stat:nth-child(4),
+  .rv-day-stat:last-child {
+    border-right: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*),
   ::view-transition-old(*),
@@ -403,29 +726,46 @@ body {
   --cal-drop-no: color-mix(in srgb, var(--closed) 9%, transparent);
   --cal-lift: 0 2px 4px rgba(16, 27, 45, 0.14), 0 10px 24px rgba(16, 27, 45, 0.2);
 
-  /* reservation states: fill, edge, text */
-  --stay-inhouse-bg: var(--avail);
-  --stay-inhouse-edge: color-mix(in srgb, var(--avail) 70%, black);
+  --cal-today-head: color-mix(in srgb, var(--info) 11%, var(--surface));
+  --cal-pin-shadow: 6px 0 8px -6px rgba(16, 27, 45, 0.28);
+  /* the fade on a bar's square end, where a stay runs on beyond the dates shown */
+  --cal-continue: color-mix(in srgb, var(--surface) 50%, transparent);
+  --cal-lift-filter: drop-shadow(0 2px 3px rgba(16, 27, 45, 0.18))
+    drop-shadow(0 8px 14px rgba(16, 27, 45, 0.22));
+
+  /* reservation states: fill, edge, text. Solid, saturated fills, readable across a desk; every
+     text pair holds WCAG AA in both themes (white on the fills ≥ 4.8:1, deep ink on amber
+     8.3:1), and the fills themselves do not change with the theme. */
+  --stay-inhouse-bg: #237a48;
+  --stay-inhouse-edge: #185a34;
   --stay-inhouse-ink: #ffffff;
-  --stay-confirmed-bg: color-mix(in srgb, var(--brand) 12%, var(--surface));
-  --stay-confirmed-edge: var(--brand);
-  --stay-confirmed-ink: var(--ink);
-  --stay-pending-bg: color-mix(in srgb, var(--low) 15%, var(--surface));
-  --stay-pending-edge: var(--low);
-  --stay-pending-ink: var(--low-ink);
-  --stay-hold-bg: color-mix(in srgb, var(--low) 10%, var(--surface));
-  --stay-hold-stripe: color-mix(in srgb, var(--low) 22%, var(--surface));
-  --stay-hold-edge: var(--low);
-  --stay-hold-ink: var(--low-ink);
+  --stay-confirmed-bg: #0a7aa3;
+  --stay-confirmed-edge: #075d7d;
+  --stay-confirmed-ink: #ffffff;
+  --stay-pending-bg: #f4bd4f;
+  --stay-pending-edge: #c98f1d;
+  --stay-pending-ink: #3a2700;
+  --stay-hold-bg: #f4bd4f;
+  --stay-hold-stripe: #e0a534;
+  --stay-hold-edge: #c98f1d;
+  --stay-hold-ink: #3a2700;
   --stay-tentative-bg: color-mix(in srgb, var(--info) 6%, var(--surface));
   --stay-tentative-edge: var(--info);
   --stay-tentative-ink: var(--info-ink);
-  --stay-checkedout-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
-  --stay-checkedout-edge: var(--ink-3);
-  --stay-checkedout-ink: var(--ink-2);
+  --stay-checkedout-bg: #636c78;
+  --stay-checkedout-edge: #4b525c;
+  --stay-checkedout-ink: #ffffff;
+  /* exceptions — no-shows, cancellations, a refused drop — carry red */
   --stay-closed-bg: color-mix(in srgb, var(--closed) 10%, var(--surface));
   --stay-closed-edge: var(--closed);
   --stay-closed-ink: var(--closed-ink);
+  --stay-issue-bg: var(--closed);
+  --stay-issue-ink: #ffffff;
+  /* the markers on a bar's top edge, and the header's unassigned badge */
+  --stay-due: #d23c3c;
+  --stay-note: #f0a92e;
+  --stay-unassigned-bg: #fbe3a0;
+  --stay-unassigned-ink: #4a3300;
   --stay-oos-a: color-mix(in srgb, var(--closed) 16%, var(--surface));
   --stay-oos-b: color-mix(in srgb, var(--closed) 6%, var(--surface));
   --stay-oos-edge: var(--closed);
@@ -441,18 +781,335 @@ body {
   --cal-selection: color-mix(in srgb, var(--brass) 20%, transparent);
   --cal-selection-edge: var(--brass);
   --cal-lift: 0 2px 4px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.55);
-  --stay-confirmed-bg: color-mix(in srgb, var(--brand) 42%, var(--surface));
-  --stay-confirmed-edge: var(--brand-ink);
-  --stay-pending-bg: color-mix(in srgb, var(--low) 22%, var(--surface));
-  --stay-hold-bg: color-mix(in srgb, var(--low) 14%, var(--surface));
-  --stay-hold-stripe: color-mix(in srgb, var(--low) 28%, var(--surface));
+  --cal-lift-filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45))
+    drop-shadow(0 8px 14px rgba(0, 0, 0, 0.5));
+  --cal-today-head: color-mix(in srgb, var(--info) 18%, var(--surface));
+  --cal-pin-shadow: 6px 0 10px -6px rgba(0, 0, 0, 0.7);
+  --stay-unassigned-bg: #5a4718;
+  --stay-unassigned-ink: #fbe3a0;
   --stay-tentative-bg: color-mix(in srgb, var(--info) 10%, var(--surface));
-  --stay-checkedout-bg: color-mix(in srgb, var(--ink) 10%, var(--surface));
   --stay-closed-bg: color-mix(in srgb, var(--closed) 16%, var(--surface));
   --stay-oos-a: color-mix(in srgb, var(--closed) 24%, var(--surface));
   --stay-oos-b: color-mix(in srgb, var(--closed) 10%, var(--surface));
   --stay-blocked-a: color-mix(in srgb, var(--ink) 16%, var(--surface));
   --stay-blocked-b: color-mix(in srgb, var(--ink) 7%, var(--surface));
+}
+
+/* Inside the calendar every rule is the stronger line, so rows and nights read at a glance. */
+.sv-grid {
+  --line: var(--line-strong);
+  --bar-skew: -18deg; /* the slant's angle: atan(slant / bar height) in both densities */
+  scrollbar-gutter: stable;
+}
+
+/* --- the date header -----------------------------------------------------
+   Every date cell and the corner key share one row template, so the key's "Occupancy" and
+   "Free · In · Out" sit level with the numbers they explain. */
+.sv-head {
+  --head-rows: 13px 26px 20px 17px 20px;
+}
+.sv-head[data-density='compact'] {
+  --head-rows: 12px 22px 19px 16px 19px;
+}
+.sv-head[data-header-stats='false'] {
+  --head-rows: 13px 26px 20px;
+}
+.sv-head[data-header-stats='false'][data-density='compact'] {
+  --head-rows: 12px 22px 19px;
+}
+.sv-date,
+.sv-head-key {
+  display: grid;
+  grid-template-rows: var(--head-rows);
+  align-items: center;
+  row-gap: 2px;
+  padding-block: 7px 6px;
+}
+.sv-date {
+  justify-items: center;
+  text-align: center;
+}
+.sv-date[data-weekend] {
+  background: var(--surface-2);
+}
+/* The header is sticky over the rows, so today's tint must be opaque. */
+.sv-date[data-today='true'] {
+  background: var(--cal-today-head);
+  box-shadow: inset 0 -3px 0 var(--cal-today-edge);
+}
+.sv-date-holiday {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--brass);
+}
+.sv-date-weekday {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.sv-date-weekday svg {
+  color: var(--brass);
+}
+.sv-date-number {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sv-head[data-density='compact'] .sv-date-number {
+  font-size: 19px;
+}
+.sv-date-month {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.sv-date[data-today='true'] .sv-date-weekday,
+.sv-date[data-today='true'] .sv-date-number,
+.sv-date[data-today='true'] .sv-date-month {
+  color: var(--info-ink);
+}
+.sv-date-occ {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+.sv-date-occ[data-full] {
+  color: var(--closed-ink);
+}
+.sv-date-meter {
+  display: block;
+  width: 36px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+.sv-date-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--info);
+}
+.sv-date-occ[data-full] .sv-date-meter > span {
+  background: var(--closed);
+}
+/* Free · in · out fits a compact column with three-digit counts; beyond that it clips rather
+   than spilling into the next date. */
+.sv-date-moves {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 4px);
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ink-2);
+}
+.sv-date-moves > span {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 1px;
+}
+.sv-head[data-density='compact'] .sv-date-moves {
+  gap: 3px;
+  letter-spacing: -0.02em;
+}
+.sv-head[data-density='compact'] .sv-date-moves svg {
+  width: 10px;
+  height: 10px;
+}
+.sv-date-moves svg,
+.sv-head-hint svg {
+  color: var(--ink-3);
+}
+.sv-unassigned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--stay-unassigned-bg);
+  color: var(--stay-unassigned-ink);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: filter var(--dur-1) var(--ease-smooth);
+}
+.sv-unassigned-badge:hover {
+  filter: brightness(0.95);
+}
+.sv-unassigned-badge:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+}
+/* The corner key: what the rooms are on the left, and against the dates on the right the name
+   of each row of numbers, level with it. */
+.sv-head-key {
+  padding-inline: 12px 10px;
+  border-right: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+.sv-head-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.sv-head-window {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+}
+.sv-head-count {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+.sv-head[data-density='compact'] .sv-head-count {
+  font-size: 19px;
+}
+.sv-head-count-unit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.sv-head-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ink-3);
+}
+.sv-head-hint svg:not(:first-child) {
+  margin-left: 7px;
+}
+/* The same meter every date draws, so "Occupancy" points at it. */
+.sv-head-meter {
+  display: block;
+  width: 16px;
+  height: 3px;
+  margin-left: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--info) 0 60%, var(--line-strong) 60%);
+}
+.sv-head-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--stay-unassigned-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stay-unassigned-ink) 35%, transparent);
+}
+
+/* The pinned room column casts an edge once the dates scroll under it. */
+.sv-pin {
+  transition: box-shadow var(--dur-1) var(--ease-smooth);
+}
+.sv-grid[data-scrolled-x='true'] .sv-pin {
+  box-shadow: var(--cal-pin-shadow);
+}
+
+/* --- a room type's row: rooms left to sell, and the lowest rate ---------- */
+.sv-type-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-right: 1px solid var(--line);
+}
+.sv-type-avail {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-2);
+}
+.sv-type-avail svg {
+  color: var(--ink-3);
+}
+.sv-type-avail[data-none] {
+  color: var(--closed-ink);
+}
+.sv-type-rate {
+  display: block;
+  max-width: calc(100% - 4px);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.sv-type-rate[data-missing] {
+  font-weight: 500;
+  color: var(--ink-3);
+}
+/* Sized so a converted rate ("FROM ≈ Rs 37,437") fits a comfortable column. */
+.sv-type-from {
+  margin-right: 3px;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* A compact column still fits "FROM Rs 128,455". */
+.sv-grid[data-density='compact'] .sv-type-rate {
+  font-size: 10px;
+  letter-spacing: -0.02em;
+}
+.sv-grid[data-density='compact'] .sv-type-from {
+  margin-right: 2px;
+  font-size: 8px;
+  letter-spacing: 0.02em;
 }
 
 /* The strip each room's bars sit on: one node per room, the night rules drawn behind it. */
@@ -492,8 +1149,8 @@ body {
 .sv-col-today {
   background: var(--cal-today);
   box-shadow:
-    inset 2px 0 0 color-mix(in srgb, var(--cal-today-edge) 55%, transparent),
-    inset -2px 0 0 color-mix(in srgb, var(--cal-today-edge) 55%, transparent);
+    inset 2px 0 0 color-mix(in srgb, var(--cal-today-edge) 70%, transparent),
+    inset -2px 0 0 color-mix(in srgb, var(--cal-today-edge) 70%, transparent);
 }
 .sv-col-today[data-flash='true'] {
   animation: sv-today-flash 900ms var(--ease-smooth);
@@ -507,77 +1164,66 @@ body {
     background: color-mix(in srgb, var(--info) 26%, transparent);
   }
 }
-.sv-date[data-today='true'] {
-  background: var(--cal-today);
-  box-shadow: inset 0 -2px 0 var(--cal-today-edge);
-}
-
-/* --- reservation and block bars ------------------------------------------ */
+/* --- reservation and block bars ------------------------------------------
+   A bar is an unpainted box that lets the pointer through; its parallelogram, .sv-bar-shape,
+   alone takes the pointer. A reservation's ends lean by --bar-slant and are centred on the
+   middle of its arrival and departure dates (layout.ts `barPlacement`). A square end is a stay
+   running on beyond the dates shown; blocks keep square ends and a hatch. The shape's layers,
+   top first: marks (dashed or red edges), the two continuation fades, the state's fill. */
 .sv-bar {
   --bar-bg: var(--stay-confirmed-bg);
   --bar-edge: var(--stay-confirmed-edge);
   --bar-ink: var(--stay-confirmed-ink);
+  --lean-start: 0px;
+  --lean-end: 0px;
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-  padding: 0 8px 0 9px;
-  border-radius: 7px;
-  background: var(--bar-bg);
+  top: var(--bar-inset, 6px);
+  bottom: var(--bar-inset, 6px);
+  isolation: isolate;
+  pointer-events: none;
   color: var(--bar-ink);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bar-edge) 38%, transparent);
   font-size: 12px;
   line-height: 1.15;
-  cursor: pointer;
   user-select: none;
   touch-action: manipulation;
   transition:
     opacity var(--dur-2) var(--ease-smooth),
     filter var(--dur-2) var(--ease-smooth),
-    box-shadow var(--dur-1) var(--ease-smooth),
     transform var(--dur-1) var(--ease-smooth);
 }
-.sv-bar:hover {
-  filter: brightness(0.98) saturate(1.08);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--bar-edge) 70%, transparent),
-    var(--shadow-1);
+.sv-bar[data-slant-start='true'] {
+  --lean-start: var(--bar-slant, 10px);
 }
-:root[data-theme='dark'] .sv-bar:hover {
-  filter: brightness(1.12);
-}
-/* The arrival edge: a solid lead on the first night. A continuation from before the window has
-   a square, fading edge instead, so a clipped stay never reads as a short one. */
-.sv-bar[data-arrival='true']::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--bar-edge);
+.sv-bar[data-slant-end='true'] {
+  --lean-end: var(--bar-slant, 10px);
 }
 .sv-bar[data-arrival='false'] {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-.sv-bar[data-arrival='false']::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 16px;
-  pointer-events: none;
-  background: linear-gradient(
-    to right,
-    color-mix(in srgb, var(--surface) 60%, transparent),
-    transparent
-  );
+  --fade-start: linear-gradient(to right, var(--cal-continue), transparent 14px);
 }
 .sv-bar[data-departure='false'] {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  --fade-end: linear-gradient(to left, var(--cal-continue), transparent 14px);
+}
+.sv-bar-shape {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bar-marks, none), var(--fade-start, none), var(--fade-end, none), var(--bar-bg);
+  clip-path: polygon(var(--lean-start) 0, 100% 0, calc(100% - var(--lean-end)) 100%, 0 100%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* The words keep clear of each slant; layout's tier maths subtracts the same amount. */
+.sv-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 calc(var(--lean-end) * 0.75 + 6px) 0 calc(var(--lean-start) * 0.75 + 6px);
+}
+.sv-bar-content > svg {
+  flex-shrink: 0;
 }
 .sv-bar[data-state='inhouse'] {
   --bar-bg: var(--stay-inhouse-bg);
@@ -589,9 +1235,6 @@ body {
   --bar-bg: var(--stay-pending-bg);
   --bar-edge: var(--stay-pending-edge);
   --bar-ink: var(--stay-pending-ink);
-  box-shadow: inset 0 0 0 1px var(--bar-edge);
-  outline: 1px dashed var(--bar-edge);
-  outline-offset: -3px;
 }
 .sv-bar[data-state='hold'] {
   --bar-bg: repeating-linear-gradient(
@@ -606,8 +1249,12 @@ body {
   --bar-bg: var(--stay-tentative-bg);
   --bar-edge: var(--stay-tentative-edge);
   --bar-ink: var(--stay-tentative-ink);
-  outline: 1px dashed var(--bar-edge);
-  outline-offset: -1px;
+  --bar-mark: var(--bar-edge);
+  --bar-marks:
+    repeating-linear-gradient(to right, var(--bar-mark) 0 5px, transparent 5px 9px) top / 100% 2px
+      no-repeat,
+    repeating-linear-gradient(to right, var(--bar-mark) 0 5px, transparent 5px 9px) bottom / 100%
+      2px no-repeat;
 }
 .sv-bar[data-state='checkedout'] {
   --bar-bg: var(--stay-checkedout-bg);
@@ -619,6 +1266,9 @@ body {
   --bar-bg: var(--stay-closed-bg);
   --bar-edge: var(--stay-closed-edge);
   --bar-ink: var(--stay-closed-ink);
+  --bar-marks:
+    linear-gradient(var(--bar-edge), var(--bar-edge)) top / 100% 2px no-repeat,
+    linear-gradient(var(--bar-edge), var(--bar-edge)) bottom / 100% 2px no-repeat;
 }
 .sv-bar[data-state='out_of_service'] {
   --bar-bg: repeating-linear-gradient(135deg, var(--stay-oos-a) 0 6px, var(--stay-oos-b) 6px 12px);
@@ -730,29 +1380,81 @@ body {
   --tone-soft: color-mix(in srgb, var(--tag-rose) 16%, var(--surface));
 }
 
-/* A stay not yet given a room: the Unassigned lane draws it with a dashed outline. */
+/* A stay not yet given a room: dashed top and bottom edges, in the Unassigned lane. */
 .sv-bar[data-unassigned='true'] {
-  outline: 1.5px dashed var(--bar-edge);
-  outline-offset: -2px;
+  --bar-mark: color-mix(in srgb, var(--bar-ink) 70%, transparent);
+  --bar-marks:
+    repeating-linear-gradient(to right, var(--bar-mark) 0 5px, transparent 5px 9px) top / 100% 2px
+      no-repeat,
+    repeating-linear-gradient(to right, var(--bar-mark) 0 5px, transparent 5px 9px) bottom / 100%
+      2px no-repeat;
 }
 
-/* Interaction states — each looks different (UX-STANDARD: hover ≠ focus ≠ selected ≠ result). */
-.sv-bar:focus-visible {
-  outline: 2px solid var(--brass);
-  outline-offset: 2px;
-  z-index: 3;
+/* The markers on a bar's top edge: red for money owed, amber for notes. They sit outside the
+   shape, so its clipping never hides them, and a ring of the surface keeps them apart from any
+   fill. */
+.sv-bar-markers {
+  position: absolute;
+  top: -6px;
+  left: calc(var(--lean-start) + 2px);
+  display: flex;
+  gap: 2px;
+  pointer-events: auto;
+}
+.sv-marker {
+  display: block;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--stay-due);
+}
+.sv-marker[data-marker='notes'] {
+  border-radius: 3px;
+  background: var(--stay-note);
+}
+
+/* Interaction states — each looks different (UX-STANDARD: hover ≠ focus ≠ selected ≠ result).
+   Rings follow the parallelogram: drop-shadows stacked on the bar, which is not clipped (a
+   filter on the shape itself would be clipped away with it). Only these states carry a filter,
+   so a chart of hundreds of bars composites none of them at rest. */
+.sv-grid,
+.sv-swatch {
+  --hover-tint: brightness(1.06) saturate(1.05);
+  --ring-focus: drop-shadow(2px 0 0 var(--brass)) drop-shadow(-2px 0 0 var(--brass))
+    drop-shadow(0 2px 0 var(--brass)) drop-shadow(0 -2px 0 var(--brass));
+  --ring-selected: drop-shadow(1.5px 0 0 var(--surface)) drop-shadow(-1.5px 0 0 var(--surface))
+    drop-shadow(0 1.5px 0 var(--surface)) drop-shadow(0 -1.5px 0 var(--surface))
+    drop-shadow(2px 0 0 var(--brass)) drop-shadow(-2px 0 0 var(--brass))
+    drop-shadow(0 2px 0 var(--brass)) drop-shadow(0 -2px 0 var(--brass));
+  --ring-linked: drop-shadow(1.5px 0 0 var(--cal-linked)) drop-shadow(-1.5px 0 0 var(--cal-linked))
+    drop-shadow(0 1.5px 0 var(--cal-linked)) drop-shadow(0 -1.5px 0 var(--cal-linked));
+  --cal-linked: color-mix(in srgb, var(--brass) 70%, var(--surface));
+}
+:root[data-theme='dark'] .sv-grid {
+  --hover-tint: brightness(1.14);
+}
+.sv-bar:hover {
+  filter: var(--hover-tint);
+}
+.sv-bar[data-linked='true']:not([data-selected='true']) {
+  filter: var(--ring-linked);
 }
 .sv-bar[data-selected='true'] {
   z-index: 2;
-  box-shadow:
-    0 0 0 2px var(--surface),
-    0 0 0 4px var(--brass),
-    var(--shadow-2);
+  filter: var(--ring-selected);
 }
-.sv-bar[data-linked='true']:not([data-selected='true']) {
-  box-shadow:
-    0 0 0 2px var(--surface),
-    0 0 0 3px color-mix(in srgb, var(--brass) 70%, transparent);
+.sv-bar[data-selected='true']:hover {
+  filter: var(--hover-tint) var(--ring-selected);
+}
+.sv-bar:focus-visible {
+  outline: none;
+  z-index: 3;
+  filter: var(--ring-focus);
+}
+.sv-bar:focus-visible:hover {
+  filter: var(--hover-tint) var(--ring-focus);
 }
 .sv-bar[data-dim='true'] {
   opacity: 0.28;
@@ -768,14 +1470,10 @@ body {
   }
   20% {
     transform: scale(1.04);
-    box-shadow:
-      0 0 0 2px var(--surface),
-      0 0 0 6px color-mix(in srgb, var(--brass) 55%, transparent);
+    filter: drop-shadow(0 0 3px var(--brass)) drop-shadow(0 0 7px var(--brass));
   }
-  60% {
-    box-shadow:
-      0 0 0 2px var(--surface),
-      0 0 0 10px transparent;
+  45% {
+    filter: drop-shadow(0 0 3px var(--brass)) drop-shadow(0 0 7px var(--brass));
   }
 }
 .sv-bar[data-drag-source='true'] {
@@ -805,8 +1503,11 @@ body {
   font-weight: 600;
 }
 .sv-bar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   flex-shrink: 0;
-  opacity: 0.82;
+  opacity: 0.85;
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -818,47 +1519,78 @@ body {
   gap: 3px;
   flex-shrink: 0;
 }
-/* The departure handle: a quiet grip that appears on hover and focus. */
+/* The departure handle: a grip laid along the slanted end, shown on hover and focus. It is
+   skewed like the end, so its hit area stays inside the gap and never reaches the next stay. */
 .sv-bar-resize {
   position: absolute;
-  inset: 0 0 0 auto;
-  width: 10px;
+  top: 0;
+  bottom: 0;
+  right: calc(var(--lean-end) / 2 - 2px);
+  width: 8px;
+  pointer-events: auto;
   cursor: ew-resize;
   opacity: 0;
-  background: linear-gradient(
-    to right,
-    transparent 3px,
-    var(--bar-edge) 3px 4px,
-    transparent 4px 6px,
-    var(--bar-edge) 6px 7px,
-    transparent 7px
-  );
+  transform: skewX(var(--bar-skew, -18deg));
   transition: opacity var(--dur-1) var(--ease-smooth);
+}
+.sv-bar-resize::before {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 1px;
+  width: 4px;
+  border-left: 1px solid var(--bar-ink);
+  border-right: 1px solid var(--bar-ink);
 }
 .sv-bar:hover .sv-bar-resize,
 .sv-bar-resize:focus-visible {
-  opacity: 0.7;
+  opacity: 0.75;
 }
 .sv-bar-resize:focus-visible {
   outline: 2px solid var(--brass);
-  outline-offset: -2px;
+  outline-offset: 0;
 }
 
-/* The ghost that follows a drag, lifted above the grid. */
+/* The ghost that follows a drag, lifted above the grid (a filter, so the lift follows the
+   shape rather than its box). A drop that would be refused turns it red. */
 .sv-ghost {
   pointer-events: none;
   position: absolute;
   z-index: 6;
-  box-shadow: var(--cal-lift);
+  filter: var(--cal-lift-filter);
   transform: translateY(-2px);
   transition:
     left var(--dur-1) var(--ease-smooth),
     top var(--dur-1) var(--ease-smooth),
     width var(--dur-1) var(--ease-smooth);
 }
+.sv-ghost > .sv-bar-shape {
+  pointer-events: none;
+}
 .sv-ghost[data-issue='true'] {
-  opacity: 0.8;
-  filter: grayscale(0.4);
+  --bar-bg: var(--stay-issue-bg);
+  --bar-edge: var(--stay-issue-bg);
+  --bar-ink: var(--stay-issue-ink);
+}
+
+/* A bar drawn in the legend, at a fixed size. */
+.sv-swatch {
+  --bar-slant: 7px;
+  position: relative;
+  top: auto;
+  bottom: auto;
+  flex-shrink: 0;
+  width: 40px;
+  height: 20px;
+}
+.sv-swatch .sv-bar-shape {
+  pointer-events: none;
+  cursor: default;
+}
+.sv-swatch .sv-bar-content {
+  justify-content: center;
+  padding: 0;
 }
 .sv-range {
   pointer-events: none;

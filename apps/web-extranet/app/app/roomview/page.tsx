@@ -4,39 +4,36 @@ import * as React from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Bed,
-  Crown,
-  Prohibit,
-  ShieldCheck,
-  SignIn,
-  SignOut,
-  Sparkle,
-  Users,
-  Wallet,
-  Wrench,
-  Cigarette,
   Wheelchair,
-  BellSlash,
-  ForkKnife,
-  Lightning,
-  LinkSimple,
   MapPin,
-  CalendarBlank,
-  GitBranch,
-  ArrowsLeftRight,
+  Broom,
+  CaretDown,
+  CaretLeft,
+  GearSix,
+  CaretRight,
+  SquaresFour,
 } from '@phosphor-icons/react';
 import {
   Badge,
   Button,
   Card,
+  Checkbox,
   CountedChips,
+  DatePicker,
+  PageHeader,
+  SegmentedControl,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
   Dialog,
   DialogContent,
   Input,
   Sheet,
   SheetContent,
   Skeleton,
-  Tooltip,
   toast,
   cn,
   type Chip,
@@ -44,6 +41,7 @@ import {
 } from '@yohobed/ui';
 import {
   getRoomView,
+  getHouseSummary,
   listFloorLayouts,
   saveFloorLayout,
   listCleaningTasks,
@@ -84,6 +82,13 @@ import { todayISO } from '@/lib/format';
 import { useEntitlements, useTenantRole } from '@/lib/queries';
 import Link from 'next/link';
 import { ViewSwitch } from '@/components/stayview/view-switch';
+import { LegendPopover } from '@/components/stayview/controls';
+import { RoomTile } from '@/components/roomview/room-tile';
+import { DaySummary } from '@/components/roomview/day-summary';
+import { dayOfMonth, monthShort, weekday } from '@/components/stayview/model/dates';
+
+/** A date as the desk reads it everywhere else: Mon 29 Sep. */
+const deskDate = (iso: string) => `${weekday(iso)} ${dayOfMonth(iso)} ${monthShort(iso)}`;
 
 const STATE_LABEL: Record<RoomState, string> = {
   Vacant: 'Vacant',
@@ -122,7 +127,8 @@ export default function RoomViewPage() {
   const { propertyId } = useActiveProperty();
   const role = useTenantRole();
 
-  const [date, setDate] = React.useState(() => todayISO());
+  const today = React.useMemo(() => todayISO(), []);
+  const [date, setDate] = React.useState(today);
   const [filter, setFilter] = React.useState<Filter>('all');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [view, setView] = React.useState<'rooms' | 'floor'>('rooms');
@@ -146,6 +152,14 @@ export default function RoomViewPage() {
     queryFn: () => listFloorLayouts(propertyId!),
     enabled: !!propertyId,
   });
+  // The day's totals, counted by the Stay View's own logic so both screens agree.
+  const house = useQuery({
+    queryKey: ['house-summary', propertyId, date],
+    queryFn: () => getHouseSummary(propertyId!, date),
+    enabled: !!propertyId,
+    placeholderData: (prev) => prev,
+    refetchInterval: 20_000,
+  });
   const tasks = useQuery({
     queryKey: ['cleaning-tasks', propertyId, date],
     queryFn: () => listCleaningTasks(propertyId!, date),
@@ -157,6 +171,7 @@ export default function RoomViewPage() {
     qc.invalidateQueries({ queryKey: ['room-view'] });
     qc.invalidateQueries({ queryKey: ['stayview'] });
     qc.invalidateQueries({ queryKey: ['cleaning-tasks'] });
+    qc.invalidateQueries({ queryKey: ['house-summary'] });
   };
 
   React.useEffect(() => {
@@ -297,142 +312,173 @@ export default function RoomViewPage() {
           : c.state === filter),
   );
 
+  const floorLabel = (f: string) =>
+    f === 'Unassigned' ? 'No floor set' : /^\d+$/.test(f) ? `Floor ${f}` : f;
+  const shiftDate = (days: number) => {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    setDate(d.toISOString().slice(0, 10));
+  };
+
   return (
-    <div ref={viewRootRef}>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div>
-          <div className="mb-1 font-mono text-xs uppercase tracking-widest text-ink-3">
-            Front desk
-          </div>
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold tracking-tight text-ink">Rooms</h1>
-            <div
-              role="tablist"
-              aria-label="Room presentation"
-              className="relative grid grid-cols-2 rounded-lg border border-line bg-surface-2 p-0.5"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  'pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 w-[calc(50%-2px)] rounded-md bg-surface shadow-sm transition-transform duration-500 ease-smooth',
-                  view === 'rooms' && 'translate-x-full',
-                )}
-              />
-              {(['floor', 'rooms'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === mode}
-                  onClick={() => switchView(mode)}
-                  className={cn(
-                    'relative z-10 rounded-md px-3 py-1 text-sm capitalize transition-colors',
-                    view === mode ? 'font-semibold text-ink' : 'text-ink-3',
-                  )}
-                >
-                  {mode === 'floor' ? 'Floor' : 'Rooms'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <ViewSwitch current="room" />
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => e.target.value && setDate(e.target.value)}
-            className="w-40"
-            aria-label="Business date"
+    <div ref={viewRootRef} className="min-w-0">
+      <PageHeader eyebrow="Front desk" title="Room view" actions={<ViewSwitch current="room" />} />
+
+      {/* Toolbar: which day, how to lay the rooms out, and the day's housekeeping sweep. */}
+      <div
+        // Pinned below the app bar while the rooms scroll — on a phone it would take the screen.
+        className="z-20 -mx-1 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-2 shadow-card md:sticky md:top-16"
+        role="toolbar"
+        aria-label="Room view toolbar"
+      >
+        <div
+          role="tablist"
+          aria-label="Room presentation"
+          className="relative grid h-8 grid-cols-2 items-center rounded-lg border border-line-strong bg-surface-2 p-0.5"
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              'pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 w-[calc(50%-2px)] rounded-md bg-surface shadow-card transition-transform duration-3 ease-smooth',
+              view === 'rooms' && 'translate-x-full',
+            )}
           />
+          {(['floor', 'rooms'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={view === mode}
+              onClick={() => switchView(mode)}
+              className={cn(
+                'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors duration-1',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass',
+                view === mode ? 'text-ink' : 'text-ink-3 hover:text-ink',
+              )}
+            >
+              {mode === 'floor' ? (
+                <MapPin size={14} aria-hidden />
+              ) : (
+                <SquaresFour size={14} aria-hidden />
+              )}
+              {mode === 'floor' ? 'Floor' : 'Rooms'}
+            </button>
+          ))}
+        </div>
+        <Select
+          value={floor}
+          onValueChange={(next) => {
+            rememberRects();
+            setFloorDirection(Math.sign(floors.indexOf(next) - floors.indexOf(displayedFloor)));
+            setFloor(next);
+          }}
+        >
+          <SelectTrigger id="room-floor" aria-label="Floor" className="h-8 w-[9.5rem]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {view === 'rooms' && <SelectItem value="all">All floors</SelectItem>}
+            {floors.map((f) => (
+              <SelectItem key={f} value={f}>
+                {floorLabel(f)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Previous day"
+            title="Previous day"
+            onClick={() => shiftDate(-1)}
+          >
+            <CaretLeft size={16} aria-hidden />
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setDate(today)}>
+            Today
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Next day"
+            title="Next day"
+            onClick={() => shiftDate(1)}
+          >
+            <CaretRight size={16} aria-hidden />
+          </Button>
+        </div>
+        <DatePicker
+          value={date}
+          today={today}
+          aria-label="Business date"
+          className="w-[9.5rem]"
+          onChange={(iso) => setDate(iso)}
+        />
+        {view === 'rooms' && (
+          <SegmentedControl
+            aria-label="Card density"
+            value={density}
+            onChange={(d) => {
+              rememberRects();
+              setDensity(d);
+            }}
+            options={[
+              { value: 'comfortable', label: 'Comfortable' },
+              { value: 'compact', label: 'Compact' },
+            ]}
+          />
+        )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 px-1 text-sm text-ink-2">
+            <Switch
+              checked={maintenanceOverlay}
+              onCheckedChange={setMaintenanceOverlay}
+              aria-label="Maintenance overlay"
+            />
+            Maintenance
+          </label>
+          <LegendPopover />
           {role !== 'HOUSEKEEPING_ATTENDANT' && (
             <Button
               variant="secondary"
               size="sm"
               onClick={() => sweep.mutate()}
               disabled={sweep.isPending || !propertyId}
+              title="Mark every room whose guest left today as dirty"
             >
-              <Sparkle size={14} />
+              <Broom size={15} aria-hidden />
               {sweep.isPending ? 'Marking…' : 'Mark departures dirty'}
             </Button>
           )}
         </div>
       </div>
 
-      {sweep.data && (
-        <p className="mb-3 text-sm text-ink-2">
-          Marked {sweep.data.marked} departed room{sweep.data.marked === 1 ? '' : 's'} as dirty.
-        </p>
-      )}
-
-      <CountedChips
-        chips={chips}
-        value={filter}
-        onChange={(next) => {
-          rememberRects();
-          setFilter(next);
-        }}
-        loading={rooms.isLoading}
-        aria-label="Room status"
-        className="mb-4"
+      <DaySummary
+        date={date}
+        today={today}
+        day={house.data?.day}
+        dirty={count((c) => c.housekeeping === 'dirty')}
+        loading={house.isLoading}
+        canOpenCalendar={role !== 'HOUSEKEEPING_ATTENDANT' && role !== 'HOUSEKEEPING_SUPERVISOR'}
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <label className="text-xs font-semibold text-ink-3" htmlFor="room-floor">
-          Floor
-        </label>
-        <select
-          id="room-floor"
-          value={floor}
-          onChange={(e) => {
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <CountedChips
+          chips={chips}
+          value={filter}
+          onChange={(next) => {
             rememberRects();
-            setFloorDirection(
-              Math.sign(floors.indexOf(e.target.value) - floors.indexOf(displayedFloor)),
-            );
-            setFloor(e.target.value);
+            setFilter(next);
           }}
-          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink"
-        >
-          {view === 'rooms' && <option value="all">All floors</option>}
-          {floors.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
-        {view === 'rooms' && (
-          <div
-            role="group"
-            aria-label="Card density"
-            className="ml-2 flex rounded-lg border border-line p-0.5"
-          >
-            {(['comfortable', 'compact'] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={density === d}
-                onClick={() => {
-                  rememberRects();
-                  setDensity(d);
-                }}
-                className={cn(
-                  'rounded-md px-2 py-1 text-xs capitalize',
-                  density === d && 'bg-surface-2 font-semibold',
-                )}
-              >
-                {d}
-              </button>
-            ))}
-          </div>
+          loading={rooms.isLoading}
+          aria-label="Room status"
+        />
+        {sweep.data && (
+          <p className="text-sm text-ink-2" role="status">
+            Marked {sweep.data.marked} departed room{sweep.data.marked === 1 ? '' : 's'} as dirty.
+          </p>
         )}
-        <label className="ml-auto flex items-center gap-2 text-sm text-ink-2">
-          <input
-            type="checkbox"
-            checked={maintenanceOverlay}
-            onChange={(e) => setMaintenanceOverlay(e.target.checked)}
-          />{' '}
-          Maintenance overlay
-        </label>
       </div>
 
       {role === 'OWNER' && propertyId && (
@@ -440,7 +486,7 @@ export default function RoomViewPage() {
       )}
 
       {rooms.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(212px,1fr))] gap-3">
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="h-36 w-full" />
           ))}
@@ -451,11 +497,13 @@ export default function RoomViewPage() {
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
-          <div ref={gridRef}>
+          <div ref={gridRef} className="min-w-0">
             {view === 'floor' ? (
               <FloorCanvas
                 cards={visible}
+                date={date}
                 floor={displayedFloor}
+                floorName={floorLabel(displayedFloor)}
                 layout={layouts.data?.find((l) => l.floor === displayedFloor)}
                 propertyId={propertyId}
                 canEdit={canEditLayout}
@@ -479,8 +527,8 @@ export default function RoomViewPage() {
                 className={cn(
                   'grid gap-3',
                   density === 'compact'
-                    ? 'grid-cols-2 md:grid-cols-4 2xl:grid-cols-6'
-                    : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
+                    ? 'grid-cols-[repeat(auto-fill,minmax(160px,1fr))]'
+                    : 'grid-cols-[repeat(auto-fill,minmax(212px,1fr))]',
                 )}
                 style={{ viewTransitionName: 'room-layout' }}
               >
@@ -488,6 +536,7 @@ export default function RoomViewPage() {
                   <RoomTile
                     key={c.unitId}
                     card={c}
+                    date={date}
                     compact={density === 'compact'}
                     maintenanceOverlay={maintenanceOverlay}
                     onOpen={() => setSelectedId(c.unitId)}
@@ -517,7 +566,7 @@ export default function RoomViewPage() {
                 const el = document.querySelector<HTMLElement>(`[data-room-id="${id}"]`);
                 el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 el?.animate(
-                  [{ outline: '3px solid var(--brand)' }, { outline: '3px solid transparent' }],
+                  [{ outline: '3px solid var(--brass)' }, { outline: '3px solid transparent' }],
                   { duration: 1400 },
                 );
               }, 80);
@@ -540,266 +589,11 @@ export default function RoomViewPage() {
   );
 }
 
-/** One room card — Yanolja's badge set, so the whole floor reads at a glance. */
-function RoomTile({
-  card,
-  onOpen,
-  compact = false,
-  maintenanceOverlay = false,
-  index = 0,
-  onQuickStatus,
-  canInspect = false,
-  selected = false,
-  dimmed = false,
-}: {
-  card: RoomCard;
-  onOpen: () => void;
-  compact?: boolean;
-  maintenanceOverlay?: boolean;
-  index?: number;
-  onQuickStatus?: (status: HousekeepingState) => void;
-  canInspect?: boolean;
-  selected?: boolean;
-  dimmed?: boolean;
-}) {
-  const [quickOpen, setQuickOpen] = React.useState(false);
-  const [statusPulse, setStatusPulse] = React.useState(false);
-  const previousStatus = React.useRef(card.housekeeping);
-  React.useEffect(() => {
-    if (previousStatus.current !== card.housekeeping) {
-      setStatusPulse(true);
-      const timeout = window.setTimeout(() => setStatusPulse(false), 650);
-      previousStatus.current = card.housekeeping;
-      return () => window.clearTimeout(timeout);
-    }
-  }, [card.housekeeping]);
-  return (
-    <div
-      data-room-id={card.unitId}
-      className="room-tile-wrap group relative"
-      style={{
-        animationDelay: `${Math.min(index, 12) * 25}ms`,
-        viewTransitionName: `room-${card.unitId}`,
-      }}
-      onContextMenu={(event) => {
-        if (!onQuickStatus) return;
-        event.preventDefault();
-        setQuickOpen(true);
-      }}
-    >
-      <button
-        type="button"
-        onClick={onOpen}
-        className={cn(
-          'relative flex min-h-36 w-full flex-col gap-2 rounded-xl border border-l-[3px] bg-surface p-3 pr-9 text-left shadow-sm transition duration-200',
-          'hover:-translate-y-0.5 hover:border-ink-3 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand',
-          card.state === 'OutOfOrder'
-            ? 'border-closed'
-            : card.state === 'Occupied'
-              ? 'border-l-brand'
-              : card.state === 'ArrivingToday'
-                ? 'border-l-info'
-                : 'border-l-avail',
-          card.cleaningTask?.rush && 'room-rush ring-2 ring-low',
-          selected && 'z-20 scale-[1.03] border-brand shadow-lg',
-          dimmed && 'scale-[.97] opacity-60',
-          statusPulse && 'room-status-ripple',
-          maintenanceOverlay && card.openWorkOrders === 0 && !card.blockReason && 'opacity-45',
-          compact && 'min-h-28 gap-1',
-        )}
-      >
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-lg font-bold text-ink">{card.code}</span>
-          {card.displayName && (
-            <span className="truncate text-sm font-semibold text-ink-2" title={card.displayName}>
-              {card.displayName}
-            </span>
-          )}
-          {card.vip && (
-            <Tooltip label="VIP guest">
-              <Crown size={14} className="text-low-ink" />
-            </Tooltip>
-          )}
-          <div className="ml-auto flex items-center gap-1.5">
-            {card.balanceDue && (
-              <Tooltip label="Payment pending">
-                <Wallet size={14} className="text-closed-ink" />
-              </Tooltip>
-            )}
-            {card.openWorkOrders > 0 && (
-              <Tooltip label={`${card.openWorkOrders} open work order(s)`}>
-                <span className="flex items-center gap-0.5 text-low-ink">
-                  <Wrench size={13} />
-                  <span className="text-[11px] font-semibold">{card.openWorkOrders}</span>
-                </span>
-              </Tooltip>
-            )}
-            {card.state === 'ArrivingToday' && (
-              <Tooltip label="Arriving today">
-                <SignIn size={14} className="text-info" />
-              </Tooltip>
-            )}
-            {card.state === 'PendingCheckout' && (
-              <Tooltip label="Due out">
-                <SignOut size={14} className="text-low-ink" />
-              </Tooltip>
-            )}
-            {card.unitStatus === 'inactive' && (
-              <Tooltip label="Room disabled">
-                <Prohibit size={14} className="text-closed-ink" />
-              </Tooltip>
-            )}
-            {card.smokingPolicy !== 'unspecified' && (
-              <Tooltip label={card.smokingPolicy === 'smoking' ? 'Smoking room' : 'No smoking'}>
-                <span className="relative inline-flex">
-                  <Cigarette size={14} className="text-ink-3" />
-                  {card.smokingPolicy === 'non_smoking' && (
-                    <span className="absolute left-0 top-1/2 h-px w-full -rotate-45 bg-closed-ink" />
-                  )}
-                </span>
-              </Tooltip>
-            )}
-            {card.wheelchairAccessible && (
-              <Tooltip label="Wheelchair accessible">
-                <Wheelchair size={14} className="text-info" />
-              </Tooltip>
-            )}
-            {card.connectedRoomUnitId && (
-              <Tooltip label="Connected room">
-                <LinkSimple size={14} className="text-ink-3" />
-              </Tooltip>
-            )}
-            {card.doNotDisturb && (
-              <Tooltip label="Do not disturb">
-                <BellSlash size={14} className="text-low-ink" />
-              </Tooltip>
-            )}
-            {card.groupBooking && (
-              <Tooltip label="Group booking">
-                <Users size={14} className="text-ink-3" />
-              </Tooltip>
-            )}
-            {card.groupOwner && (
-              <Tooltip label="Group owner">
-                <Crown size={14} className="text-info" />
-              </Tooltip>
-            )}
-            {card.splitReservation && (
-              <Tooltip label="Linked multi-room reservation">
-                <GitBranch size={14} className="text-ink-3" />
-              </Tooltip>
-            )}
-            {card.plannedMove && (
-              <Tooltip label="Planned room move">
-                <ArrowsLeftRight size={14} className="text-low-ink" />
-              </Tooltip>
-            )}
-            {card.dayUse && (
-              <Tooltip label="Day-use reservation">
-                <CalendarBlank size={14} className="text-info" />
-              </Tooltip>
-            )}
-            {card.mealPlan && (
-              <Tooltip label={`Meal plan ${card.mealPlan}`}>
-                <ForkKnife size={14} className="text-ink-3" />
-              </Tooltip>
-            )}
-            {card.cleaningTask?.rush && (
-              <Tooltip label="Rush clean">
-                <Lightning size={14} className="text-low-ink" />
-              </Tooltip>
-            )}
-            {card.requestedSafetyFlag && (
-              <Tooltip label="Guest-requested safety preference">
-                <ShieldCheck size={14} className="text-low-ink" />
-              </Tooltip>
-            )}
-          </div>
-        </div>
-
-        <div className="truncate text-xs text-ink-3">{card.roomName}</div>
-
-        <div className="flex flex-wrap gap-1.5">
-          <Badge tone={STATE_TONE[card.state]}>{card.frontDeskLabel}</Badge>
-          <Badge tone={HK_TONE[card.housekeeping]} dot={false}>
-            {card.housekeeping === 'inspected' ? <ShieldCheck size={11} /> : <Bed size={11} />}
-            {HK_LABEL[card.housekeeping]}
-          </Badge>
-        </div>
-
-        <div className="mt-auto min-h-[1.25rem] truncate text-sm text-ink-2">
-          {card.guestName ? (
-            <span className="flex items-center gap-1.5">
-              {card.guestName}
-              {card.adults != null && (
-                <span className="flex items-center gap-0.5 text-xs text-ink-3">
-                  <Users size={11} />
-                  {card.adults + (card.children ?? 0)}
-                </span>
-              )}
-            </span>
-          ) : card.blockReason ? (
-            <span className="text-xs text-closed-ink">{card.blockReason}</span>
-          ) : (
-            <span className="text-xs text-ink-3">No reservation</span>
-          )}
-        </div>
-        {!compact && card.checkin && card.checkout && (
-          <p className="text-xs text-ink-3">
-            {card.checkin} &rarr; {card.checkout}
-          </p>
-        )}
-        {!compact && card.nextReservation && (
-          <p className="text-xs text-ink-3">
-            Next: {card.nextReservation.checkin} · {card.nextReservation.guestName}
-          </p>
-        )}
-        {!compact && card.source && card.bookingId && (
-          <p className="truncate text-xs text-ink-3">Source: {card.source}</p>
-        )}
-        {card.cleaningTask?.status === 'in_progress' && (
-          <span className="text-xs font-medium text-info">Cleaning in progress</span>
-        )}
-      </button>
-      {onQuickStatus && (
-        <div className="absolute bottom-2 right-2 z-30">
-          <button
-            type="button"
-            aria-label={`Quick housekeeping for room ${card.code}`}
-            aria-expanded={quickOpen}
-            onClick={() => setQuickOpen((open) => !open)}
-            className="rounded-md border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-2 shadow-sm hover:bg-surface-2 focus-visible:outline-brand"
-          >
-            HK
-          </button>
-          {quickOpen && (
-            <div className="absolute right-0 top-full z-40 mt-1 flex min-w-28 flex-col rounded-lg border border-line bg-surface p-1 shadow-lg">
-              {(
-                ['dirty', 'clean', ...(canInspect ? ['inspected'] : [])] as HousekeepingState[]
-              ).map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  className="rounded px-2 py-1 text-left text-xs text-ink hover:bg-surface-2 focus-visible:outline-brand"
-                  onClick={() => {
-                    onQuickStatus(status);
-                    setQuickOpen(false);
-                  }}
-                >
-                  {HK_LABEL[status]}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function FloorCanvas({
   cards,
+  date,
   floor,
+  floorName,
   layout,
   propertyId,
   canEdit,
@@ -812,7 +606,9 @@ function FloorCanvas({
   canInspect,
 }: {
   cards: RoomCard[];
+  date: string;
   floor: string;
+  floorName: string;
   layout?: FloorLayout;
   propertyId?: string;
   canEdit: boolean;
@@ -895,7 +691,7 @@ function FloorCanvas({
     >
       <div className="mb-3 flex items-center gap-2">
         <MapPin size={18} className="text-brand" />
-        <h2 className="font-semibold text-ink">{floor}</h2>
+        <h2 className="font-semibold text-ink">{floorName}</h2>
         <span className="text-xs text-ink-3">{cards.length} rooms</span>
         {canEdit && (
           <div className="ml-auto flex gap-2">
@@ -919,18 +715,18 @@ function FloorCanvas({
       {editing && (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-2">
           Drag rooms to position them.{' '}
-          <select
+          <Choice
             aria-label="Landmark type"
             value={landmarkKind}
-            onChange={(e) => setLandmarkKind(e.target.value as typeof landmarkKind)}
-            className="rounded border border-line bg-surface p-1"
-          >
-            {(['lift', 'stairs', 'service', 'corridor'] as const).map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setLandmarkKind(v as typeof landmarkKind)}
+            className="h-8 w-32"
+            options={[
+              { value: 'lift', label: 'Lift' },
+              { value: 'stairs', label: 'Stairs' },
+              { value: 'service', label: 'Service' },
+              { value: 'corridor', label: 'Corridor' },
+            ]}
+          />
           <Button
             size="sm"
             variant="secondary"
@@ -1103,6 +899,7 @@ function FloorCanvas({
             >
               <RoomTile
                 card={c}
+                date={date}
                 compact
                 maintenanceOverlay={maintenanceOverlay}
                 onOpen={() => {
@@ -1175,156 +972,152 @@ function RoomConfiguration({
     },
     onError: (error) => toast.error((error as Error).message),
   });
+  const [open, setOpen] = React.useState(false);
   return (
-    <details className="mb-4 rounded-xl border border-line bg-surface">
-      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink">
+    <section className="mb-4 overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-ink transition-colors duration-1 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+      >
+        <CaretDown
+          size={14}
+          weight="bold"
+          aria-hidden
+          className={cn(
+            'text-ink-3 transition-transform duration-2 ease-smooth',
+            !open && '-rotate-90',
+          )}
+        />
+        <GearSix size={15} aria-hidden className="text-ink-3" />
         Configure physical rooms
-      </summary>
-      <div className="border-t border-line p-4">
-        <div className="grid gap-2 lg:grid-cols-[1fr_8rem_9rem_8rem_10rem_auto_auto]">
-          <select
-            aria-label="Room type"
-            value={form.roomId}
-            onChange={(e) => setForm({ ...form, roomId: e.target.value })}
-            className="rounded-lg border border-line bg-surface px-2 py-2 text-sm"
-          >
-            <option value="">Choose room type</option>
-            {options.map((room) => (
-              <option key={room.id} value={room.id}>
-                {room.name}
-              </option>
+        <span className="ml-auto font-mono text-xs font-medium tabular-nums text-ink-3">
+          {(units.data ?? []).length} rooms
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-line p-4">
+          <div className="grid items-center gap-2 lg:grid-cols-[1fr_8rem_9rem_8rem_11rem_auto_auto]">
+            <Choice
+              aria-label="Room type"
+              placeholder="Choose room type"
+              value={form.roomId}
+              onChange={(v) => setForm({ ...form, roomId: v })}
+              options={options.map((room) => ({ value: room.id, label: room.name }))}
+            />
+            <Input
+              aria-label="Room code"
+              placeholder="Room 101"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
+            <Input
+              aria-label="Optional room name"
+              placeholder="Lotus (optional)"
+              value={form.displayName}
+              onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+            />
+            <Input
+              aria-label="Floor"
+              placeholder="Floor"
+              value={form.floor}
+              onChange={(e) => setForm({ ...form, floor: e.target.value })}
+            />
+            <Choice
+              aria-label="Smoking policy"
+              value={form.smokingPolicy}
+              onChange={(v) => setForm({ ...form, smokingPolicy: v as typeof form.smokingPolicy })}
+              options={SMOKING_OPTIONS}
+            />
+            <label className="flex items-center gap-2 text-xs text-ink-2">
+              <Checkbox
+                checked={form.wheelchairAccessible}
+                onCheckedChange={(v) => setForm({ ...form, wheelchairAccessible: v === true })}
+              />
+              Accessible
+            </label>
+            <Button
+              size="sm"
+              disabled={!form.roomId || !form.code.trim() || create.isPending}
+              onClick={() => create.mutate()}
+            >
+              Add room
+            </Button>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {(units.data ?? []).map((unit) => (
+              <div key={unit.id} className="rounded-lg border border-line p-2.5 text-xs">
+                <div className="mb-2 flex items-center gap-2">
+                  <strong className="font-mono text-ink">{unit.code}</strong>
+                  {unit.displayName && (
+                    <span className="font-semibold text-ink-2">· {unit.displayName}</span>
+                  )}
+                  <span className="text-ink-3">
+                    {unit.roomName} · {unit.floor ? `Floor ${unit.floor}` : 'No floor'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    aria-label={`Display name for ${unit.code}`}
+                    defaultValue={unit.displayName ?? ''}
+                    placeholder="Optional name"
+                    onBlur={(event) => {
+                      const value = event.target.value.trim();
+                      if (value !== (unit.displayName ?? ''))
+                        update.mutate({ id: unit.id, body: { displayName: value || null } });
+                    }}
+                  />
+                  <Input
+                    aria-label={`Notes for ${unit.code}`}
+                    defaultValue={unit.notes ?? ''}
+                    placeholder="Room notes"
+                    onBlur={(event) => {
+                      const value = event.target.value.trim();
+                      if (value !== (unit.notes ?? ''))
+                        update.mutate({ id: unit.id, body: { notes: value || null } });
+                    }}
+                  />
+                  <Choice
+                    aria-label={`Smoking policy for ${unit.code}`}
+                    value={unit.smokingPolicy}
+                    onChange={(v) =>
+                      update.mutate({
+                        id: unit.id,
+                        body: { smokingPolicy: v as typeof unit.smokingPolicy },
+                      })
+                    }
+                    options={SMOKING_OPTIONS}
+                  />
+                  <Choice
+                    aria-label={`Connected room for ${unit.code}`}
+                    value={unit.connectedRoomUnitId ?? ''}
+                    onChange={(v) =>
+                      update.mutate({ id: unit.id, body: { connectedRoomUnitId: v || null } })
+                    }
+                    options={[
+                      { value: '', label: 'No connected room' },
+                      ...(units.data ?? [])
+                        .filter((other) => other.id !== unit.id)
+                        .map((other) => ({ value: other.id, label: `Room ${other.code}` })),
+                    ]}
+                  />
+                </div>
+                <label className="mt-2 flex items-center gap-2 text-ink-2">
+                  <Checkbox
+                    checked={unit.wheelchairAccessible}
+                    onCheckedChange={(v) =>
+                      update.mutate({ id: unit.id, body: { wheelchairAccessible: v === true } })
+                    }
+                  />
+                  Wheelchair accessible
+                </label>
+              </div>
             ))}
-          </select>
-          <Input
-            aria-label="Room code"
-            placeholder="Room 101"
-            value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
-          />
-          <Input
-            aria-label="Optional room name"
-            placeholder="Lotus (optional)"
-            value={form.displayName}
-            onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-          />
-          <Input
-            aria-label="Floor"
-            placeholder="Floor"
-            value={form.floor}
-            onChange={(e) => setForm({ ...form, floor: e.target.value })}
-          />
-          <select
-            aria-label="Smoking policy"
-            value={form.smokingPolicy}
-            onChange={(e) =>
-              setForm({ ...form, smokingPolicy: e.target.value as typeof form.smokingPolicy })
-            }
-            className="rounded-lg border border-line bg-surface px-2 py-2 text-sm"
-          >
-            <option value="unspecified">Smoking unspecified</option>
-            <option value="non_smoking">Non smoking</option>
-            <option value="smoking">Smoking</option>
-          </select>
-          <label className="flex items-center gap-2 text-xs text-ink-2">
-            <input
-              type="checkbox"
-              checked={form.wheelchairAccessible}
-              onChange={(e) => setForm({ ...form, wheelchairAccessible: e.target.checked })}
-            />{' '}
-            Accessible
-          </label>
-          <Button
-            size="sm"
-            disabled={!form.roomId || !form.code.trim() || create.isPending}
-            onClick={() => create.mutate()}
-          >
-            Add room
-          </Button>
+          </div>
         </div>
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {(units.data ?? []).map((unit) => (
-            <div key={unit.id} className="rounded-lg border border-line p-2 text-xs">
-              <div className="mb-2 flex items-center gap-2">
-                <strong className="text-ink">{unit.code}</strong>
-                {unit.displayName && (
-                  <span className="font-semibold text-ink-2">· {unit.displayName}</span>
-                )}
-                <span className="text-ink-3">
-                  {unit.roomName} · {unit.floor ?? 'No floor'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  aria-label={`Display name for ${unit.code}`}
-                  defaultValue={unit.displayName ?? ''}
-                  placeholder="Optional name"
-                  onBlur={(event) => {
-                    const value = event.target.value.trim();
-                    if (value !== (unit.displayName ?? ''))
-                      update.mutate({ id: unit.id, body: { displayName: value || null } });
-                  }}
-                />
-                <Input
-                  aria-label={`Notes for ${unit.code}`}
-                  defaultValue={unit.notes ?? ''}
-                  placeholder="Room notes"
-                  onBlur={(event) => {
-                    const value = event.target.value.trim();
-                    if (value !== (unit.notes ?? ''))
-                      update.mutate({ id: unit.id, body: { notes: value || null } });
-                  }}
-                />
-                <select
-                  aria-label={`Smoking policy for ${unit.code}`}
-                  value={unit.smokingPolicy}
-                  onChange={(e) =>
-                    update.mutate({
-                      id: unit.id,
-                      body: { smokingPolicy: e.target.value as typeof unit.smokingPolicy },
-                    })
-                  }
-                  className="rounded border border-line bg-surface px-1 py-1.5"
-                >
-                  <option value="unspecified">Unspecified</option>
-                  <option value="non_smoking">Non smoking</option>
-                  <option value="smoking">Smoking</option>
-                </select>
-                <select
-                  aria-label={`Connected room for ${unit.code}`}
-                  value={unit.connectedRoomUnitId ?? ''}
-                  onChange={(e) =>
-                    update.mutate({
-                      id: unit.id,
-                      body: { connectedRoomUnitId: e.target.value || null },
-                    })
-                  }
-                  className="rounded border border-line bg-surface px-1 py-1.5"
-                >
-                  <option value="">No connected room</option>
-                  {(units.data ?? [])
-                    .filter((other) => other.id !== unit.id)
-                    .map((other) => (
-                      <option key={other.id} value={other.id}>
-                        {other.code}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <label className="mt-2 flex items-center gap-2 text-ink-2">
-                <input
-                  type="checkbox"
-                  checked={unit.wheelchairAccessible}
-                  onChange={(e) =>
-                    update.mutate({ id: unit.id, body: { wheelchairAccessible: e.target.checked } })
-                  }
-                />{' '}
-                Wheelchair accessible
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-    </details>
+      )}
+    </section>
   );
 }
 
@@ -1385,24 +1178,18 @@ function PriorityQueue({
               </button>
               {task.rush && <span className="ml-2 font-semibold text-low-ink">Rush</span>}
               {canManage && (
-                <select
+                <Choice
                   aria-label={`Assign room ${task.code}`}
                   value={task.assignedToUserId ?? ''}
-                  onChange={(e) =>
-                    update.mutate({
-                      id: task.id,
-                      body: { assignedToUserId: e.target.value || null },
-                    })
+                  onChange={(v) =>
+                    update.mutate({ id: task.id, body: { assignedToUserId: v || null } })
                   }
-                  className="mt-2 w-full rounded border border-line bg-surface px-1.5 py-1 text-xs"
-                >
-                  <option value="">Unassigned</option>
-                  {housekeepers.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
+                  className="mt-2 h-8 w-full text-xs"
+                  options={[
+                    { value: '', label: 'Unassigned' },
+                    ...housekeepers.map((member) => ({ value: member.id, label: member.name })),
+                  ]}
+                />
               )}
               <p className="mt-1 text-ink-3">
                 {task.kind.replace('_', ' ')} · {task.status.replace('_', ' ')}
@@ -1528,8 +1315,8 @@ function RoomSheet({
               <div className="grid grid-cols-2 gap-4 rounded-lg border border-line p-3">
                 <Info label="Guest" value={card.guestName} />
                 <Info label="Reservation" value={card.reference ?? '—'} />
-                <Info label="Arrival" value={card.checkin ?? '—'} />
-                <Info label="Departure" value={card.checkout ?? '—'} />
+                <Info label="Arrival" value={card.checkin ? deskDate(card.checkin) : '—'} />
+                <Info label="Departure" value={card.checkout ? deskDate(card.checkout) : '—'} />
               </div>
             )}
 
@@ -1539,7 +1326,7 @@ function RoomSheet({
               <div className="rounded-lg border border-info bg-info-soft p-3 text-sm text-info-ink">
                 <div className="font-semibold">Next arrival</div>
                 <div>
-                  {card.nextReservation.guestName} · {card.nextReservation.checkin}
+                  {card.nextReservation.guestName} · {deskDate(card.nextReservation.checkin)}
                 </div>
               </div>
             )}
@@ -1946,44 +1733,38 @@ function ReservationActions({
 
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="flex items-center gap-2 text-xs text-ink-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={card.doNotDisturb}
-            onChange={(e) => signalMutation.mutate({ doNotDisturb: e.target.checked })}
-          />{' '}
+            onCheckedChange={(v) => signalMutation.mutate({ doNotDisturb: v === true })}
+          />
           Do not disturb
         </label>
         {(role === 'OWNER' || role === 'OWNER_STAFF') && (
           <label className="flex items-center gap-2 text-xs text-ink-2">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={card.requestedSafetyFlag}
-              onChange={(e) => signalMutation.mutate({ requestedSafetyFlag: e.target.checked })}
-            />{' '}
+              onCheckedChange={(v) => signalMutation.mutate({ requestedSafetyFlag: v === true })}
+            />
             Guest requested safety flag
           </label>
         )}
       </div>
 
       {card.legId && (
-        <details className="rounded-lg border border-line bg-surface p-2">
-          <summary className="cursor-pointer text-sm font-semibold text-ink">
-            Move or exchange room
-          </summary>
+        <details className="rv-disclosure">
+          <summary>Move or exchange room</summary>
           <div className="mt-3 space-y-2">
-            <select
+            <Choice
               aria-label="Move to room"
+              placeholder="Choose destination"
               value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
-            >
-              <option value="">Choose destination</option>
-              {availableUnits.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.code} · {u.roomName}
-                </option>
-              ))}
-            </select>
+              onChange={setDestination}
+              className="w-full"
+              options={availableUnits.map((u) => ({
+                value: u.id,
+                label: `Room ${u.code} · ${u.roomName}`,
+              }))}
+            />
             <Input
               type="date"
               value={effectiveDate}
@@ -2005,19 +1786,17 @@ function ReservationActions({
             >
               {effectiveDate ? 'Plan move' : 'Move now'}
             </Button>
-            <select
+            <Choice
               aria-label="Exchange with reservation"
+              placeholder="Choose room to exchange"
               value={exchangeLeg}
-              onChange={(e) => setExchangeLeg(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
-            >
-              <option value="">Choose room to exchange</option>
-              {exchangeCandidates.map((c) => (
-                <option key={c.legId!} value={c.legId!}>
-                  Room {c.code} · {c.reference}
-                </option>
-              ))}
-            </select>
+              onChange={setExchangeLeg}
+              className="w-full"
+              options={exchangeCandidates.map((c) => ({
+                value: c.legId!,
+                label: `Room ${c.code} · ${c.reference}`,
+              }))}
+            />
             <Button
               size="sm"
               variant="secondary"
@@ -2041,7 +1820,7 @@ function ReservationActions({
                   key={m.id}
                   className="flex items-center justify-between rounded bg-info-soft px-2 py-1 text-xs text-info-ink"
                 >
-                  <span>Planned for {m.effectiveDate}</span>
+                  <span>Planned for {deskDate(m.effectiveDate)}</span>
                   <button
                     type="button"
                     className="font-semibold underline"
@@ -2055,8 +1834,8 @@ function ReservationActions({
         </details>
       )}
 
-      <details className="rounded-lg border border-line bg-surface p-2" open>
-        <summary className="cursor-pointer text-sm font-semibold text-ink">Print and send</summary>
+      <details className="rv-disclosure" open>
+        <summary>Print and send</summary>
         <div className="mt-3 space-y-3">
           <label className="block text-xs font-semibold text-ink-3">
             Recipients
@@ -2198,5 +1977,50 @@ function Info({ label, value }: { label: string; value: string }) {
       <div className="text-xs font-semibold uppercase tracking-wide text-ink-3">{label}</div>
       <div className="mt-0.5 text-sm text-ink">{value}</div>
     </div>
+  );
+}
+
+const SMOKING_OPTIONS = [
+  { value: 'unspecified', label: 'Smoking not set' },
+  { value: 'non_smoking', label: 'Non smoking' },
+  { value: 'smoking', label: 'Smoking' },
+];
+
+/**
+ * The kit's select for a plain list of choices. Radix cannot hold an empty value, so "none" (the
+ * empty string the API expects) travels as a placeholder value and comes back as ''.
+ */
+const NONE = '__none';
+function Choice({
+  value,
+  onChange,
+  options,
+  placeholder,
+  className,
+  'aria-label': ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  className?: string;
+  'aria-label': string;
+}) {
+  return (
+    <Select
+      value={value === '' && !placeholder ? NONE : value || undefined}
+      onValueChange={(v) => onChange(v === NONE ? '' : v)}
+    >
+      <SelectTrigger aria-label={ariaLabel} className={cn('h-9', className)}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value || NONE} value={o.value || NONE}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

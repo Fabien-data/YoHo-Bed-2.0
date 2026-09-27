@@ -85,10 +85,11 @@ test('keeps the date, floor and live room cards across Floor and Rooms', async (
   const detail = page.getByRole('dialog', { name: /Room / });
   await expect(detail).toBeVisible();
 
-  const floor = await page.locator('#room-floor').inputValue();
+  // The floor picker is the kit's select: its trigger shows the chosen floor.
+  const floor = ((await page.locator('#room-floor').textContent()) ?? '').trim();
   await modes.getByRole('tab', { name: 'Rooms' }).click();
   await expect(detail).toBeVisible();
-  await expect(page.locator('#room-floor')).toHaveValue(floor);
+  await expect(page.locator('#room-floor')).toHaveText(floor);
   await expect(page.locator(`[data-room-id="${roomId}"]`)).toBeVisible();
   await detail.getByRole('button', { name: 'Close' }).click();
   await expect(
@@ -165,7 +166,9 @@ test('opens a reservation and previews the same voucher PDF offered for printing
       booking.propertyId,
     );
     await page.reload();
+    // The date picker takes ISO or dd/mm/yyyy, and applies it on Enter.
     await page.getByLabel('Business date').fill(booking.checkin);
+    await page.getByLabel('Business date').press('Enter');
     const tile = page.locator(`[data-room-id="${booking.unit.id}"]`);
     await expect(tile).toBeVisible();
     await tile.locator('button').first().click();

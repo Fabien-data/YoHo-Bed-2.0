@@ -906,7 +906,7 @@ function StayViewScreen() {
             navigate(r.checkin > today ? addDays(r.checkin, -1) : r.checkin);
           }}
         />
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex flex-wrap items-center gap-1">
           <FiltersPopover
             data={data}
             value={filters}
@@ -1079,6 +1079,7 @@ function StayViewScreen() {
                     canAssign={canAssign && online}
                     canChangeDates={canChangeDates && online}
                     canCreate={(canCreate || canBlock) && online}
+                    canReadFinancial={access.can('financial_read')}
                     scrollKey={`${propertyId}:${days}`}
                     holidays={holidays}
                     handlers={{

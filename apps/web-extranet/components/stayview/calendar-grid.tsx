@@ -3,18 +3,20 @@
 import * as React from 'react';
 import {
   ArrowsLeftRight,
+  Bed,
   CaretDown,
-  ChatCircleText,
   Confetti,
   Crown,
-  CurrencyCircleDollar,
   Prohibit,
   SignIn,
   SignOut,
+  User,
+  UserCircleDashed,
   UsersThree,
 } from '@phosphor-icons/react';
 import { TagDot, Tooltip, cn } from '@yohobed/ui';
 import type { StayBar, StayUnit, StayView } from '@/lib/api';
+import { useMoney } from '@/components/currency';
 import {
   addDays,
   dayOfMonth,
@@ -25,17 +27,20 @@ import {
   weekday,
 } from './model/dates';
 import {
-  barSpan,
+  barPlacement,
+  barRect,
+  barStyle,
+  columnWidth,
   barTier,
   stackBars,
   METRICS,
-  type BarSpan,
+  type BarPlacement,
   type Density,
   type RoomGroup,
 } from './model/layout';
 import { HK_META, STATE_META, barSummary, sourceLabel, stateOf } from './model/status';
 import type { CalendarPreferences } from './model/prefs';
-import type { DayStats } from './model/stats';
+import { occupancyPercent, type DayStats } from './model/stats';
 import { HK_ICON, STATE_ICON, sourceIcon } from './icons';
 import { useInteraction, useInteractionStore } from './interaction/store';
 import {
@@ -67,17 +72,25 @@ interface BarDisplay {
 /* Bars                                                                                        */
 /* ------------------------------------------------------------------------------------------ */
 
+/**
+ * One stay or block. The bar itself is an unpainted box; its parallelogram is `.sv-bar-shape`,
+ * which alone takes the pointer, so a click on the empty corner beside a slant falls through to
+ * the neighbouring stay or night instead of opening this one. The payment and notes markers sit
+ * outside the shape, on its top edge, so the clipping never hides them.
+ */
 const StayBarView = React.memo(function StayBarView({
   bar,
-  span,
+  place,
   colW,
+  slant,
   display,
   unassigned,
   canResize,
 }: {
   bar: StayBar;
-  span: BarSpan;
+  place: BarPlacement;
   colW: number;
+  slant: number;
   display: BarDisplay;
   unassigned?: boolean;
   canResize: boolean;
@@ -85,14 +98,27 @@ const StayBarView = React.memo(function StayBarView({
   const cb = useCallbacks();
   const state = stateOf(bar);
   const Icon = STATE_ICON[state];
-  const width = span.span * colW - 4;
-  const tier = barTier(width);
+  // What fits between the slants decides how much the bar says (the text keeps clear of each).
+  const ends = Number(place.slantStart) + Number(place.slantEnd);
+  const tier = barTier(barRect(place, colW).width - ends * slant * 0.75 - 12);
   const isBlock = bar.kind === 'block';
   const name = isBlock ? (bar.reason ?? STATE_META[state].label) : (bar.guestName ?? 'Guest');
   const pax = (bar.adults ?? 0) + (bar.children ?? 0);
   const Source = sourceIcon(bar);
   const split = (bar.segment?.of ?? 1) > 1;
-  const ariaLabel = `${barSummary(bar)}, ${stayRange(bar.from, bar.to)}`;
+  const roomy = tier === 'detail' || tier === 'full';
+  const details = !isBlock && display.details;
+  const ariaLabel = [
+    barSummary(bar),
+    stayRange(bar.from, bar.to),
+    bar.balanceDue && 'payment due',
+    bar.hasNotes && 'has notes',
+    bar.vip && 'VIP',
+    bar.groupId && 'group reservation',
+    split && 'split stay',
+  ]
+    .filter(Boolean)
+    .join(', ');
   return (
     <div
       role="button"
@@ -102,14 +128,14 @@ const StayBarView = React.memo(function StayBarView({
       data-bar-id={bar.id}
       data-booking-id={bar.bookingId}
       data-state={state}
-      data-arrival={!span.startsBefore}
-      data-departure={!span.endsAfter}
+      data-kind={bar.kind}
+      data-arrival={!place.startsBefore}
+      data-departure={!place.endsAfter}
+      data-slant-start={place.slantStart}
+      data-slant-end={place.slantEnd}
       data-unassigned={unassigned || undefined}
       data-tone={display.colorBy === 'source' && bar.sourceColor ? bar.sourceColor : undefined}
-      style={{
-        left: `calc(var(--col-w) * ${span.start} + 2px)`,
-        width: `calc(var(--col-w) * ${span.span} - 4px)`,
-      }}
+      style={barStyle(place)}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
@@ -118,29 +144,43 @@ const StayBarView = React.memo(function StayBarView({
         }
       }}
     >
-      {tier !== 'name' && <Icon size={13} weight="bold" aria-hidden className="shrink-0" />}
-      {tier !== 'icon' && <span className="sv-bar-name">{name}</span>}
-      {!isBlock && display.details && (tier === 'detail' || tier === 'full') && pax > 0 && (
-        <span className="sv-bar-meta font-mono tabular-nums" aria-hidden>
-          {pax}p
+      <span className="sv-bar-shape" aria-hidden />
+      <span className="sv-bar-content" aria-hidden>
+        {tier !== 'name' && <Icon size={13} weight="bold" className="shrink-0" />}
+        {!isBlock && display.sources && roomy && <Source size={12} weight="bold" />}
+        {tier !== 'icon' && <span className="sv-bar-name">{name}</span>}
+        {details && roomy && pax > 0 && (
+          <span className="sv-bar-meta font-mono tabular-nums">
+            <User size={11} weight="bold" />
+            {pax}
+          </span>
+        )}
+        {!isBlock && display.sources && tier === 'full' && sourceLabel(bar) && (
+          <span className="sv-bar-meta">{sourceLabel(bar)}</span>
+        )}
+        {details && roomy && (bar.vip || bar.groupId || split) && (
+          <span className="sv-bar-flags">
+            {bar.vip && <Crown size={12} weight="fill" />}
+            {bar.groupId && <UsersThree size={12} weight="bold" />}
+            {split && <ArrowsLeftRight size={12} weight="bold" />}
+          </span>
+        )}
+      </span>
+      {details && (bar.balanceDue || bar.hasNotes) && (
+        <span className="sv-bar-markers" data-no-hover>
+          {bar.balanceDue && (
+            <Tooltip label="Payment due: this stay has a balance to collect">
+              <span className="sv-marker" data-marker="payment" />
+            </Tooltip>
+          )}
+          {bar.hasNotes && (
+            <Tooltip label="Notes on this reservation: open it to read them">
+              <span className="sv-marker" data-marker="notes" />
+            </Tooltip>
+          )}
         </span>
       )}
-      {!isBlock && display.sources && tier === 'full' && (
-        <span className="sv-bar-meta inline-flex items-center gap-1" aria-hidden>
-          <Source size={11} />
-          {sourceLabel(bar)}
-        </span>
-      )}
-      {!isBlock && display.details && (tier === 'detail' || tier === 'full') && (
-        <span className="sv-bar-flags" aria-hidden>
-          {bar.vip && <Crown size={12} weight="fill" />}
-          {bar.hasNotes && <ChatCircleText size={12} weight="bold" />}
-          {bar.groupId && <UsersThree size={12} weight="bold" />}
-          {split && <ArrowsLeftRight size={12} weight="bold" />}
-          {bar.balanceDue && <CurrencyCircleDollar size={12} weight="bold" />}
-        </span>
-      )}
-      {canResize && !span.endsAfter && (
+      {canResize && !place.endsAfter && (
         <span
           role="button"
           tabIndex={0}
@@ -170,6 +210,9 @@ interface RowGeometry {
   colW: number;
   rowH: number;
   labelW: number;
+  /** A bar's distance from its row's edges, and how far its slanted ends lean. */
+  inset: number;
+  slant: number;
 }
 
 function UnitLabel({
@@ -251,7 +294,7 @@ const UnitRow = React.memo(function UnitRow({
   return (
     <div className="sv-row flex border-b border-line" style={{ height: geo.rowH }}>
       <div
-        className="sv-label sticky left-0 z-10 shrink-0 border-r border-line bg-surface"
+        className="sv-label sv-pin sticky left-0 z-10 shrink-0 border-r border-line bg-surface"
         style={{ width: geo.labelW }}
       >
         <UnitLabel unit={unit} showHk={showHk} density={density} />
@@ -263,13 +306,14 @@ const UnitRow = React.memo(function UnitRow({
         data-unit-code={unit.code}
       >
         {unit.bars.map((bar) => {
-          const span = barSpan(geo.windowFrom, geo.days, bar);
-          return span ? (
+          const place = barPlacement(geo.windowFrom, geo.days, bar, geo.slant);
+          return place ? (
             <StayBarView
               key={`${bar.kind}-${bar.id}`}
               bar={bar}
-              span={span}
+              place={place}
               colW={geo.colW}
+              slant={geo.slant}
               display={display}
               canResize={resizable(bar)}
             />
@@ -291,6 +335,7 @@ function GroupBlock({
   groupH,
   resizable,
   showRates,
+  currency,
 }: {
   group: RoomGroup;
   collapsed: boolean;
@@ -302,15 +347,17 @@ function GroupBlock({
   groupH: number;
   resizable: (bar: StayBar) => boolean;
   showRates: boolean;
+  currency: string;
 }) {
   const cb = useCallbacks();
+  const { money, moneyShort } = useMoney();
   const perDate = group.roomType?.perDate ?? [];
   const large = group.units.length > 30;
   return (
     <div role="rowgroup" aria-label={group.name}>
       <div className="flex border-b border-line bg-surface-2" style={{ height: groupH }}>
         <div
-          className="sticky left-0 z-20 flex shrink-0 items-center border-r border-line bg-surface-2"
+          className="sv-pin sticky left-0 z-20 flex shrink-0 items-center border-r border-line bg-surface-2"
           style={{ width: geo.labelW }}
         >
           <button
@@ -336,28 +383,62 @@ function GroupBlock({
           </button>
         </div>
         {showAvailability && group.roomType && (
-          <div className="relative shrink-0" style={{ width: geo.days * geo.colW }} aria-hidden>
-            {perDate.map((d, i) => (
-              <div
-                key={d.date}
-                className="absolute inset-y-0 flex flex-col items-center justify-center border-r border-line"
-                style={{ left: `calc(var(--col-w) * ${i})`, width: 'var(--col-w)' }}
-              >
-                <span
-                  className={cn(
-                    'font-mono text-xs font-semibold tabular-nums',
-                    d.closed || d.available === 0 ? 'text-closed-ink' : 'text-ink-2',
-                  )}
+          <div className="relative shrink-0" style={{ width: geo.days * geo.colW }}>
+            {perDate.map((d, i) => {
+              const day = `${dayOfMonth(d.date)} ${monthShort(d.date)}`;
+              // No availability row for the date is unknown, not zero: it shows a dash.
+              const left = d.closed
+                ? `${group.name} is closed to sale on ${day}`
+                : d.available == null
+                  ? `No availability set for ${group.name} on ${day}`
+                  : `${d.available} ${group.name} ${d.available === 1 ? 'room' : 'rooms'} left to sell on ${day}`;
+              return (
+                <div
+                  key={d.date}
+                  className="sv-type-cell"
+                  style={{ left: `calc(var(--col-w) * ${i})`, width: 'var(--col-w)' }}
                 >
-                  {d.closed ? 'Closed' : (d.available ?? '—')}
-                </span>
-                {showRates && d.rate && geo.colW >= 64 && (
-                  <span className="font-mono text-[10px] tabular-nums text-ink-3">
-                    {Number(d.rate).toLocaleString('en', { maximumFractionDigits: 0 })}
-                  </span>
-                )}
-              </div>
-            ))}
+                  <Tooltip label={left}>
+                    <span
+                      role="img"
+                      aria-label={left}
+                      className="sv-type-avail font-mono tabular-nums"
+                      data-none={d.closed || d.available === 0 || undefined}
+                    >
+                      <Bed size={12} weight="bold" aria-hidden />
+                      {d.closed ? 'Closed' : (d.available ?? '—')}
+                    </span>
+                  </Tooltip>
+                  {/* A rate of zero is a price; a missing rate is not. Closed dates sell nothing. */}
+                  {showRates && !d.closed && (
+                    <Tooltip
+                      label={
+                        d.rate == null
+                          ? `No rate is set for ${group.name} on ${day}`
+                          : `The lowest selling rate for ${group.name} on ${day}: ${money(d.rate, currency)} a night`
+                      }
+                    >
+                      <span
+                        className={cn(
+                          'sv-type-rate tabular-nums',
+                          d.rate == null ? 'font-sans' : 'font-mono',
+                        )}
+                        data-missing={d.rate == null || undefined}
+                      >
+                        {d.rate == null ? (
+                          'No rate'
+                        ) : (
+                          <>
+                            <span className="sv-type-from font-sans">From</span>
+                            {moneyShort(d.rate, currency)}
+                          </>
+                        )}
+                      </span>
+                    </Tooltip>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -414,7 +495,7 @@ function Lane({
     >
       <div
         className={cn(
-          'sticky left-0 z-10 flex shrink-0 items-start border-r border-line px-3 pt-3',
+          'sv-pin sticky left-0 z-10 flex shrink-0 items-start border-r border-line px-3 pt-3',
           tone === 'low' ? 'bg-low-soft' : 'bg-info-soft',
         )}
         style={{ width: geo.labelW, minHeight: geo.rowH }}
@@ -434,13 +515,14 @@ function Lane({
             style={{ width: geo.days * geo.colW, height: geo.rowH }}
           >
             {line.map((bar) => {
-              const span = barSpan(geo.windowFrom, geo.days, bar);
-              return span ? (
+              const place = barPlacement(geo.windowFrom, geo.days, bar, geo.slant);
+              return place ? (
                 <StayBarView
                   key={bar.id}
                   bar={bar}
-                  span={span}
+                  place={place}
                   colW={geo.colW}
+                  slant={geo.slant}
                   display={display}
                   unassigned={tone === 'low'}
                   canResize={resizable(bar)}
@@ -467,6 +549,8 @@ const DateHeader = React.memo(function DateHeader({
   headerRef,
   density,
   holidays,
+  roomCount,
+  typeCount,
 }: {
   dates: string[];
   stats: DayStats[];
@@ -477,84 +561,154 @@ const DateHeader = React.memo(function DateHeader({
   density: Density;
   /** Configuration → Holidays: the names on each date. */
   holidays?: ReadonlyMap<string, string[]>;
+  roomCount: number;
+  typeCount: number;
 }) {
   const cb = useCallbacks();
-  const roomy = geo.colW >= 64;
-  const spacious = geo.colW >= 92;
+  // Wide columns spell the badge out; narrow ones keep its icon and number.
+  const wide = geo.colW >= 100;
+  const unassigned = stats.some((s) => s.unassigned > 0);
   return (
     <div
       ref={headerRef}
-      className="sticky top-0 z-30 flex border-b border-line-strong bg-surface"
+      className="sv-head sticky top-0 z-30 flex border-b border-line-strong bg-surface"
       role="row"
+      data-header-stats={showStats}
+      data-density={density}
     >
-      <div
-        className="sticky left-0 z-40 flex shrink-0 items-end border-r border-line bg-surface px-3 pb-2"
-        style={{ width: geo.labelW }}
-      >
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Rooms</span>
+      {/* The corner is the key to the rows beside it: each label sits level with, and against,
+          the numbers it names, so the dates need no legend of their own. */}
+      <div className="sv-head-key sv-pin sticky left-0 z-40 shrink-0" style={{ width: geo.labelW }}>
+        <span className="sv-head-title">
+          Rooms
+          {density === 'comfortable' && dates.length > 0 && (
+            <span className="sv-head-window">{stayRange(dates[0]!, dates[dates.length - 1]!)}</span>
+          )}
+        </span>
+        <span className="sv-head-count">
+          <span className="font-mono tabular-nums">{roomCount}</span>
+          <span className="sv-head-count-unit">
+            {roomCount === 1 ? 'room' : 'rooms'}
+            {typeCount > 1 && ` · ${typeCount} types`}
+          </span>
+        </span>
+        {showStats && (
+          <>
+            <span className="sv-head-hint">
+              Occupancy
+              <span className="sv-head-meter" aria-hidden />
+            </span>
+            <span className="sv-head-hint">
+              <Bed size={12} weight="bold" aria-hidden />
+              Free
+              <SignIn size={12} weight="bold" aria-hidden />
+              In
+              <SignOut size={12} weight="bold" aria-hidden />
+              Out
+            </span>
+          </>
+        )}
+        {unassigned && (
+          <span className="sv-head-hint">
+            <span className="sv-head-dot" aria-hidden />
+            Unassigned
+          </span>
+        )}
       </div>
       {dates.map((d, i) => {
         const s = stats[i];
-        const first = i === 0 || dayOfMonth(d) === 1;
+        const isToday = d === today;
         const holiday = holidays?.get(d);
+        const date = `${dayOfMonth(d)} ${monthShort(d)}`;
+        const occupancy = s ? `${s.occupancyPct.toFixed(2)}%` : '';
+        const free = s && `${s.available} ${s.available === 1 ? 'room' : 'rooms'} free to sell`;
+        const arriving = s && `${s.arrivals} ${s.arrivals === 1 ? 'arrival' : 'arrivals'}`;
+        const leaving = s && `${s.departures} ${s.departures === 1 ? 'departure' : 'departures'}`;
         return (
           <div
             key={d}
             role="columnheader"
-            aria-label={`${weekday(d)} ${dayOfMonth(d)} ${monthShort(d)}${d === today ? ', today' : ''}${holiday ? `, ${holiday.join(', ')}` : ''}`}
-            title={holiday?.join(' · ')}
-            className={cn(
-              'sv-date relative flex shrink-0 flex-col items-center justify-center border-r border-line text-center',
-              density === 'compact' ? 'py-1' : 'py-1.5',
-              isWeekend(d) && 'bg-surface-2',
-            )}
-            data-today={d === today}
+            aria-label={[
+              `${weekday(d)} ${date}`,
+              isToday && 'today',
+              holiday?.join(', '),
+              showStats && s && `${occupancy} occupied, ${free}, ${arriving}, ${leaving}`,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            className="sv-date relative shrink-0 border-r border-line"
+            data-today={isToday}
+            data-weekend={isWeekend(d) || undefined}
             style={{ width: geo.colW }}
           >
-            {holiday && <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-brass" />}
-            <span className="flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
-              {holiday && <Confetti size={11} weight="fill" aria-hidden className="text-brass" />}
-              {d === today ? 'Today' : weekday(d)}
-            </span>
-            <span className="text-sm font-semibold leading-tight text-ink">
-              {dayOfMonth(d)}
-              {(first || roomy) && (
-                <span className="ml-0.5 text-[11px] font-medium text-ink-2">{monthShort(d)}</span>
+            {holiday && <span aria-hidden className="sv-date-holiday" />}
+            <span className="sv-date-weekday">
+              {holiday && (
+                <Tooltip label={holiday.join(' · ')}>
+                  <span role="img" aria-label={`Holiday: ${holiday.join(', ')}`}>
+                    <Confetti size={11} weight="fill" aria-hidden />
+                  </span>
+                </Tooltip>
               )}
+              {isToday ? 'Today' : weekday(d)}
+            </span>
+            <span className="sv-date-number">
+              {dayOfMonth(d)}
+              <span className="sv-date-month">{monthShort(d)}</span>
             </span>
             {showStats && s && (
-              <span
-                className="mt-0.5 flex max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap px-1 font-mono text-[10px] tabular-nums text-ink-3"
-                title={`${s.occupancyPct}% occupied · ${s.available} free · ${s.arrivals} arriving · ${s.departures} leaving`}
-              >
-                <span className={cn(s.occupancyPct >= 90 && 'font-semibold text-closed-ink')}>
-                  {s.occupancyPct}%
+              <>
+                <Tooltip label={`${occupancy} of the rooms that can be sold are taken`}>
+                  <span
+                    role="img"
+                    aria-label={`${occupancy} occupancy`}
+                    className="sv-date-occ font-mono tabular-nums"
+                    data-full={s.occupancyPct >= 90 || undefined}
+                  >
+                    {occupancy}
+                    <span className="sv-date-meter" aria-hidden>
+                      <span style={{ width: `${Math.min(100, s.occupancyPct)}%` }} />
+                    </span>
+                  </span>
+                </Tooltip>
+                <span className="sv-date-moves font-mono tabular-nums">
+                  <Tooltip label={free}>
+                    <span role="img" aria-label={free!}>
+                      <Bed size={12} weight="bold" aria-hidden />
+                      {s.available}
+                    </span>
+                  </Tooltip>
+                  <Tooltip label={arriving}>
+                    <span role="img" aria-label={arriving!}>
+                      <SignIn size={12} weight="bold" aria-hidden />
+                      {s.arrivals}
+                    </span>
+                  </Tooltip>
+                  <Tooltip label={leaving}>
+                    <span role="img" aria-label={leaving!}>
+                      <SignOut size={12} weight="bold" aria-hidden />
+                      {s.departures}
+                    </span>
+                  </Tooltip>
                 </span>
-                {spacious && s.arrivals > 0 && (
-                  <span className="inline-flex items-center gap-0.5">
-                    <SignIn size={10} weight="bold" aria-hidden />
-                    {s.arrivals}
-                  </span>
-                )}
-                {spacious && s.departures > 0 && (
-                  <span className="inline-flex items-center gap-0.5">
-                    <SignOut size={10} weight="bold" aria-hidden />
-                    {s.departures}
-                  </span>
-                )}
-              </span>
+              </>
             )}
             {s && s.unassigned > 0 && (
-              <button
-                type="button"
-                data-no-gesture
-                onClick={() => cb.current.unassignedOn(d)}
-                aria-label={`${s.unassigned} unassigned on ${dayOfMonth(d)} ${monthShort(d)}`}
-                title={`${s.unassigned} stay${s.unassigned === 1 ? '' : 's'} without a room — open`}
-                className="mt-0.5 min-w-[1rem] rounded-full bg-low px-1 font-mono text-[10px] font-semibold leading-[14px] tabular-nums text-white transition duration-1 hover:brightness-110"
+              <Tooltip
+                label={`${s.unassigned} ${s.unassigned === 1 ? 'stay has' : 'stays have'} no room on ${date}. Open the list to assign them.`}
               >
-                {s.unassigned}
-              </button>
+                <button
+                  type="button"
+                  data-no-gesture
+                  onClick={() => cb.current.unassignedOn(d)}
+                  aria-label={`${s.unassigned} unassigned on ${date}`}
+                  className="sv-unassigned-badge"
+                >
+                  <UserCircleDashed size={12} weight="bold" aria-hidden />
+                  {s.unassigned}
+                  {wide && <span>unassigned</span>}
+                </button>
+              </Tooltip>
             )}
           </div>
         );
@@ -568,20 +722,23 @@ function Footer({ data, geo }: { data: StayView; geo: RowGeometry }) {
     ['Available inventory', (f) => f.availableInventory],
     [
       'Occupancy',
-      (f) => (
-        <>
-          <span className="h-1.5 w-6 overflow-hidden rounded-full bg-line-strong" aria-hidden>
-            <span
-              className={cn(
-                'block h-full rounded-full',
-                f.occupancyPct >= 90 ? 'bg-closed' : f.occupancyPct >= 60 ? 'bg-low' : 'bg-avail',
-              )}
-              style={{ width: `${f.occupancyPct}%` }}
-            />
-          </span>
-          {f.occupancyPct}%
-        </>
-      ),
+      (f) => {
+        const pct = occupancyPercent(f);
+        return (
+          <>
+            <span className="h-1.5 w-6 overflow-hidden rounded-full bg-line-strong" aria-hidden>
+              <span
+                className={cn(
+                  'block h-full rounded-full',
+                  pct >= 90 ? 'bg-closed' : pct >= 60 ? 'bg-low' : 'bg-avail',
+                )}
+                style={{ width: `${Math.min(100, pct)}%` }}
+              />
+            </span>
+            {pct.toFixed(2)}%
+          </>
+        );
+      },
     ],
   ];
   return (
@@ -589,7 +746,7 @@ function Footer({ data, geo }: { data: StayView; geo: RowGeometry }) {
       {rows.map(([label, get]) => (
         <div key={label} className="flex border-b border-line bg-surface-2 last:border-b-0">
           <div
-            className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-surface-2 px-3 py-2 text-xs font-semibold text-ink-2"
+            className="sv-pin sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-surface-2 px-3 py-2 text-xs font-semibold text-ink-2"
             style={{ width: geo.labelW }}
           >
             {label}
@@ -696,8 +853,14 @@ function InteractionLayer({
         ? body.querySelector(`[data-unit-id="${CSS.escape(drag.unitId)}"]`)
         : (source?.parentElement ?? null);
     const top = topOf(target);
-    const span = barSpan(geo.windowFrom, geo.days, drag);
-    if (top !== null && span) {
+    const place = barPlacement(
+      geo.windowFrom,
+      geo.days,
+      { from: drag.from, to: drag.to, kind: drag.bar.kind },
+      geo.slant,
+    );
+    if (top !== null && place) {
+      const rect = barRect(place, geo.colW);
       const state = stateOf(drag.bar);
       const Icon = STATE_ICON[state];
       const nights = Math.max(
@@ -715,18 +878,24 @@ function InteractionLayer({
           <div
             className="sv-bar sv-ghost"
             data-state={state}
-            data-arrival={!span.startsBefore}
-            data-departure={!span.endsAfter}
+            data-kind={drag.bar.kind}
+            data-arrival={!place.startsBefore}
+            data-departure={!place.endsAfter}
+            data-slant-start={place.slantStart}
+            data-slant-end={place.slantEnd}
             data-issue={!!drag.issue || undefined}
             style={{
-              top: top + 4,
-              height: geo.rowH - 8,
-              left: geo.labelW + span.start * geo.colW + 2,
-              width: span.span * geo.colW - 4,
+              top: top + geo.inset,
+              height: geo.rowH - geo.inset * 2,
+              left: geo.labelW + rect.left,
+              width: rect.width,
             }}
           >
-            <Icon size={13} weight="bold" aria-hidden className="shrink-0" />
-            <span className="sv-bar-name">{drag.bar.guestName ?? drag.bar.reason}</span>
+            <span className="sv-bar-shape" aria-hidden />
+            <span className="sv-bar-content">
+              <Icon size={13} weight="bold" aria-hidden className="shrink-0" />
+              <span className="sv-bar-name">{drag.bar.guestName ?? drag.bar.reason}</span>
+            </span>
           </div>
           <div
             className={cn(
@@ -735,7 +904,7 @@ function InteractionLayer({
             )}
             role="status"
             aria-live="polite"
-            style={{ top: Math.max(0, top - 26), left: geo.labelW + span.start * geo.colW + 2 }}
+            style={{ top: Math.max(0, top - 26), left: geo.labelW + Math.max(0, rect.left) }}
           >
             {drag.issue ?? readout}
           </div>
@@ -792,6 +961,7 @@ export interface CalendarGridProps {
   canAssign: boolean;
   canChangeDates: boolean;
   canCreate: boolean;
+  canReadFinancial: boolean;
   handlers: GestureHandlers & {
     onOpenUnit: (unit: StayUnit) => void;
     onUnassignedOn: (date: string) => void;
@@ -802,6 +972,48 @@ export interface CalendarGridProps {
   scrollKey: string;
   /** Configuration → Holidays in the window, by date. */
   holidays?: ReadonlyMap<string, string[]>;
+}
+
+/** However short the window, the grid keeps room for a few rooms. */
+const MIN_GRID_HEIGHT = 320;
+
+/**
+ * Size the calendar to the rest of the window below it, so the page stays still and the grid
+ * scrolls. Anything above it — the toolbar wrapping, a status line or an alert appearing, an
+ * approval banner — moves that line, and all of it lives in the page's `<main>`, so watching
+ * `<main>` (plus the window) catches every change. The bottom margin is read from the page.
+ */
+function useFillViewport(ref: React.RefObject<HTMLElement>) {
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const main = el.closest('main');
+    const measure = () => {
+      // Hidden (a phone showing the day list): nothing to size.
+      if (!el.getClientRects().length) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const below = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+      // Less the card's bottom border, which sits under the grid.
+      const height = `${Math.max(MIN_GRID_HEIGHT, Math.floor(window.innerHeight - top - below - 1))}px`;
+      if (el.style.height !== height) el.style.height = height;
+    };
+    measure();
+    // Setting the height resizes <main> in turn; re-measuring a frame later settles it without
+    // a ResizeObserver loop.
+    let frame = 0;
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(later);
+    if (main) observer.observe(main);
+    window.addEventListener('resize', later);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', later);
+    };
+  }, [ref]);
 }
 
 export function CalendarGrid(props: CalendarGridProps) {
@@ -840,13 +1052,21 @@ export function CalendarGrid(props: CalendarGridProps) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const fit = Math.floor((width - metrics.label - 2) / days);
-  const colW = width ? Math.max(metrics.minCol, Math.min(196, fit)) : metrics.minCol;
+  const colW = columnWidth(width, days, density);
+  useFillViewport(viewport);
   React.useEffect(() => props.onColumnWidth?.(colW), [colW, props.onColumnWidth]);
 
   const geo = React.useMemo<RowGeometry>(
-    () => ({ windowFrom, days, colW, rowH: metrics.row, labelW: metrics.label }),
-    [windowFrom, days, colW, metrics.row, metrics.label],
+    () => ({
+      windowFrom,
+      days,
+      colW,
+      rowH: metrics.row,
+      labelW: metrics.label,
+      inset: metrics.inset,
+      slant: metrics.slant,
+    }),
+    [windowFrom, days, colW, metrics],
   );
   const display = React.useMemo<BarDisplay>(
     () => ({ sources: prefs.sources, details: prefs.barDetails, colorBy: prefs.colorBy }),
@@ -963,7 +1183,15 @@ export function CalendarGrid(props: CalendarGridProps) {
       /* Scroll memory is a convenience; the calendar works without storage. */
     }
     let t: number | undefined;
+    // The pinned room column casts an edge once dates slide under it (an attribute, no render).
+    const markScrolled = () => {
+      const scrolled = root.scrollLeft > 0;
+      if ((root.dataset.scrolledX === 'true') !== scrolled)
+        root.dataset.scrolledX = String(scrolled);
+    };
+    markScrolled();
     const onScroll = () => {
+      markScrolled();
       window.clearTimeout(t);
       t = window.setTimeout(() => {
         try {
@@ -984,7 +1212,7 @@ export function CalendarGrid(props: CalendarGridProps) {
     (id: string | null) => (id ? unitsById.get(id)?.code : undefined),
     [unitsById],
   );
-  const showRates = prefs.availability && (data.roomTypes[0]?.perDate.some((d) => d.rate) ?? false);
+  const showRates = prefs.availability && props.canReadFinancial;
 
   return (
     <CallbacksContext.Provider value={callbacks}>
@@ -993,9 +1221,15 @@ export function CalendarGrid(props: CalendarGridProps) {
         role="region"
         aria-label="Stay calendar"
         tabIndex={-1}
-        className="sv-grid relative max-h-[calc(100dvh-236px)] min-h-[320px] overflow-auto overscroll-contain"
-        style={{ ['--col-w' as string]: `${colW}px` }}
+        className="sv-grid relative overflow-auto overscroll-contain"
+        style={{
+          ['--col-w' as string]: `${colW}px`,
+          // The bar shape's CSS reads these; the drag preview reads the same METRICS.
+          ['--bar-inset' as string]: `${metrics.inset}px`,
+          ['--bar-slant' as string]: `${metrics.slant}px`,
+        }}
         data-col-width={colW}
+        data-density={density}
         data-window-from={windowFrom}
         {...gestures}
         onContextMenu={props.onContextMenu}
@@ -1008,6 +1242,8 @@ export function CalendarGrid(props: CalendarGridProps) {
             geo={geo}
             showStats={prefs.headerStats}
             headerRef={headerRef}
+            roomCount={units.length}
+            typeCount={data.roomTypes.length}
             density={density}
             holidays={props.holidays}
           />
@@ -1027,6 +1263,7 @@ export function CalendarGrid(props: CalendarGridProps) {
                   groupH={metrics.group}
                   resizable={resizable}
                   showRates={showRates}
+                  currency={data.property.currency}
                 />
               ))}
               {data.unassigned.length > 0 && (

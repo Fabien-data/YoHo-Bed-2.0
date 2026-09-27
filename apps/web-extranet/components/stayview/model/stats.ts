@@ -18,7 +18,20 @@ function heldBars(data: StayView): StayBar[] {
   return [
     ...data.roomTypes.flatMap((rt) => rt.units.flatMap((u) => u.bars)),
     ...data.unassigned,
-  ].filter((b) => b.kind === 'booking');
+  ].filter(
+    (b) =>
+      b.kind === 'booking' &&
+      b.reservationKind !== 'inquiry' &&
+      ['Pending', 'Approved', 'CheckedIn', 'CheckedOut'].includes(b.status ?? ''),
+  );
+}
+
+/** Sold ÷ sellable (active rooms less blocked ones), to two decimals — Stay View and Room View. */
+export function occupancyPercent(
+  f: Pick<StayView['footer'][number], 'soldRooms' | 'blocked' | 'totalRooms'>,
+): number {
+  const sellable = Math.max(0, f.totalRooms - f.blocked);
+  return sellable > 0 ? Math.round((f.soldRooms / sellable) * 10000) / 100 : 0;
 }
 
 export function dayStats(data: StayView): DayStats[] {
@@ -31,10 +44,10 @@ export function dayStats(data: StayView): DayStats[] {
     const f = footer.get(date);
     return {
       date,
-      occupancyPct: f?.occupancyPct ?? 0,
+      occupancyPct: f ? occupancyPercent(f) : 0,
       available: f?.availableInventory ?? 0,
-      arrivals: bars.filter((b) => b.from === date && firstSegment(b)).length,
-      departures: bars.filter((b) => b.to === date && lastSegment(b)).length,
+      arrivals: f?.arrivals ?? bars.filter((b) => b.from === date && firstSegment(b)).length,
+      departures: f?.departures ?? bars.filter((b) => b.to === date && lastSegment(b)).length,
       unassigned: data.unassigned.filter((b) => b.from <= date && date < b.to).length,
     };
   });

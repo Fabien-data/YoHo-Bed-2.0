@@ -146,29 +146,48 @@ calendar") and driven by data attributes, so the grid never re-renders to change
 
 - **States.** `.sv-bar[data-state]` is one of `inhouse`, `confirmed`, `pending`, `hold`, `tentative`,
   `checkedout`, `noshow`, `cancelled`, `out_of_service` or `blocked`. Each state has fill, edge and
-  ink tokens (`--stay-*`) for both themes. In-house is the only solid fill. Pending is dashed,
-  a hold is striped, and blocks are hatched (Blocked in neutral, Out of service in red). Every
-  state also carries its Phosphor icon (`STATE_ICON`) and a label (`STATE_META`), because colour
-  is never the only signal.
+  ink tokens (`--stay-*`). Reservations are solid, saturated fills that do not change with the
+  theme: cyan-blue confirmed, green in house, grey checked out, amber pending, amber striped for a
+  hold. White or deep-ink text on each holds WCAG AA. Enquiries are a pale fill with dashed edges.
+  Exceptions carry red: no-shows and cancellations (red edges) and a refused drop (a red ghost).
+  Blocks are hatched (Blocked in neutral, Out of service in red). Every state also carries its
+  Phosphor icon (`STATE_ICON`) and a label (`STATE_META`), because colour is never the only
+  signal.
 - **Geometry.** The column width is `--col-w`, set on `.sv-grid` from the measured width: the
-  window fits the screen, down to a minimum per density, then scrolls sideways. Bars are placed
-  with `calc(var(--col-w) * n)`. A solid 3px leading edge marks the arrival night. A square,
-  faded edge means the stay began before the window. Rounded ends are real arrivals and
-  departures.
+  window fits the screen, down to 104px (comfortable) or 88px (compact) a date, then scrolls
+  sideways. The grid fills the window below its toolbar (`useFillViewport`). A reservation is a
+  parallelogram from the middle of its arrival date to the middle of its departure date, so the
+  guest leaving and the guest arriving share one diagonal with a 4px gap. Its ends lean by
+  `--bar-slant` (a third of the bar's height, so every density has the same angle). A square,
+  faded end means the stay runs on beyond the dates shown. Blocks keep whole nights and square
+  ends. Nights, billing, range selection and gestures still work in whole nights.
+  `barPlacement` in `model/layout.ts` is the only place a bar's position is worked out; bars,
+  drag previews and resize handles all read it.
+- **Anatomy.** `.sv-bar` is an unpainted box that lets the pointer through. Its parallelogram
+  `.sv-bar-shape` alone takes the pointer, so a click beside a slant reaches the neighbouring stay.
+  The payment-due dot (red, `--stay-due`) and notes marker (amber, `--stay-note`) sit on the top
+  edge outside the shape, each with a tooltip. Because a filter on a clipped element is clipped
+  with it, rings are drop-shadows on `.sv-bar`, and only in the states below. A bar at rest has
+  no filter.
+- **Header.** Each date shows its weekday, a large date, occupancy to two decimals (sold ÷
+  sellable), rooms free, arrivals, departures and an Unassigned badge. The corner key uses the
+  same row template, so its labels sit level with the numbers. Every figure has a tooltip and an
+  accessible name. A room type's row shows the rooms left to sell and "From" its lowest rate. A
+  missing rate reads "No rate", a zero rate reads "From Rs 0", and a closed date reads "Closed".
 - **Interaction states**, each one different:
 
   | State                      | How it shows                                               |
   | -------------------------- | ---------------------------------------------------------- |
-  | hover                      | brightness plus hairline                                   |
-  | keyboard focus             | brass outline                                              |
-  | selected                   | brass ring plus lift                                       |
+  | hover                      | brightness                                                 |
+  | keyboard focus             | brass ring following the parallelogram                     |
+  | selected                   | surface gap plus brass ring                                |
   | linked split-stay segments | thin brass ring                                            |
-  | search or located result   | brass pulse (`data-flash`)                                 |
+  | search or located result   | brass glow and pulse (`data-flash`)                        |
   | dimmed by a filter         | 28% opacity                                                |
   | drag source                | 35% opacity                                                |
   | drop target                | `data-drop="ok\|no"`: green or red tint with an inset line |
   | selected nights            | brass-tinted range with end handles                        |
-  | today                      | an info-blue column                                        |
+  | today                      | an info-blue column and header                             |
 
 - **Motion** uses the existing `--dur-*` and `--ease-smooth`:
   - a 150ms hover card that fades and rises 3px
@@ -182,6 +201,22 @@ calendar") and driven by data attributes, so the grid never re-renders to change
   - reviews in centred dialogs
   - a context menu (`ContextMenu`, new in the kit) that only repeats what those surfaces already
     offer
+
+### The Room View (`components/roomview/`)
+
+The Room View speaks the calendar's language, so a stay reads the same on both screens:
+
+- **Tiles** (`room-tile.tsx`) carry tonight's guest as a Stay View bar at a fixed size
+  (`.sv-bar.rv-band`). The state comes from the same `stateOf`, so the tile has the same colours,
+  the same payment and notes markers, and the same icons. A slanted start is an arrival today and a
+  slanted end a departure today. A vacant room is a pale dashed band with the next arrival;
+  an out-of-order room is hatched. Housekeeping uses the calendar's `HK_ICON` and `HK_META`.
+- **The day at a glance** (`day-summary.tsx`) is the calendar's date header laid out as one strip.
+  It shows occupancy, free, arrivals, departures, unassigned and dirty. The numbers come from
+  `/house-status/summary` → `day`, which the server counts with the Stay View's own footer logic,
+  so the two screens never disagree, and housekeeping roles can read it.
+- The page is full width, with the same sticky toolbar as the calendar (pinned below the app bar
+  on desktop). Every control is a kit control.
 
 Conventions:
 

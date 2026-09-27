@@ -30,6 +30,10 @@ The benchmark was Cloudbeds' New Calendar (patterns only, in YoHoBed's own desig
   - block kinds
   - money, only for `financial_read`
 - The chips describe today whenever today is on screen. A room move is not a due-out.
+- Each footer day also carries `arrivals` and `departures`. They count each room of a
+  reservation once, where it really arrives and leaves: not at a room move, and never for an
+  enquiry or a cancelled stay. They include guests leaving on the window's first date, whose stay
+  has no night on screen, so it is fetched for the totals but not drawn.
 - Room changes:
   - Assign, unassign and move write `booking_approvals` rows (`room_assigned`, `room_moved`) with
     the actor and IP.
@@ -54,7 +58,9 @@ The benchmark was Cloudbeds' New Calendar (patterns only, in YoHoBed's own desig
 
 - `model/`: pure logic, unit-tested with vitest.
   - `dates.ts`: date-only arithmetic, no timezone drift.
-  - `layout.ts`: the date-to-column geometry, column fitting, stacking, grouping.
+  - `layout.ts`: the date-to-column geometry, column fitting, stacking, grouping. `barPlacement`
+    draws a reservation from arrival midday to departure midday as a parallelogram; bars, drag
+    previews and resize handles all take their position from it.
   - `status.ts`: the semantic states.
   - `filters.ts`: reservation filters dim bars; room filters hide rooms.
   - `validity.ts`: what a gesture may do and whether a room can take a stay. This is advisory;
@@ -79,6 +85,8 @@ The benchmark was Cloudbeds' New Calendar (patterns only, in YoHoBed's own desig
 - Smaller screens and navigation:
   - `mobile-day-list.tsx`: phones get a day list first.
   - `view-switch.tsx`: the Room view ⇄ Stay view switch.
+- The page is full width (16px margins, 8px on a phone), and the grid fills the window below its
+  toolbar, so the page never scrolls and the grid does.
 - Styling is token-driven data attributes in `globals.css`. See docs/DESIGN-SYSTEM.md, "The Stay
   View calendar".
 - Page state:
