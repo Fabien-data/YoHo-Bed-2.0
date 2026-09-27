@@ -37,11 +37,17 @@ const bookingOf = async (fx: TenantFixture, id: string) =>
 /**
  * A guest checked in, whose stay has since ended without anyone checking them out: booked and
  * checked in on today's dates, then moved `daysAgo` into the past (as postgres, like any fixture).
- * `checkedInAgoMinutes` backdates the check-in past the scheduler's recording grace.
+ * `checkedInAgoMinutes` backdates the check-in past the scheduler's recording grace; `checkedInAt`
+ * pins it instead, for a test that closes the day at a fixed time rather than now.
  */
 async function overdueStay(
   fx: TenantFixture,
-  opts: { nights?: number; endedDaysAgo?: number; checkedInAgoMinutes?: number } = {},
+  opts: {
+    nights?: number;
+    endedDaysAgo?: number;
+    checkedInAgoMinutes?: number;
+    checkedInAt?: Date;
+  } = {},
 ) {
   const nights = opts.nights ?? 2;
   const ended = opts.endedDaysAgo ?? 1;
@@ -57,7 +63,8 @@ async function overdueStay(
   await admin().execute(sql`
     update bookings
        set checkin = ${checkin}::date, checkout = ${checkout}::date,
-           checked_in_at = now() - make_interval(mins => ${minutes})
+           checked_in_at = coalesce(${opts.checkedInAt?.toISOString() ?? null}::timestamptz,
+                                    now() - make_interval(mins => ${minutes}))
      where id = ${b.body.id}`);
   await admin().execute(sql`
     update booking_rooms set checkin = ${checkin}::date, checkout = ${checkout}::date
@@ -297,7 +304,11 @@ describe('automatic night audit', () => {
   it('checks overdue stays out first, then closes the day', async () => {
     const fx = await makeTenant();
     await openAndPrice(fx, hotelToday(), hotelToday(10));
-    const stay = await overdueStay(fx);
+    // Checked in two hours before the noon the day closes at — not two hours before the clock on
+    // the wall, which after lunch would sit inside the recording grace.
+    const stay = await overdueStay(fx, {
+      checkedInAt: new Date(noonToday().getTime() - 120 * 60_000),
+    });
     await lagBy(fx, 1);
     const result = await (await dayClose()).closeProperty(fx.tenantId, fx.propertyId, noonToday());
     expect(result.error).toBeUndefined();
