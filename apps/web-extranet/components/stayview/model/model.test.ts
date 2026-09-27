@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { StayBar, StayUnit, StayView } from '@/lib/api';
 import { addDays, daysBetween, msToMidnightIn, stayRange, windowDates, windowLabel } from './dates';
-import { barSpan, barTier, columnWidth, dayAt, groupRooms, METRICS, stackBars } from './layout';
+import {
+  BAR_GAP,
+  barPlacement,
+  barRect,
+  barSpan,
+  barStyle,
+  barTier,
+  columnWidth,
+  dayAt,
+  groupRooms,
+  METRICS,
+  stackBars,
+} from './layout';
 import { LEGEND_STATES, STATE_META, sourceLabel, stateOf } from './status';
 import { EMPTY_FILTERS, filterChips, matchesBar, roomChipMatches, unitVisible } from './filters';
 import { capabilities, destinationIssue, rangeIsFree } from './validity';
-import { dayStats } from './stats';
+import { dayStats, occupancyPercent } from './stats';
 import { searchWindow } from './search';
 import { DEFAULT_PREFERENCES, parsePreferences } from './prefs';
 import { stayActions } from './actions';
@@ -82,7 +94,7 @@ describe('layout', () => {
   });
   it('fits the window to the width, within limits', () => {
     const { label, minCol } = METRICS.comfortable;
-    expect(columnWidth(label + 2 + 14 * 80, 14, 'comfortable')).toBe(80);
+    expect(columnWidth(label + 2 + 14 * 120, 14, 'comfortable')).toBe(120);
     expect(columnWidth(600, 30, 'comfortable')).toBe(minCol);
     expect(columnWidth(4000, 4, 'comfortable')).toBe(196);
     expect(columnWidth(0, 14, 'compact')).toBe(METRICS.compact.minCol);
@@ -242,7 +254,94 @@ describe('validity', () => {
   });
 });
 
+describe('midday bar geometry', () => {
+  const from = '2026-03-07';
+  const colW = 104;
+  const slant = METRICS.comfortable.slant;
+  const place = (bar: Parameters<typeof barPlacement>[2]) => barPlacement(from, 7, bar, slant)!;
+  /** Where a slanted end crosses the bar's mid-height, in px from the window's left. */
+  const midStart = (p: ReturnType<typeof place>) => barRect(p, colW).left + slant / 2;
+  const midEnd = (p: ReturnType<typeof place>) => {
+    const r = barRect(p, colW);
+    return r.left + r.width - slant / 2;
+  };
+
+  it('runs a stay from arrival midday to departure midday, slanted at both ends', () => {
+    const p = place(booking({ from: '2026-03-08', to: '2026-03-09' }));
+    expect(p).toMatchObject({ start: 1.5, span: 1, slantStart: true, slantEnd: true });
+    // Each end is centred on its date's middle, less half the gap between neighbours.
+    expect(midStart(p)).toBe(1.5 * colW + BAR_GAP / 2);
+    expect(midEnd(p)).toBe(2.5 * colW - BAR_GAP / 2);
+  });
+  it('lets the guest leaving and the guest arriving share one diagonal with an even gap', () => {
+    const leaving = barRect(place(booking({ from: '2026-03-08', to: '2026-03-10' })), colW);
+    const arriving = barRect(place(booking({ from: '2026-03-10', to: '2026-03-12' })), colW);
+    const leavingRight = leaving.left + leaving.width;
+    // Top: the leaving bar reaches its box's right; the arriving bar starts a slant in.
+    expect(arriving.left + slant - leavingRight).toBe(BAR_GAP);
+    // Bottom: the leaving bar stops a slant short; the arriving bar starts at its box's left.
+    expect(arriving.left - (leavingRight - slant)).toBe(BAR_GAP);
+  });
+  it('keeps the angle the same however long the stay', () => {
+    const short = place(booking({ from: '2026-03-08', to: '2026-03-09' }));
+    const long = place(booking({ from: '2026-03-08', to: '2026-03-13' }));
+    expect(barRect(long, colW).width - barRect(short, colW).width).toBe(4 * colW);
+    expect([short.leftPx, short.rightPx]).toEqual([long.leftPx, long.rightPx]);
+  });
+  it('squares off and pins a stay that runs on past either edge of the window', () => {
+    const before = place(booking({ from: '2026-03-01', to: '2026-03-09' }));
+    expect(before).toMatchObject({ start: 0, span: 2.5, startsBefore: true, slantStart: false });
+    expect(barRect(before, colW).left).toBe(0);
+    // Leaving the morning after the last date shown: the departure is off screen.
+    const after = place(booking({ from: '2026-03-13', to: '2026-03-14' }));
+    expect(after).toMatchObject({ start: 6.5, span: 0.5, endsAfter: true, slantEnd: false });
+    const r = barRect(after, colW);
+    expect(r.left + r.width).toBe(7 * colW);
+    // Leaving on the last date shown is a real departure, drawn to that date's middle.
+    const last = place(booking({ from: '2026-03-11', to: '2026-03-13' }));
+    expect(last).toMatchObject({ endsAfter: false, slantEnd: true });
+    expect(midEnd(last)).toBe(6.5 * colW - BAR_GAP / 2);
+  });
+  it('keeps blocks on whole nights, square, and draws nothing for a stay already gone', () => {
+    const block = place({ kind: 'block', from: '2026-03-08', to: '2026-03-09' });
+    expect(block).toMatchObject({ start: 1, span: 1, slantStart: false, slantEnd: false });
+    expect(barRect(block, colW)).toEqual({ left: colW + BAR_GAP / 2, width: colW - BAR_GAP });
+    expect(barPlacement(from, 7, booking({ from: '2026-03-05', to: from }), slant)).toBeNull();
+  });
+  it('moves a drag preview exactly one column per night, and says the same in CSS', () => {
+    const a = place({ from: '2026-03-08', to: '2026-03-10' });
+    const moved = place({ from: '2026-03-09', to: '2026-03-11' });
+    const resized = place({ from: '2026-03-08', to: '2026-03-11' });
+    expect(barRect(moved, colW).left - barRect(a, colW).left).toBe(colW);
+    expect(barRect(resized, colW).width - barRect(a, colW).width).toBe(colW);
+    expect(barStyle(a)).toEqual({
+      left: `calc(var(--col-w) * 1.5 + ${BAR_GAP / 2 - slant / 2}px)`,
+      width: `calc(var(--col-w) * 2 + ${slant - BAR_GAP}px)`,
+    });
+  });
+});
+
 describe('stats', () => {
+  it('uses authoritative boundary movements and two-decimal sellable occupancy', () => {
+    const footer = {
+      date: '2026-03-08',
+      soldRooms: 5,
+      blocked: 1,
+      totalRooms: 8,
+      availableInventory: 2,
+      occupancyPct: 71,
+      arrivals: 0,
+      departures: 3,
+    };
+    const view = {
+      dates: [footer.date],
+      footer: [footer],
+      roomTypes: [],
+      unassigned: [],
+    } as unknown as StayView;
+    expect(dayStats(view)[0]).toMatchObject({ arrivals: 0, departures: 3, occupancyPct: 71.43 });
+    expect(occupancyPercent({ ...footer, blocked: 8 })).toBe(0);
+  });
   it('counts arrivals and departures once per stay, even when it is split', () => {
     const view = {
       dates: ['2026-03-08', '2026-03-09', '2026-03-10'],

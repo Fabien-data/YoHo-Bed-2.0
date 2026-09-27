@@ -1141,6 +1141,9 @@ export interface StayFooter {
   availableInventory: number;
   totalRooms: number;
   occupancyPct: number;
+  /** Room arrivals/departures, excluding intermediate room moves. Optional for older servers. */
+  arrivals?: number;
+  departures?: number;
 }
 
 export interface StayView {
@@ -1493,6 +1496,10 @@ export interface RoomCard {
   checkout: string | null;
   vip: boolean;
   balanceDue: boolean;
+  /** Notes on the stay; older servers omit these three. */
+  hasNotes?: boolean;
+  reservationKind?: string | null;
+  holdUntil?: string | null;
   adults: number | null;
   children: number | null;
   source: string | null;
@@ -1589,6 +1596,19 @@ export interface HouseSummary {
   dirty: number;
   clean: number;
   inspected: number;
+  /** The day as Stay View's header counts it (its footer), so both screens agree. */
+  day?: HouseDay;
+}
+
+export interface HouseDay {
+  date: string;
+  soldRooms: number;
+  blocked: number;
+  totalRooms: number;
+  availableInventory: number;
+  arrivals: number;
+  departures: number;
+  unassigned: number;
 }
 
 export function getRoomView(propertyId: string, date: string): Promise<RoomCard[]> {

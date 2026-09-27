@@ -369,8 +369,12 @@ export function useGridGestures(
       pointer.current = { x: e.clientX, y: e.clientY };
       const p = press.current;
       if (!p) {
-        // Hover preview: after a short pause over a bar, never while dragging.
-        const barEl = (e.target as HTMLElement).closest<HTMLElement>('[data-bar-id]');
+        // Hover preview: after a short pause over a bar, never while dragging, and not over a
+        // bar's markers, which explain themselves in their own tooltip.
+        const over = e.target as HTMLElement;
+        const barEl = over.closest('[data-no-hover]')
+          ? null
+          : over.closest<HTMLElement>('[data-bar-id]');
         const id = barEl?.dataset.barId ?? null;
         if (id === hoverId.current) return;
         clearHover();
@@ -440,9 +444,10 @@ export function useGridGestures(
       const unitId = unitAtPoint(e.clientX, e.clientY);
       const root = viewport.current;
       if (!unitId || !root) return;
+      // Only a bar's painted shape takes the pointer, so this is the shape's own bar.
       if (
-        (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[]).some(
-          (el) => el.dataset?.barId,
+        (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[]).some((el) =>
+          el.closest?.('[data-bar-id]'),
         )
       )
         return;

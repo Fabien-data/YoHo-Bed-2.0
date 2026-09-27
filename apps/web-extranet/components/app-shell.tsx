@@ -83,6 +83,8 @@ export function AppShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  // The desk's two boards use the whole workspace: every date or room that fits is worth showing.
+  const fullBleed = pathname === '/app/stayview' || pathname === '/app/roomview';
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
@@ -448,8 +450,13 @@ export function AppShell({
         </nav>
 
         {/* ---- Page ---- */}
-        <main className="min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8">
-          <div className="mx-auto max-w-7xl">
+        <main
+          className={cn(
+            'min-w-0 flex-1',
+            fullBleed ? 'px-2 py-3 sm:px-4 sm:py-4' : 'px-4 py-6 sm:px-8 sm:py-8',
+          )}
+        >
+          <div className={fullBleed ? 'w-full min-w-0' : 'mx-auto max-w-7xl'}>
             {pending && (
               <div className="mb-6 rounded-lg bg-low-soft px-4 py-3 text-sm font-semibold text-low-ink">
                 Your account is awaiting approval — you can set everything up now; taking bookings

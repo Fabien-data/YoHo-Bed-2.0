@@ -119,6 +119,40 @@ describe('stay view', () => {
     // Half-open: the guest is gone on the 5th, so a window starting then must not show them.
     const res = await stayview(fx, '2028-04-05', '2028-04-10');
     expect(res.body.roomTypes[0].units[0].bars).toHaveLength(0);
+    expect(res.body.footer[0]).toMatchObject({ arrivals: 0, departures: 1, soldRooms: 0 });
+  });
+
+  it('counts each room of a reservation once as it arrives and leaves, but no enquiry or cancelled stay', async () => {
+    const fx = await makeTenant({ roomQuantity: 5 });
+    await makeUnits(fx, 5);
+    await openAndPrice(fx, '2028-06-01', '2028-06-15', { roomsToSell: 5 });
+    const reserve = (kind: string, name: string, rooms: number) =>
+      request('POST', '/reservations', {
+        token: fx.token,
+        body: {
+          propertyId: fx.propertyId,
+          checkin: '2028-06-03',
+          checkout: '2028-06-06',
+          kind,
+          guest: { name },
+          lines: Array.from({ length: rooms }, () => ({
+            roomId: fx.roomId,
+            occupancyId: fx.occupancyId,
+            adults: 2,
+          })),
+        },
+      });
+    const pair = await reserve('confirm', 'Two Rooms', 2);
+    expect(pair.status, JSON.stringify(pair.body)).toBe(201);
+    expect((await reserve('inquiry', 'Just Asking', 1)).status).toBe(201);
+    const dropped = await reserve('confirm', 'Changed Plans', 1);
+    await request('POST', `/bookings/${dropped.body.bookings[0].id}/cancel`, { token: fx.token });
+
+    const res = await stayview(fx, '2028-06-01', '2028-06-08');
+    const on = (date: string) => res.body.footer.find((f: { date: string }) => f.date === date);
+    expect(on('2028-06-03')).toMatchObject({ arrivals: 2, departures: 0 });
+    expect(on('2028-06-04')).toMatchObject({ arrivals: 0, departures: 0 });
+    expect(on('2028-06-06')).toMatchObject({ arrivals: 0, departures: 2 });
   });
 
   it('divides occupancy by SELLABLE rooms, so a blocked room lifts the percentage', async () => {

@@ -75,6 +75,11 @@ export interface RoomCard {
   checkout: string | null;
   vip: boolean;
   balanceDue: boolean;
+  /** The desk has written notes on the stay (Stay View's amber marker). */
+  hasNotes: boolean;
+  /** confirm, hold_confirm, online_failed … and its release time, so a hold reads as one. */
+  reservationKind: string | null;
+  holdUntil: string | null;
   adults: number | null;
   children: number | null;
   source: string | null;
@@ -172,6 +177,9 @@ export class HousekeepingService {
               guestName: customers.name,
               guestEmail: customers.email,
               vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
+              reservationKind: bookings.reservationKind,
+              holdUntil: bookings.holdUntil,
+              hasNotes: sql<boolean>`exists(select 1 from booking_remarks r where r.booking_id = ${bookings.id})`,
               groupId: bookings.groupId,
               groupOwnerCustomerId: bookingGroups.ownerCustomerId,
               siblingIndex: bookings.siblingIndex,
@@ -293,6 +301,9 @@ export class HousekeepingService {
           guestEmail: customers.email,
           // A VIP stay (the desk's flag) or a VIP guest (their profile).
           vip: sql<boolean>`(${bookings.isVip} or ${customers.vip})`,
+          reservationKind: bookings.reservationKind,
+          holdUntil: bookings.holdUntil,
+          hasNotes: sql<boolean>`exists(select 1 from booking_remarks r where r.booking_id = ${bookings.id})`,
           groupId: bookings.groupId,
           groupOwnerCustomerId: bookingGroups.ownerCustomerId,
           siblingIndex: bookings.siblingIndex,
@@ -417,6 +428,9 @@ export class HousekeepingService {
           checkout: active?.checkout ?? null,
           vip: active?.vip ?? false,
           balanceDue: active ? Number(active.amount) > Number(active.paid ?? 0) : false,
+          hasNotes: active?.hasNotes ?? false,
+          reservationKind: active?.reservationKind ?? null,
+          holdUntil: active?.holdUntil?.toISOString() ?? null,
           adults: active?.adults ?? null,
           children: active?.children ?? null,
           source: active?.source ?? null,

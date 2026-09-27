@@ -23,6 +23,7 @@ import { Feature } from '../common/feature.decorator';
 import { EntitlementGuard } from '../common/entitlement.guard';
 import { CurrentTenantRole, TenantRoleGuard, TenantRoles } from '../common/tenant-role';
 import { HousekeepingService } from './housekeeping.service';
+import { StayViewService } from '../stayview/stayview.service';
 import {
   createWorkOrderSchema,
   houseStatusQuerySchema,
@@ -54,7 +55,10 @@ import type { TenantRequest } from '../tenancy/tenant.guard';
 @UseGuards(JwtAuthGuard, TenantGuard, EntitlementGuard, TenantRoleGuard)
 @Feature('housekeeping')
 export class HousekeepingController {
-  constructor(private readonly hk: HousekeepingService) {}
+  constructor(
+    private readonly hk: HousekeepingService,
+    private readonly stayview: StayViewService,
+  ) {}
 
   /** The Room View card grid — also the House Status grid, same data rendered two ways. */
   // `room_view` is its own plan key and the nav gates the screen on it — not on housekeeping.
@@ -137,7 +141,12 @@ export class HousekeepingController {
     @Query(new ZodValidationPipe(houseStatusQuerySchema)) q: HouseStatusQueryDto,
   ) {
     const date = q.date ?? (await this.hk.todayFor(tenantId, q.propertyId));
-    return this.hk.summary(tenantId, q.propertyId, date);
+    const [counts, day] = await Promise.all([
+      this.hk.summary(tenantId, q.propertyId, date),
+      // The day as Stay View's header counts it, so Room View shows the same numbers.
+      this.stayview.dayTotals(tenantId, q.propertyId, date),
+    ]);
+    return { ...counts, day };
   }
 
   @Post('properties/:propertyId/housekeeping')
