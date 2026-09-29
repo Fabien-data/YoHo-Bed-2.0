@@ -37,7 +37,9 @@ export function BillingSummary({
   loading,
   money,
   onDraft,
-  needsReason,
+  showReason,
+  reasonRequired,
+  reasonReady,
   needApprovals,
   approvedBy,
   onApprove,
@@ -54,7 +56,11 @@ export function BillingSummary({
   loading: boolean;
   money: (v: string | number) => string;
   onDraft: (patch: Partial<FullDraft>) => void;
-  needsReason: boolean;
+  /** The price departs from the rate: offer the reason box. */
+  showReason: boolean;
+  /** A complimentary room or tax exemption: the reason is mandatory. */
+  reasonRequired: boolean;
+  reasonReady: boolean;
   needApprovals: PriceApproval[];
   approvedBy: string | null;
   onApprove: () => void;
@@ -332,15 +338,17 @@ export function BillingSummary({
           />
         </div>
 
-        {needsReason && (
+        {showReason && (
           <div className="flex flex-col gap-2 rounded-lg border border-brass bg-brass-soft p-3">
             <Field
-              label="Reason for the price"
-              required
+              label={reasonRequired ? 'Reason for the price' : 'Reason for the price (optional)'}
+              required={reasonRequired}
               htmlFor="ar-price-reason"
               error={
-                showErrors && draft.priceReason.trim().length < 3
-                  ? 'Say why the price differs from the rate'
+                showErrors && !reasonReady
+                  ? reasonRequired
+                    ? 'Say why the price differs from the rate'
+                    : 'Use at least 3 characters, or leave it blank'
                   : undefined
               }
             >

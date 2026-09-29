@@ -324,11 +324,10 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
   const hasDocument = documentGiven(draft.guest);
 
   const typedLines = draft.lines.filter((l) => typedRate(l) !== null);
-  const needsReason =
-    Boolean(quote.data?.reasonRequired) ||
-    (typedLines.length > 0 && !draft.complimentary) ||
-    draft.complimentary ||
-    draft.taxExempt.on;
+  // A free room or a tax exemption must say why; a changed rate may, but never has to.
+  const reasonRequired =
+    Boolean(quote.data?.reasonRequired) || draft.complimentary || draft.taxExempt.on;
+  const showReason = reasonRequired || typedLines.length > 0;
   const needApprovals = (quote.data?.approvalsRequired ?? []).filter((a) => !draft.approvals[a]);
   const guestReady = draft.guest.customerId !== null || draft.guest.name.trim() !== '';
   const linesReady = draft.lines.length > 0 && draft.lines.every(isComplete);
@@ -343,7 +342,8 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
         .filter((i): i is number => i !== null)
     : [];
   const exemptReady = !draft.taxExempt.on || draft.taxExempt.exemptionId.trim() !== '';
-  const reasonReady = !needsReason || draft.priceReason.trim().length >= 3;
+  const reasonText = draft.priceReason.trim();
+  const reasonReady = reasonText.length >= 3 || (!reasonRequired && reasonText === '');
   const payMethods = paymentMethodsFor(cfg, draft, hasCityLedger);
   const dueNow = quote.data ? Number(quote.data.totals.due) : null;
   const paymentReady =
@@ -1080,7 +1080,9 @@ export function AddReservation({ prefill }: { prefill: Prefill | null }) {
             loading={quote.isLoading}
             money={money}
             onDraft={update}
-            needsReason={needsReason}
+            showReason={showReason}
+            reasonRequired={reasonRequired}
+            reasonReady={reasonReady}
             needApprovals={needApprovals}
             approvedBy={approvedBy}
             onApprove={() => setApprovalOpen(true)}

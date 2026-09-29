@@ -134,6 +134,9 @@ interface Prepared {
   referral: { partnerId: string; pct: number } | null;
   totals: { amount: number; taxes: number; listAmount: number; discount: number; due: number };
   approvalsRequired: PriceApproval[];
+  /** The price departs from the rate calendar: it goes on the audit record. */
+  priceDecision: boolean;
+  /** A complimentary room or a tax exemption must say why; a typed rate need not. */
   reasonRequired: boolean;
   policyOf: (line: LineDto) => PricingPolicy;
 }
@@ -860,8 +863,8 @@ export class ReservationService {
       }
     }
 
-    // 5. A price decision is on the record: who made it, who approved it, and why.
-    if (p.reasonRequired) {
+    // 5. A price decision is on the record: who made it, who approved it, and why (if given).
+    if (p.priceDecision) {
       await tx.insert(auditLog).values({
         tenantId,
         actorUserId: actor.userId,
@@ -1277,7 +1280,9 @@ export class ReservationService {
       }
       if (dto.taxExempt) approvalsRequired.push('tax_exempt');
     }
-    const reasonRequired = hasOverride || dto.complimentary || Boolean(dto.taxExempt);
+    // The desk changes rates all day; only a free room or a tax exemption must say why.
+    const reasonRequired = dto.complimentary || Boolean(dto.taxExempt);
+    const priceDecision = hasOverride || reasonRequired;
 
     const marketSegmentId =
       dto.marketSegmentId ??
@@ -1306,6 +1311,7 @@ export class ReservationService {
       referral,
       totals: { amount, taxes, listAmount, discount, due: sumMoney([amount, -discount]) },
       approvalsRequired,
+      priceDecision,
       reasonRequired,
       policyOf,
     };
@@ -1361,7 +1367,7 @@ export class ReservationService {
     if (p.reasonRequired && !dto.priceReason) {
       throw new BadRequestException({
         reason: 'price_reason_required',
-        message: 'Give a reason for the changed price',
+        message: 'Give a reason for the complimentary room or tax exemption',
       });
     }
     const missing = p.approvalsRequired.filter((a) => !dto.approvals?.[a]);
