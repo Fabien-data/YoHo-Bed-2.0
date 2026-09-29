@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
+  auditLog,
   bookingApprovals,
   bookings,
   customers,
@@ -633,19 +634,53 @@ describe('price authority', () => {
   }
   const stay = { checkin: CHECKIN, checkout: CHECKOUT };
 
-  it('lets the desk discount within the limit, with a reason', async () => {
+  it('lets the desk discount within the limit, with or without a reason, on the record', async () => {
     const { fx, desk } = await withLimit(10);
     const body = {
       ...stay,
       guest: { name: 'Small discount' },
       lines: [line(fx, { rate: { mode: 'nightly', amount: 23000 } })],
     };
+    const quote = await request('POST', '/reservations/quote', {
+      token: desk.token,
+      body: { propertyId: fx.propertyId, ...body },
+    });
+    expect(quote.body.reasonRequired).toBe(false);
+
     const noReason = await reserve(fx, body, { token: desk.token });
+    expect(noReason.status).toBe(201);
+    expect(noReason.body.total).toBe('69000.00');
+    const withReason = await reserve(
+      fx,
+      { ...body, guest: { name: 'Small discount, explained' }, priceReason: 'Repeat guest' },
+      { token: desk.token },
+    );
+    expect(withReason.status).toBe(201);
+    expect((await detail(fx, withReason.body.bookings[0].id)).pricing.reason).toBe('Repeat guest');
+
+    // Both changed rates are audited; only the second one says why.
+    const decisions = await admin()
+      .select({ detail: auditLog.detail })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.actorUserId, desk.userId),
+          eq(auditLog.action, 'reservation.price_decision'),
+        ),
+      );
+    expect(decisions.map((d) => (d.detail as { reason: string | null }).reason).sort()).toEqual([
+      'Repeat guest',
+      null,
+    ]);
+  });
+
+  it('still needs a reason for a complimentary room', async () => {
+    const { fx } = await withLimit(0, true);
+    const body = { ...stay, complimentary: true, guest: { name: 'Comp' }, lines: [line(fx)] };
+    const noReason = await reserve(fx, body);
     expect(noReason.status).toBe(400);
     expect(noReason.body.reason).toBe('price_reason_required');
-    const ok = await reserve(fx, { ...body, priceReason: 'Repeat guest' }, { token: desk.token });
-    expect(ok.status).toBe(201);
-    expect(ok.body.total).toBe('69000.00');
+    expect((await reserve(fx, { ...body, priceReason: 'Travel writer' })).status).toBe(201);
   });
 
   it('needs an owner’s approval beyond the limit, and records who approved', async () => {

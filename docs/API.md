@@ -166,9 +166,9 @@ action `released`.
 - a tax exemption always needs approval `tax_exempt`.
 
 An approval is a token from `POST /auth/step-up` (the owner signs in on the desk's screen), sent
-in `approvals`. Any typed rate, complimentary room or exemption also needs a `priceReason`. The
-decision, the reason and the approver are stored on each booking (`pricing`) and in the audit
-log. A contract rate is pre-agreed and needs neither.
+in `approvals`. A complimentary room or exemption also needs a `priceReason`; for a typed rate it
+is optional. The decision, any reason and the approver are stored on each booking (`pricing`) and
+in the audit log. A contract rate is pre-agreed and needs neither.
 
 **Errors**
 
@@ -176,7 +176,7 @@ log. A contract rate is pre-agreed and needs neither.
 | ------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | 400    | `checkin_in_past`           | Check-in is before the hotel's business date.                                                                                                  |
 | 400    | `rate_audience`             | A local or foreign rate for a guest of the other residency, or of unknown residency.                                                           |
-| 400    | `price_reason_required`     | A changed price without `priceReason`.                                                                                                         |
+| 400    | `price_reason_required`     | A complimentary room or tax exemption without `priceReason`.                                                                                   |
 | 403    | `approval_required`         | `actions` lists the owner approvals still needed.                                                                                              |
 | 404    | —                           | Any id (room, rate, source, account, guest, property) that is not this tenant's.                                                               |
 | 409    | `insufficient_availability` | `roomName`, `date` and the `lines` (0-based) that did not fit. Nothing was saved.                                                              |

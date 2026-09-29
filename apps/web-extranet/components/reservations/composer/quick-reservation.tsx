@@ -273,7 +273,11 @@ export function QuickReservationSheet({
   const dirty = JSON.stringify(draft) !== pristine;
   const takesRooms = draft.kind !== 'inquiry';
   const typedLines = draft.lines.filter((l) => typedRate(l) !== null);
-  const needsReason = Boolean(quote.data?.reasonRequired) || typedLines.length > 0;
+  // A changed rate may carry a reason; it never has to.
+  const reasonRequired = Boolean(quote.data?.reasonRequired);
+  const showReason = reasonRequired || typedLines.length > 0;
+  const reasonText = draft.priceReason.trim();
+  const reasonReady = reasonText.length >= 3 || (!reasonRequired && reasonText === '');
   const needApprovals = (quote.data?.approvalsRequired ?? []).filter((a) => !draft.approvals[a]);
   const guestReady = draft.guest.customerId !== null || draft.guest.name.trim() !== '';
   const linesReady = draft.lines.length > 0 && draft.lines.every(isComplete);
@@ -283,7 +287,7 @@ export function QuickReservationSheet({
     linesReady &&
     Boolean(quoteCurrent) &&
     soldOutLines.length === 0 &&
-    (!needsReason || draft.priceReason.trim().length >= 3) &&
+    reasonReady &&
     needApprovals.length === 0;
 
   const pax = draft.lines.reduce(
@@ -336,11 +340,7 @@ export function QuickReservationSheet({
   const lineErrors = serverError?.lines ?? {};
   // Everything but a fresh price: the desk pressed Reserve a moment after changing something.
   const waitingForPrice =
-    guestReady &&
-    linesReady &&
-    !quoteCurrent &&
-    !quote.isError &&
-    (!needsReason || draft.priceReason.trim().length >= 3);
+    guestReady && linesReady && !quoteCurrent && !quote.isError && reasonReady;
 
   return (
     <>
@@ -607,15 +607,21 @@ export function QuickReservationSheet({
               <InlineAlert tone="error">{explain(quote.error).message}</InlineAlert>
             )}
 
-            {needsReason && (
+            {showReason && (
               <div className="flex flex-col gap-3 rounded-lg border border-brass bg-brass-soft p-3">
                 <Field
-                  label="Reason for the rate change"
-                  required
+                  label={
+                    reasonRequired
+                      ? 'Reason for the rate change'
+                      : 'Reason for the rate change (optional)'
+                  }
+                  required={reasonRequired}
                   htmlFor="qr-price-reason"
                   error={
-                    triedSubmit && draft.priceReason.trim().length < 3
-                      ? 'Say why the rate was changed'
+                    triedSubmit && !reasonReady
+                      ? reasonRequired
+                        ? 'Say why the rate was changed'
+                        : 'Use at least 3 characters, or leave it blank'
                       : undefined
                   }
                 >

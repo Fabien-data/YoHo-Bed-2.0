@@ -239,8 +239,8 @@ Then fill it in, top to bottom:
    sale automatically; you are reminded before). The **Business source** list is searchable.
 3. **Rooms.** One row per room: room type (with how many are left), rate type, a specific room
    if you want one, and adults and children. The **Rate** shows what the stay costs for that
-   room, taxes included. Type over it to change the price. You then need to give a reason, and
-   a discount beyond your limit needs an owner to approve it on the spot.
+   room, taxes included. Type over it to change the price. You can add a reason if you like (it
+   is optional), and a discount beyond your limit needs an owner to approve it on the spot.
 4. **The guest.** Title, full name, mobile (a local number needs no country code) and email. As
    you type, **returning guests** who match are offered: pick one to link the stay to their
    history.
@@ -299,7 +299,8 @@ due as you go, and holds:
   company's bill moves to its city ledger account, and a travel agent's commission is added to
   theirs.
 - **Tax exempt** (with the exemption number) and the reason and owner approval when a price is
-  changed.
+  changed. The reason is optional for a changed rate, and required for a complimentary room or a
+  tax exemption.
 - **Payment mode** — take a deposit or the whole stay now: choose how the guest paid (cash, card,
   bank transfer, LankaQR, wallets …), the amount (**Full** fills in the total), the reference
   number where the method needs one, and a photo or PDF of the slip. Cash goes into your open cash
